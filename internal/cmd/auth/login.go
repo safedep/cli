@@ -3,7 +3,7 @@ package auth
 import (
 	"github.com/charmbracelet/huh"
 	"github.com/safedep/cli/internal/app"
-	"github.com/safedep/cli/internal/config"
+	authdomain "github.com/safedep/cli/internal/domain/auth"
 	"github.com/spf13/cobra"
 )
 
@@ -74,15 +74,10 @@ func loginWithTokenFlag(a *app.App) error {
 }
 
 func saveCredentials(a *app.App, apiKey, tenant string) error {
-	if err := a.CredStore.SaveAPIKeyCredential(apiKey, tenant); err != nil {
+	saver := &authdomain.Saver{Store: a.CredentialStore(), Config: a.Config}
+	if err := saver.Save(apiKey, tenant); err != nil {
 		return err
 	}
-
-	a.Config.Tenant = tenant
-	if err := config.Save(a.Config); err != nil {
-		return err
-	}
-
 	a.Output.Success("Authenticated. Tenant: %s", tenant)
 	return nil
 }

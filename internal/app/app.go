@@ -9,12 +9,13 @@ import (
 )
 
 type App struct {
-	Config       *config.Config
-	DataPlane    *cloud.Client
-	ControlPlane *cloud.Client
-	CredStore    cloud.CredentialStore
-	CredResolver cloud.CredentialResolver
-	Output       *output.Formatter
+	Config *config.Config
+	Output *output.Formatter
+
+	dataPlane    *cloud.Client
+	controlPlane *cloud.Client
+	credStore    cloud.CredentialStore
+	credResolver cloud.CredentialResolver
 }
 
 func New(cfg *config.Config, format output.Format) (*App, error) {
@@ -36,20 +37,29 @@ func New(cfg *config.Config, format output.Format) (*App, error) {
 
 	return &App{
 		Config:       cfg,
-		CredStore:    credStore,
-		CredResolver: credResolver,
 		Output:       output.New(format),
+		credStore:    credStore,
+		credResolver: credResolver,
 	}, nil
 }
 
-// RequireDataPlane returns the data plane client, initialising it on first
-// call. Returns a clear error if no credentials are stored.
+// CredentialStore exposes the store so domain services can be constructed by the cmd layer.
+func (a *App) CredentialStore() cloud.CredentialStore {
+	return a.credStore
+}
+
+// CredentialResolver exposes the resolver so the cmd layer can resolve credentials.
+func (a *App) CredentialResolver() cloud.CredentialResolver {
+	return a.credResolver
+}
+
+// RequireDataPlane returns the data plane client, initialising it on first call.
 func (a *App) RequireDataPlane() (*cloud.Client, error) {
-	if a.DataPlane != nil {
-		return a.DataPlane, nil
+	if a.dataPlane != nil {
+		return a.dataPlane, nil
 	}
 
-	creds, err := a.CredResolver.Resolve()
+	creds, err := a.credResolver.Resolve()
 	if err != nil {
 		return nil, fmt.Errorf("not authenticated — run `safedep auth login` first")
 	}
@@ -59,24 +69,24 @@ func (a *App) RequireDataPlane() (*cloud.Client, error) {
 		return nil, fmt.Errorf("app: data plane client: %w", err)
 	}
 
-	a.DataPlane = client
-	return a.DataPlane, nil
+	a.dataPlane = client
+	return a.dataPlane, nil
 }
 
 // RequireControlPlane returns an error until OAuth support lands.
 func (a *App) RequireControlPlane() (*cloud.Client, error) {
-	if a.ControlPlane != nil {
-		return a.ControlPlane, nil
+	if a.controlPlane != nil {
+		return a.controlPlane, nil
 	}
 
 	return nil, fmt.Errorf("this command requires OAuth login — not yet available, coming in a future release")
 }
 
 func (a *App) Close() {
-	if a.CredStore != nil {
-		_ = a.CredStore.Close()
+	if a.credStore != nil {
+		_ = a.credStore.Close()
 	}
-	if closer, ok := a.CredResolver.(interface{ Close() error }); ok {
+	if closer, ok := a.credResolver.(interface{ Close() error }); ok {
 		_ = closer.Close()
 	}
 }

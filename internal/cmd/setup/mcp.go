@@ -4,7 +4,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/cmd/protect/mcp"
-	"github.com/safedep/cli/internal/config"
+	authdomain "github.com/safedep/cli/internal/domain/auth"
 	"github.com/spf13/cobra"
 )
 
@@ -27,7 +27,6 @@ func runSetupMCP(cmd *cobra.Command, a *app.App) error {
 	a.Output.Info("Welcome to SafeDep. Let's get you protected.")
 	a.Output.Info("")
 
-	// Step 1: authenticate
 	var apiKey, tenant string
 
 	if err := huh.NewForm(
@@ -48,19 +47,13 @@ func runSetupMCP(cmd *cobra.Command, a *app.App) error {
 		return err
 	}
 
-	if err := a.CredStore.SaveAPIKeyCredential(apiKey, tenant); err != nil {
-		return err
-	}
-
-	a.Config.Tenant = tenant
-	if err := config.Save(a.Config); err != nil {
+	saver := &authdomain.Saver{Store: a.CredentialStore(), Config: a.Config}
+	if err := saver.Save(apiKey, tenant); err != nil {
 		return err
 	}
 
 	a.Output.Success("Authenticated. Tenant: %s", tenant)
 	a.Output.Info("")
-
-	// Step 2: install MCP config
 	a.Output.Info("Scanning for AI IDEs...")
 
 	if err := mcp.RunInstall(cmd.Context(), a); err != nil {

@@ -2,9 +2,9 @@ package doctor
 
 import (
 	"fmt"
-	"os/exec"
 
 	"github.com/safedep/cli/internal/app"
+	doctordomain "github.com/safedep/cli/internal/domain/doctor"
 	"github.com/safedep/cli/internal/protect/mcp/adapter"
 	"github.com/spf13/cobra"
 )
@@ -20,62 +20,23 @@ func Register(root *cobra.Command, a *app.App) {
 }
 
 func runDoctor(cmd *cobra.Command, a *app.App) error {
-	ctx := cmd.Context()
-	ok := true
+	_, authErr := a.CredentialResolver().Resolve()
 
-	// Auth check
-	if _, err := a.CredResolver.Resolve(); err != nil {
-		a.Output.Warning("auth: not authenticated — run `safedep auth login`")
-		ok = false
-	} else {
-		a.Output.Success("auth: credentials found")
+	checker := &doctordomain.Checker{}
+	result := checker.Check(cmd.Context(), doctordomain.CheckInput{
+		Authenticated: authErr == nil,
+		Tenant:        a.Config.Tenant,
+		MCPAdapters:   adapter.All(),
+		OptionalTools: []string{"vet", "gryph"},
+	})
+
+	if err := a.Output.Print(result); err != nil {
+		return err
 	}
 
-	// Config check
-	if a.Config.Tenant == "" {
-		a.Output.Warning("config: tenant not set in %s", "~/.config/safedep/config.toml")
-		ok = false
-	} else {
-		a.Output.Success("config: tenant = %s", a.Config.Tenant)
-	}
-
-	// MCP adapters
-	adapters := adapter.All()
-	for _, ad := range adapters {
-		result, err := ad.Detect(ctx)
-		if err != nil || !result.Found {
-			a.Output.Info("protect/mcp: %s not detected", ad.DisplayName())
-			continue
-		}
-
-		st, err := ad.Status(ctx)
-		if err != nil {
-			a.Output.Warning("protect/mcp: %s status error: %v", ad.DisplayName(), err)
-			ok = false
-			continue
-		}
-
-		if !st.Installed {
-			a.Output.Warning("protect/mcp: %s detected but SafeDep MCP not configured — run `safedep protect mcp install`", ad.DisplayName())
-			ok = false
-		} else {
-			a.Output.Success("protect/mcp: %s configured (%s)", ad.DisplayName(), st.ConfigPath)
-		}
-	}
-
-	// Optional tool checks (vet, gryph)
-	for _, tool := range []string{"vet", "gryph"} {
-		if path, err := exec.LookPath(tool); err == nil {
-			a.Output.Success("tools: %s found at %s", tool, path)
-		} else {
-			a.Output.Info("tools: %s not found on PATH (optional)", tool)
-		}
-	}
-
-	if !ok {
+	if !result.AllOK {
 		return fmt.Errorf("one or more checks failed — see warnings above")
 	}
 
-	a.Output.Success("All checks passed.")
 	return nil
 }

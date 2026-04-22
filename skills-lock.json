@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "skills": {
+    "brainstorming": {
+      "source": "obra/superpowers",
+      "sourceType": "github",
+      "computedHash": "8df9b47092524833138b58682d03f2e153a242e550d1693657afdbee0cc9cdb0"
+    },
+    "golang-pro": {
+      "source": "jeffallan/claude-skills",
+      "sourceType": "github",
+      "computedHash": "c90a0798a12ea2d9191508439ec3191dd96713310615260ebe82ec5a09a4a434"
+    },
+    "solid-principles": {
+      "source": "thebushidocollective/han",
+      "sourceType": "github",
+      "computedHash": "302fc51ca42b1a002d100f4a344c5ffeeb7a46afb1bd54cf1c18ada7cb932577"
+    },
+    "systematic-debugging": {
+      "source": "obra/superpowers",
+      "sourceType": "github",
+      "computedHash": "72e9ab72627e4fd8ed26a582e82309a98ecdc4f6e1c99418430ac05682c9e91d"
+    },
+    "verification-before-completion": {
+      "source": "obra/superpowers",
+      "sourceType": "github",
+      "computedHash": "9b446f0c7fe1cfb560b1d34439523b1a76d5f177290007b2c053a1c749a4a8ba"
+    }
+  }
+}

@@ -1,7 +1,7 @@
 bin := "bin/safedep"
 
 build:
-    go build -o {{bin}} ./cmd/safedep
+    go build -ldflags "-s -w" -o {{bin}} ./cmd/safedep
 
 test:
     go test ./...

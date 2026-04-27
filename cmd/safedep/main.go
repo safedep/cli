@@ -18,7 +18,9 @@ import (
 	"github.com/safedep/cli/internal/cmd/tenant"
 	"github.com/safedep/cli/internal/config"
 	"github.com/safedep/cli/internal/output"
+	clitui "github.com/safedep/cli/internal/tui"
 	"github.com/safedep/cli/internal/version"
+	"github.com/safedep/dry/tui/theme"
 	"github.com/spf13/cobra"
 )
 
@@ -30,6 +32,8 @@ func main() {
 }
 
 func run() error {
+	theme.SetDefault(clitui.CLITheme())
+
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)

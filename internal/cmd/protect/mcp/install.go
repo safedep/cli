@@ -36,11 +36,14 @@ func RunInstall(ctx context.Context, a *app.App) error {
 		a.Output.Warning("%s", w)
 	}
 
-	if result.Installed == 0 {
+	if len(result.Installed) == 0 {
 		a.Output.Warning("No supported AI IDEs detected. Install Claude Code, Cursor, or Windsurf and retry.")
 		return nil
 	}
 
-	a.Output.Success("SafeDep MCP server configured in %d IDE(s). Restart your IDE to apply.", result.Installed)
+	a.Output.Success("SafeDep MCP server configured in %d IDE(s). Restart your IDE to apply.", len(result.Installed))
+	for _, e := range result.Installed {
+		a.Output.Info("  • %-20s %s", e.Name, e.ConfigPath)
+	}
 	return nil
 }

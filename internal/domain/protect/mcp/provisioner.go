@@ -8,9 +8,15 @@ import (
 	"github.com/safedep/dry/cloud"
 )
 
-// ProvisionResult reports how many IDEs were configured and any per-IDE warnings.
+// InstalledEntry records one successfully provisioned IDE.
+type InstalledEntry struct {
+	Name       string
+	ConfigPath string
+}
+
+// ProvisionResult reports which IDEs were configured and any per-IDE warnings.
 type ProvisionResult struct {
-	Installed int
+	Installed []InstalledEntry
 	Warnings  []string
 }
 
@@ -50,7 +56,10 @@ func (p *Provisioner) Provision(ctx context.Context, adapters []adapter.MCPAdapt
 			result.Warnings = append(result.Warnings, fmt.Sprintf("%s: %v", ad.DisplayName(), err))
 			continue
 		}
-		result.Installed++
+		result.Installed = append(result.Installed, InstalledEntry{
+			Name:       ad.DisplayName(),
+			ConfigPath: detection.ConfigPath,
+		})
 	}
 
 	return result, nil

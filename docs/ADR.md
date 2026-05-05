@@ -1,89 +1,60 @@
 # ADR
 
-Project goal is to provide an unified experience to SafeDep Open Source tools such as
-[vet](https://github.com/safedep/vet), [PMG](https://github.com/safedep/pmg),
-[gryph](https://github.com/safedep/gryph) and [SafeDep Cloud](https://docs.safedep.io/cloud/overview).
+Architectural decisions for the SafeDep CLI. Each decision is recorded with minimal rationale. Operational rules and the contributor walkthrough live in [DEVGUIDE.md](./DEVGUIDE.md).
 
-The CLI is a DevEx and user experience focussed tool. It aims to build an experience layer on top of
-various SafeDep tools and cloud capabilities. Provide an unified interface for humans and AI agents
-to use SafeDep.
+## Role
 
-## Non-goals
+The CLI is the unified DevEx layer over SafeDep open source tools ([vet](https://github.com/safedep/vet), [pmg](https://github.com/safedep/pmg), [gryph](https://github.com/safedep/gryph)) and [SafeDep Cloud](https://docs.safedep.io/cloud/overview). The goal is for users to install only this CLI and reach every SafeDep capability through it.
 
-* Not a security scanner by itself but can embed / integrate with SafeDep security tools.
+**Non-goal:** the CLI is not a security scanner. It orchestrates and presents; the analysis stays in upstream tools.
 
-## Commands
+## Command shape
 
-All commands and sub-commands in the CLI must follow the convention below:
-
-```
-safedep [domain] [...sub-domain] [action]
-```
-
-This in turn can be thought of using the following mental model:
-
-```
-safedep [noun] [...noun] [verb]
-```
-
-Example good commands:
-
-```
-safedep auth login                # Triggers JWT login flow
-safedep auth login --api-key      # Login using an API key
-```
+Every command follows `safedep <noun> [<noun>...] <verb>`. Rationale: a predictable shape lets humans and AI agents discover and compose commands without memorising special cases.
 
 ## Authentication
 
-There are two type of authentication supported by SafeDep Cloud:
+SafeDep Cloud uses two auth flows: JWT for the control plane, API key for the data plane. The CLI exposes both through a single credential layer so tools like `vet` and `pmg` reuse credentials without re-prompting users.
 
-1. Token (JWT) based authentication required for control plane APIs
-2. API key authentication required for data plane APIs such as those by security tools
+Credentials are stored in the system keychain via [`dry/cloud`](https://github.com/safedep/dry). When a keychain is unavailable, users supply credentials through environment variables. Plain-text credential files are not supported. Rationale: credentials are sensitive; keychain is the only widely-available secure store.
 
-The CLI must follow convention to securely execute authentication flows and store credentials in a
-way that is usable by all SafeDep tools. Credentials must be stored in system Keychain only. When
-Keychain is not available, users are explicitly required to provide credentials through environment
-variables. Do not store credentials in plain text.
-
-For example, when API key credential is configured by CLI, `vet`, `pmg` and other SafeDep tools
-should automatically discover and use the credentials when required without requiring users to
-configure credentials separately for each tool.
-
-## Internal SDK
-
-Provide SDKs as required for implementing and evolving CLI functionalities. Any SDK suitable for CLI
-use only should be in `pkg` namespace. Any SDK suitable for use across different tools should be in
-[DRY](https://github.com/safedep/dry).
+A *profile* is a named credential slot in the keychain (provided by `dry/cloud`). One profile holds one set of credentials and one tenant binding. The active profile is selected via `--profile`, `SAFEDEP_PROFILE`, persisted default, or built-in `"default"`. Rationale: users routinely have multiple SafeDep tenants; profiles let them switch without re-authenticating.
 
 ## Storage
 
-The CLI will use `sqlite` as the default state storage and expose APIs for individual commands.
-`modernc.org/sqlite` will be used for CGO-free sqlite support. However, all storage access will be
-via. GORM and following repository pattern so that the underlying `sqlite` storage can be replaced
-with PostgreSQL or MySQL for production deployment of CLI.
+Local CLI state uses sqlite (CGO-free `modernc.org/sqlite`) via `dry/db`. Rationale: the CLI's state is small, single-user, and shipping sqlite is friction-free.
+
+Daemon-mode commands (e.g. continuous sync to an external endpoint) may run in environments where operators prefer PostgreSQL or MySQL. Such commands must access storage through a repository-pattern interface so the backend can be swapped. The repository abstraction is introduced when the first daemon-mode command lands; until then storage is sqlite only. Rationale: the swap need is real but distant; repository pattern at the boundary is enough.
 
 ## Configuration
 
-The CLI will persist it's configuration using the storage APIs. The CLI will also expose internal
-SDKs for commands and sub-commands to read, store, update configuration using simple storage
-agnostic APIs. Additionally, CLI will support configuration overrides in the following order of
-precedence:
+Configuration is resolved with the following precedence, lowest to highest: persisted CLI configuration, configuration file (env/flag-supplied), environment variables, command-line flags. Rationale: established CLI convention; lets users layer overrides without surprises.
 
-* Persistent configuration stored in CLI storage
-* Configuration file supplied via. environment variable or command line argument
-* Environment variable based configuration overrides
-* CLI arg based configuration overrides
+## User interface
+
+Terminal presentation uses [`dry/tui`](https://github.com/safedep/dry/tree/main/tui). Rationale: the SafeDep tool family should look and feel consistent; a shared library is the only way to keep that true as tools evolve independently.
+
+Two distinct concerns:
+
+- **Messaging** (Info / Success / Warning / Error). dry/tui auto-detects whether to render decorated text for humans or terse, token-optimised text for AI agents based on TTY state, env vars (`CLAUDE_CODE`, `ANTHROPIC_AGENT`, `CI`, `TERM=dumb`), and `SAFEDEP_OUTPUT`. The CLI does not influence this from `--output`.
+- **Data presentation** (Renderable). The `--output` flag selects `table | plain | json`. `table` is the rich, decorated variant for humans; `plain` is for shell pipelines and basic terminals; `json` is for programmatic and AI-agent consumers. When `--output` is empty, the mode auto-resolves: dry/tui rich -> `table`, plain -> `plain`, agent -> `json`.
+
+Rationale: messaging and data have different audiences and different optimal formats. Coupling them through a single flag forces uncomfortable choices (e.g. piping JSON to `jq` should not also strip stderr decoration).
+
+## Tool orchestration
+
+Upstream SafeDep tools are invoked as subprocesses, not linked as libraries. The CLI manages installation and version pinning of upstream tools in a managed cache. Rationale: tools have independent dev and release cycles; linking would couple the CLI to their dependency graphs and bloat the binary.
+
+Library-mode integration is reserved for cases where the upstream tool offers a clean, stable Go API and the dependency cost is acceptable. Decided per tool, not project-wide.
+
+## Internal SDK
+
+- `internal/` — CLI-only code; not importable outside this module.
+- `pkg/` — CLI's own public API; populated only when external consumers exist.
+- `github.com/safedep/dry` — code shared across SafeDep tools.
+
+Rationale: clear visibility scoping prevents accidental coupling and keeps the boundary between CLI-specific and shared code unambiguous.
 
 ## Documentation
 
-Each command should have its own documentation page in `docs/cmd/<cmd-name>.md`. The documentation
-page should describe the common use-cases without being too verbose. The `README.md` should maintain
-an index of supported commands linking to the command specific documentation.
-
-## User Interface
-
-The CLI should use a *responsive* terminal user interface (TUI), suitable for use by both humans and
-AI agents. Specifically, it should support the following response types:
-
-* Rich text with tabular data support
-* JSON and JSONL (JSON Lines) output for easy parsing by AI agents and other tools
+Every leaf command has a documentation page at `docs/cmd/<name>.md`, indexed from the README. Rationale: discoverability for users and AI agents; if a command is not documented it does not exist.

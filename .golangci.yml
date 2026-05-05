@@ -1,0 +1,63 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  enable:
+    - copyloopvar
+    - errorlint
+    - forbidigo
+    - gocritic
+    - gosec
+    - misspell
+    - revive
+
+  settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+
+    gosec:
+      excludes:
+        - G304  # file path from variable: tolerated where users supply paths
+
+    forbidigo:
+      forbid:
+        # fmt.Print/Println/Printf write to stdout implicitly. fmt.Fprint*
+        # is allowed because it takes an explicit writer; writes to
+        # os.Stdout/os.Stderr are caught by the next rule below.
+        - pattern: ^fmt\.Print(ln|f)?$
+          msg: route output via internal/output (a.Output.Print) or dry/tui
+        - pattern: ^os\.Std(out|err)$
+          msg: route writes via internal/output or dry/tui
+        # Env reads belong in internal/config (or internal/app for SAFEDEP_PROFILE).
+        - pattern: ^os\.Getenv$
+          msg: read env vars in internal/config or internal/app
+
+  exclusions:
+    rules:
+      - linters: [gocritic]
+        text: "hugeParam"
+      # main owns the top-level fatal-error path to stderr.
+      - path: cmd/safedep/main\.go
+        linters: [forbidigo]
+      # tui package implements the printer/dispatcher.
+      - path: internal/tui/.*\.go
+        linters: [forbidigo]
+      # version command writes raw lines to stdout intentionally
+      # (no [INFO] prefix, parseable by humans and scripts alike).
+      - path: internal/cmd/version/.*\.go
+        linters: [forbidigo]
+      # config, app, and auth read env vars (auth resolves OAuth endpoint overrides).
+      - path: internal/(app|config|auth)/.*\.go
+        linters: [forbidigo]
+      # Tests construct ad-hoc fixtures and may print debug context.
+      - path: _test\.go
+        linters: [forbidigo]
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

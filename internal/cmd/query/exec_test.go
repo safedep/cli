@@ -41,10 +41,42 @@ func TestRunExec_PassesInputThrough(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubExecRunner{res: &cloudquery.ExecResult{}}
-	_, err := runExec(context.Background(), stub, cloudquery.ExecInput{SQL: "select 1", PageSize: 50})
+	_, err := runExec(context.Background(), stub, cloudquery.ExecInput{
+		SQL:       "select 1",
+		PageSize:  50,
+		PageToken: "tok-abc",
+	})
 	require.NoError(t, err)
 	assert.Equal(t, "select 1", stub.got.SQL)
 	assert.Equal(t, 50, stub.got.PageSize)
+	assert.Equal(t, "tok-abc", stub.got.PageToken)
+}
+
+func TestValidatePageToken(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		in      string
+		wantErr bool
+	}{
+		{"empty-allowed", "", false},
+		{"short", "tok-abc", false},
+		{"at-max", strings.Repeat("a", maxPageTokenSize), false},
+		{"too-long", strings.Repeat("a", maxPageTokenSize+1), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := validatePageToken(tt.in)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.in, got)
+		})
+	}
 }
 
 func TestExecResult_RenderJSON(t *testing.T) {

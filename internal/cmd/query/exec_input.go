@@ -70,3 +70,12 @@ func normalisePageSize(n int) (int, error) {
 	}
 	return n, nil
 }
+
+// validatePageToken enforces the proto bound (max_len 100) on page tokens.
+// Empty input is allowed: it means "first page".
+func validatePageToken(s string) (string, error) {
+	if len(s) > maxPageTokenSize {
+		return "", fmt.Errorf("--page-token too long: %d bytes (max %d)", len(s), maxPageTokenSize)
+	}
+	return s, nil
+}

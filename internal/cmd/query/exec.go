@@ -12,16 +12,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Bounds match the buf.validate constraints in the QueryService proto
+// at safedep-api/proto/safedep/services/controltower/v1/query.proto.
+// The server enforces these via a validation interceptor; mirroring
+// them client-side surfaces clearer errors than the wrapped
+// "invalid argument" gRPC response.
 const (
-	defaultPageSize = 100
-	maxPageSize     = 10000
-	maxSQLBytes     = 64 * 1024
+	defaultPageSize  = 100
+	maxPageSize      = 100
+	maxSQLBytes      = 2000
+	maxPageTokenSize = 100
 )
 
 type execInput struct {
-	SQL      string
-	SQLFile  string
-	PageSize int
+	SQL       string
+	SQLFile   string
+	PageSize  int
+	PageToken string
 }
 
 func execCmd(a *app.App) *cobra.Command {
@@ -48,10 +55,16 @@ func execCmd(a *app.App) *cobra.Command {
 				return err
 			}
 
+			pageToken, err := validatePageToken(in.PageToken)
+			if err != nil {
+				return err
+			}
+
 			svc := cloudquery.NewService(client.Connection())
 			result, err := runExec(cmd.Context(), svc, cloudquery.ExecInput{
-				SQL:      sql,
-				PageSize: pageSize,
+				SQL:       sql,
+				PageSize:  pageSize,
+				PageToken: pageToken,
 			})
 			if err != nil {
 				return err
@@ -63,7 +76,8 @@ func execCmd(a *app.App) *cobra.Command {
 	f := cmd.Flags()
 	f.StringVarP(&in.SQL, "sql", "s", "", "SQL statement to execute (overrides --sql-file and stdin)")
 	f.StringVar(&in.SQLFile, "sql-file", "", "path to a file containing the SQL statement")
-	f.IntVar(&in.PageSize, "limit", defaultPageSize, "maximum rows to return (1-10000)")
+	f.IntVar(&in.PageSize, "limit", defaultPageSize, "maximum rows to return (1-100)")
+	f.StringVar(&in.PageToken, "page-token", "", "next_page_token from a prior response to continue paging")
 
 	return cmd
 }

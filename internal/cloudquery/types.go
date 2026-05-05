@@ -11,9 +11,11 @@ import "time"
 
 // ExecInput is the user-facing payload for a SQL execution. Validation is
 // the caller's responsibility: orchestration trusts what it receives.
+// PageToken empty means "first page"; non-empty resumes a prior response.
 type ExecInput struct {
-	SQL      string
-	PageSize int
+	SQL       string
+	PageSize  int
+	PageToken string
 }
 
 // ExecResult is the materialised query response in a presentation-friendly

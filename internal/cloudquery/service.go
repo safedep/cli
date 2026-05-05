@@ -35,7 +35,7 @@ type SchemaFetcher interface {
 
 // Exec runs a single SQL statement against the control plane and returns
 // the decoded rows. PageSize <= 0 leaves it unset so the server applies
-// its default.
+// its default. PageToken empty means "first page".
 func (s *Service) Exec(ctx context.Context, in ExecInput) (*ExecResult, error) {
 	req := &controltowerv1.QueryBySqlRequest{}
 	req.SetQuery(in.SQL)
@@ -45,6 +45,9 @@ func (s *Service) Exec(ctx context.Context, in ExecInput) (*ExecResult, error) {
 			size = math.MaxInt32
 		}
 		req.SetPageSize(int32(size))
+	}
+	if in.PageToken != "" {
+		req.SetPageToken(in.PageToken)
 	}
 
 	res, err := s.client.QueryBySql(ctx, req)

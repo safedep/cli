@@ -16,7 +16,7 @@ Every command follows `safedep <noun> [<noun>...] <verb>`. Rationale: a predicta
 
 SafeDep Cloud uses two auth flows: JWT for the control plane, API key for the data plane. The CLI exposes both through a single credential layer so tools like `vet` and `pmg` reuse credentials without re-prompting users.
 
-Credentials are stored in the system keychain via [`dry/cloud`](https://github.com/safedep/dry). When a keychain is unavailable, users supply credentials through environment variables. Plain-text credential files are not supported. Rationale: credentials are sensitive; keychain is the only widely-available secure store.
+Credentials are stored in the system keychain via [`dry/cloud`](https://github.com/safedep/dry). When a keychain is unavailable, users supply credentials through environment variables. A plain-text file fallback is available for environments without any keychain (headless CI, air-gapped boxes), but only as an explicit opt-in via `--insecure-keychain-fallback`. The flag is off by default. Rationale: credentials are sensitive and keychain is the only widely-available secure store, but a documented escape hatch is preferable to users hand-rolling worse alternatives.
 
 A *profile* is a named credential slot in the keychain (provided by `dry/cloud`). One profile holds one set of credentials and one tenant binding. The active profile is selected via `--profile`, `SAFEDEP_PROFILE`, persisted default, or built-in `"default"`. Rationale: users routinely have multiple SafeDep tenants; profiles let them switch without re-authenticating.
 

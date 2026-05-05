@@ -7,8 +7,9 @@ import (
 )
 
 var (
-	outputFlag  string
-	profileFlag string
+	outputFlag                   string
+	profileFlag                  string
+	insecureKeychainFallbackFlag bool
 )
 
 // NewRootCommand creates the root cobra command. Persistent flags are
@@ -24,6 +25,7 @@ func NewRootCommand(a *app.App) *cobra.Command {
 
 	root.PersistentFlags().StringVarP(&outputFlag, "output", "o", "", "output mode: table, plain, json (auto-detected when empty)")
 	root.PersistentFlags().StringVar(&profileFlag, "profile", "", "credential profile (overrides SAFEDEP_PROFILE; defaults to \"default\")")
+	root.PersistentFlags().BoolVar(&insecureKeychainFallbackFlag, "insecure-keychain-fallback", false, "store credentials in a plaintext file when no OS keychain is available (insecure)")
 
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		mode, err := tui.ParseMode(outputFlag)
@@ -32,6 +34,7 @@ func NewRootCommand(a *app.App) *cobra.Command {
 		}
 		a.Output = tui.NewPrinter(mode)
 		a.SetProfile(profileFlag)
+		a.SetInsecureKeychainFallback(insecureKeychainFallbackFlag)
 		return nil
 	}
 

@@ -102,6 +102,7 @@ Operational commands (no structured result) call `dry/tui` directly and do not i
 - Both return user-facing errors. Propagate them directly.
 - A static map of command → required plane lives in the convention test; mismatches fail CI. **(lint)**
 - Credentials are accessed only through `App` accessors (`CredentialStore`, `APIKeyResolver`, `TokenResolver`, `DataPlane`, `ControlPlane`). No direct keychain or env-var reads from command code. **(lint, depguard)** A dedicated `internal/auth` package will absorb these accessors when the credential surface grows.
+- The `--insecure-keychain-fallback` persistent flag opts the keychain into a plaintext-file backend when no OS keychain is available. Off by default. Wired through `App.SetInsecureKeychainFallback` so every `App` accessor that builds a store or resolver picks up the same setting.
 
 ### Profiles
 

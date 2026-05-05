@@ -11,8 +11,7 @@ cmd/safedep/                  entry point; wires App and root cobra command
 internal/
   app/                        App DI container; owns credentials and plane clients
   config/                     config load + override precedence
-  output/                     Renderer interface + Output.Print (json + dry/tui dispatch)
-  theme/                      dry/tui theme configuration (not a TUI wrapper)
+  tui/                        Renderable contract, Printer dispatcher, CLI theme
   version/                    build metadata
   cmd/                        verb allow-list lives at cmd/verbs.go
     <domain>/                 one package per top-level noun
@@ -36,7 +35,8 @@ Deferred subsystems (introduced when first command needs them):
 Logging uses `dry/log` directly; the CLI does not wrap it.
 
 - One package per domain. No parallel `internal/domain/<x>` tree. **(lint)**
-- TUI primitives (Info/Success/Warning/Error, Table, Banner, Spinner, etc.) come from [`dry/tui`](https://github.com/safedep/dry/tree/main/tui). The CLI does not wrap them. `internal/theme` is allowed because a theme is configuration, not a primitive wrapper.
+- Operational messaging (Info/Success/Warning/Error, Table, Banner, Spinner, etc.) comes from [`dry/tui`](https://github.com/safedep/dry/tree/main/tui). Commands import it directly. The CLI does not wrap these primitives.
+- `internal/tui/` owns the CLI's data-presentation contract (`Renderable`), the dispatcher (`Printer`), and the theme that gets pushed into dry/tui at startup. It is not a wrapper around dry/tui's messaging helpers.
 - Cross-tool reusable code goes to `github.com/safedep/dry`, not `internal/`.
 
 ## Command shape
@@ -58,23 +58,33 @@ Initial verb allow-list:
 
 ## Output
 
-Presentation is delegated to `dry/tui`. The `--output` flag accepts `rich | plain | agent | json`.
+Two distinct concerns:
 
-Data commands implement `output.Renderer`:
+**Messaging** (Info / Success / Warning / Error). For both humans and AI agents. Commands call `dry/tui.Info / Success / Warning / Error` directly. dry/tui auto-detects its mode (rich, plain, agent) from TTY state, env vars (`CLAUDE_CODE`, `ANTHROPIC_AGENT`, `CI`, `TERM=dumb`), and `SAFEDEP_OUTPUT`. Human users get colour and unicode; agents get terse, token-optimised text. The `--output` flag does **not** influence messaging.
+
+**Renderable** (data presentation). Data commands implement `tui.Renderable`:
 
 ```go
-type Renderer interface {
-    tui.Renderable          // Render(Theme, Mode) string for rich/plain/agent
-    AsJSON() (any, error)   // for -o json
+type Renderable interface {
+    RenderJSON() ([]byte, error)
+    RenderTable() string
+    RenderPlain() string
 }
 ```
 
-`a.Output.Print(r)` dispatches: `json` encodes `AsJSON()` to stdout; otherwise `tui.Print(r)` renders for the active mode.
+`a.Output.Print(r)` writes the active mode's representation to stdout. The `--output` flag selects the mode:
 
-Operational commands (no structured result) use `tui.Info / Success / Warning / Error` from `dry/tui` directly. They do not implement `Renderer`.
+- `--output table` (the rich variant): humans, decorated.
+- `--output plain`: humans on basic terminals or shell pipelines.
+- `--output json`: programmatic and agent consumers.
+- `--output` empty: auto-detect via dry/tui (rich -> table, plain -> plain, agent -> json).
+
+Lists implement the same interface. `RenderTable` produces a table, `RenderPlain` emits a line per item, `RenderJSON` returns the encoded array. Pre-built helpers will be extracted once a second list-shaped command lands.
+
+Operational commands (no structured result) call `dry/tui` directly and do not implement `Renderable`.
 
 - Errors always go to stderr with non-zero exit, regardless of `--output`. **(lint)**
-- No direct use of `fmt.Println`, `fmt.Printf`, `os.Stdout`, or `os.Stderr` outside `internal/output` and `dry/tui` call sites in commands. **(lint, depguard)** The single allowed exception is the top-level error path in `cmd/safedep/main.go`, which writes the fatal error to stderr before exit.
+- No direct use of `fmt.Println`, `fmt.Printf`, `os.Stdout`, or `os.Stderr` outside `internal/tui` and `dry/tui` call sites in commands. **(lint, depguard)** The single allowed exception is the top-level error path in `cmd/safedep/main.go`, which writes the fatal error to stderr before exit.
 - Reusable visual components (tables, banners, diffs, badges, spinners, progress) come from `dry/tui` sub-packages. Do not reimplement.
 
 ## Authentication
@@ -170,8 +180,9 @@ type runResult struct {
     Total    int             `json:"total"`
 }
 
-func (r *runResult) Render(t tui.Theme, m output.Mode) string { ... }
-func (r *runResult) AsJSON() (any, error)                     { return r, nil }
+func (r *runResult) RenderJSON() ([]byte, error) { return json.MarshalIndent(r, "", "  ") }
+func (r *runResult) RenderTable() string         { ... }
+func (r *runResult) RenderPlain() string         { ... }
 
 func runCmd(a *app.App) *cobra.Command {
     var in runInput

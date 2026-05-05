@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"github.com/safedep/cli/internal/app"
-	"github.com/safedep/cli/internal/output"
+	"github.com/safedep/cli/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -22,19 +22,15 @@ func NewRootCommand(a *app.App) *cobra.Command {
 		SilenceErrors: true,
 	}
 
-	root.PersistentFlags().StringVarP(&outputFlag, "output", "o", "", "output mode: rich, plain, agent, json (auto-detected when empty)")
+	root.PersistentFlags().StringVarP(&outputFlag, "output", "o", "", "output mode: table, plain, json (auto-detected when empty)")
 	root.PersistentFlags().StringVar(&profileFlag, "profile", "", "credential profile (overrides SAFEDEP_PROFILE; defaults to \"default\")")
 
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
-		mode, err := output.ParseMode(outputFlag)
+		mode, err := tui.ParseMode(outputFlag)
 		if err != nil {
 			return err
 		}
-
-		out := output.New(mode)
-		out.ApplyToTUI()
-		a.Output = out
-
+		a.Output = tui.NewPrinter(mode)
 		a.SetProfile(profileFlag)
 		return nil
 	}

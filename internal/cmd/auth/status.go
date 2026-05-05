@@ -1,14 +1,15 @@
 package auth
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/safedep/cli/internal/app"
 	cliauth "github.com/safedep/cli/internal/auth"
-	"github.com/safedep/dry/tui"
-	"github.com/safedep/dry/tui/output"
+	drytui "github.com/safedep/dry/tui"
+	"github.com/safedep/dry/tui/table"
 	"github.com/safedep/dry/tui/theme"
 	"github.com/spf13/cobra"
 )
@@ -28,7 +29,6 @@ func statusCmd(a *app.App) *cobra.Command {
 	}
 }
 
-// statusResult adapts cliauth.Status to the output.Renderer interface.
 type statusResult struct {
 	st cliauth.Status
 }
@@ -41,7 +41,7 @@ type statusJSON struct {
 	OAuthExpiresAt string `json:"oauth_expires_at,omitempty"`
 }
 
-func (r *statusResult) AsJSON() (any, error) {
+func (r *statusResult) RenderJSON() ([]byte, error) {
 	out := statusJSON{
 		Profile:    r.st.Profile,
 		Tenant:     r.st.Tenant,
@@ -51,34 +51,10 @@ func (r *statusResult) AsJSON() (any, error) {
 	if !r.st.OAuthExpiresAt.IsZero() {
 		out.OAuthExpiresAt = r.st.OAuthExpiresAt.UTC().Format(time.RFC3339)
 	}
-	return out, nil
+	return json.MarshalIndent(out, "", "  ")
 }
 
-func (r *statusResult) Render(_ tui.Theme, mode output.Mode) string {
-	switch mode {
-	case output.Agent:
-		return r.renderAgent()
-	case output.Plain:
-		return r.renderPlain()
-	default:
-		return r.renderRich()
-	}
-}
-
-func (r *statusResult) renderAgent() string {
-	tenant := r.st.Tenant
-	if tenant == "" {
-		tenant = "-"
-	}
-	exp := "-"
-	if !r.st.OAuthExpiresAt.IsZero() {
-		exp = r.st.OAuthExpiresAt.UTC().Format(time.RFC3339)
-	}
-	return fmt.Sprintf("profile=%s tenant=%s api_key=%t oauth=%t oauth_exp=%s",
-		r.st.Profile, tenant, r.st.APIKey, r.st.OAuth, exp)
-}
-
-func (r *statusResult) renderPlain() string {
+func (r *statusResult) RenderPlain() string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Profile:        %s\n", r.st.Profile)
 	if r.st.Tenant != "" {
@@ -92,23 +68,16 @@ func (r *statusResult) renderPlain() string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-func (r *statusResult) renderRich() string {
-	rows := [][2]string{
-		{"Profile", r.st.Profile},
-		{"Tenant", emptyDash(r.st.Tenant)},
-		{"API key", yesNoBadge(r.st.APIKey)},
-		{"OAuth token", yesNoBadge(r.st.OAuth)},
-	}
+func (r *statusResult) RenderTable() string {
+	t := table.New().
+		Row("Profile", r.st.Profile).
+		Row("Tenant", emptyDash(r.st.Tenant)).
+		Row("API key", yesNoBadge(r.st.APIKey)).
+		Row("OAuth token", yesNoBadge(r.st.OAuth))
 	if !r.st.OAuthExpiresAt.IsZero() {
-		rows = append(rows, [2]string{"OAuth expires", r.st.OAuthExpiresAt.UTC().Format(time.RFC3339)})
+		t = t.Row("OAuth expires", r.st.OAuthExpiresAt.UTC().Format(time.RFC3339))
 	}
-
-	var sb strings.Builder
-	sb.WriteString("Authentication\n")
-	for _, row := range rows {
-		fmt.Fprintf(&sb, "  %-15s %s\n", row[0]+":", row[1])
-	}
-	return strings.TrimRight(sb.String(), "\n")
+	return t.Render()
 }
 
 func yesNo(b bool) string {
@@ -120,9 +89,9 @@ func yesNo(b bool) string {
 
 func yesNoBadge(b bool) string {
 	if b {
-		return tui.Badge(theme.RoleSuccess, "configured")
+		return drytui.Badge(theme.RoleSuccess, "configured")
 	}
-	return tui.Badge(theme.RoleWarning, "not configured")
+	return drytui.Badge(theme.RoleWarning, "not configured")
 }
 
 func emptyDash(s string) string {

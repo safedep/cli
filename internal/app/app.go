@@ -11,7 +11,7 @@ import (
 	"sync"
 
 	"github.com/safedep/cli/internal/config"
-	"github.com/safedep/cli/internal/output"
+	"github.com/safedep/cli/internal/tui"
 	"github.com/safedep/dry/cloud"
 	"github.com/safedep/dry/log"
 )
@@ -32,7 +32,7 @@ const (
 // the root command's PersistentPreRunE before any leaf RunE fires.
 type App struct {
 	Config *config.Config
-	Output *output.Output
+	Output *tui.Printer
 
 	mu      sync.Mutex
 	profile string
@@ -48,7 +48,7 @@ type App struct {
 func New(cfg *config.Config) *App {
 	return &App{
 		Config:  cfg,
-		Output:  output.New(output.AutoMode()),
+		Output:  tui.NewPrinter(tui.AutoMode()),
 		profile: defaultProfile,
 	}
 }

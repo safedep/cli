@@ -7,7 +7,7 @@ import (
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/cmd"
 	"github.com/safedep/cli/internal/config"
-	clitheme "github.com/safedep/cli/internal/theme"
+	"github.com/safedep/cli/internal/tui"
 	drytheme "github.com/safedep/dry/tui/theme"
 )
 
@@ -19,7 +19,7 @@ func main() {
 }
 
 func run() error {
-	drytheme.SetDefault(clitheme.CLI())
+	drytheme.SetDefault(tui.CLITheme())
 
 	cfg, err := config.Load()
 	if err != nil {

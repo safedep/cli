@@ -34,7 +34,12 @@ Configuration is resolved with the following precedence, lowest to highest: pers
 
 Terminal presentation uses [`dry/tui`](https://github.com/safedep/dry/tree/main/tui). Rationale: the SafeDep tool family should look and feel consistent; a shared library is the only way to keep that true as tools evolve independently.
 
-The `--output` flag accepts `rich | plain | agent | json`. Mode is auto-detected by `dry/tui` when not specified (CI / non-TTY → `plain`; agent envs → `agent`; else `rich`). Rationale: covers interactive humans, AI agents, and programmatic consumers without duplicating modes.
+Two distinct concerns:
+
+- **Messaging** (Info / Success / Warning / Error). dry/tui auto-detects whether to render decorated text for humans or terse, token-optimised text for AI agents based on TTY state, env vars (`CLAUDE_CODE`, `ANTHROPIC_AGENT`, `CI`, `TERM=dumb`), and `SAFEDEP_OUTPUT`. The CLI does not influence this from `--output`.
+- **Data presentation** (Renderable). The `--output` flag selects `table | plain | json`. `table` is the rich, decorated variant for humans; `plain` is for shell pipelines and basic terminals; `json` is for programmatic and AI-agent consumers. When `--output` is empty, the mode auto-resolves: dry/tui rich -> `table`, plain -> `plain`, agent -> `json`.
+
+Rationale: messaging and data have different audiences and different optimal formats. Coupling them through a single flag forces uncomfortable choices (e.g. piping JSON to `jq` should not also strip stderr decoration).
 
 ## Tool orchestration
 

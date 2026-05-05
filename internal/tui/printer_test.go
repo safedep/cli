@@ -1,4 +1,4 @@
-package output
+package tui
 
 import (
 	"testing"
@@ -13,11 +13,11 @@ func TestParseMode(t *testing.T) {
 		want    Mode
 		wantErr bool
 	}{
-		{"rich", ModeRich, false},
+		{"table", ModeTable, false},
 		{"plain", ModePlain, false},
-		{"agent", ModeAgent, false},
 		{"json", ModeJSON, false},
-		{"table", "", true},
+		{"rich", "", true},
+		{"agent", "", true},
 		{"yaml", "", true},
 	}
 
@@ -37,5 +37,5 @@ func TestParseMode(t *testing.T) {
 func TestParseMode_emptyAutoDetects(t *testing.T) {
 	got, err := ParseMode("")
 	require.NoError(t, err)
-	assert.Contains(t, []Mode{ModeRich, ModePlain, ModeAgent}, got, "auto-detect must never return JSON")
+	assert.Contains(t, []Mode{ModeTable, ModePlain, ModeJSON}, got)
 }

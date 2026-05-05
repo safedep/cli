@@ -44,8 +44,8 @@ linters:
       # main owns the top-level fatal-error path to stderr.
       - path: cmd/safedep/main\.go
         linters: [forbidigo]
-      # output package implements the dispatcher.
-      - path: internal/output/.*\.go
+      # tui package implements the printer/dispatcher.
+      - path: internal/tui/.*\.go
         linters: [forbidigo]
       # config, app, and auth read env vars (auth resolves OAuth endpoint overrides).
       - path: internal/(app|config|auth)/.*\.go

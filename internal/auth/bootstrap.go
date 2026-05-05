@@ -10,11 +10,18 @@ import (
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/safedep/dry/log"
+	"google.golang.org/grpc"
 )
 
 // TenantPicker resolves the tenant when the user has access to multiple.
 // Invoked only when len(tenants) > 1 and no preferred tenant matches.
 type TenantPicker func(tenants []string) (string, error)
+
+// ControlPlaneConnFunc opens a control-plane gRPC connection for the
+// supplied (token, tenant). tenant may be empty for the bootstrap call
+// to GetUserInfo. Tests inject a fake here. Production callers leave it
+// nil and the package-local default is used.
+type ControlPlaneConnFunc func(token, tenant string) (*grpc.ClientConn, error)
 
 // BootstrapInput captures everything PostOAuthBootstrap needs to provision
 // a tenant and (optionally) an API key on top of a fresh access token.
@@ -26,6 +33,10 @@ type BootstrapInput struct {
 	APIKeyExpiryDays int
 	APIKeyName       string
 	Picker           TenantPicker
+
+	// ConnFor is the control-plane connection builder. Optional. When
+	// nil, the package-local default is used. Tests inject a fake.
+	ConnFor ControlPlaneConnFunc
 }
 
 // BootstrapResult reports what the bootstrap step accomplished.
@@ -43,8 +54,11 @@ func PostOAuthBootstrap(ctx context.Context, in BootstrapInput) (*BootstrapResul
 	if in.AccessToken == "" {
 		return nil, errors.New("auth: bootstrap: empty access token")
 	}
+	if in.ConnFor == nil {
+		in.ConnFor = controlPlaneConn
+	}
 
-	tenants, err := listAccessibleTenants(ctx, in.AccessToken)
+	tenants, err := listAccessibleTenants(ctx, in.ConnFor, in.AccessToken)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +76,7 @@ func PostOAuthBootstrap(ctx context.Context, in BootstrapInput) (*BootstrapResul
 		return res, nil
 	}
 
-	key, expiresAt, err := createAPIKey(ctx, in.AccessToken, tenant, in.APIKeyName, in.APIKeyExpiryDays)
+	key, expiresAt, err := createAPIKey(ctx, in.ConnFor, in.AccessToken, tenant, in.APIKeyName, in.APIKeyExpiryDays)
 	if err != nil {
 		return nil, err
 	}
@@ -71,11 +85,8 @@ func PostOAuthBootstrap(ctx context.Context, in BootstrapInput) (*BootstrapResul
 	return res, nil
 }
 
-// listAccessibleTenants calls UserService.GetUserInfo on the control plane
-// without a tenant header (since we don't know one yet) and returns every
-// tenant the user can access.
-func listAccessibleTenants(ctx context.Context, token string) ([]string, error) {
-	conn, err := ControlPlaneConn(token, "")
+func listAccessibleTenants(ctx context.Context, connFor ControlPlaneConnFunc, token string) ([]string, error) {
+	conn, err := connFor(token, "")
 	if err != nil {
 		return nil, err
 	}
@@ -113,12 +124,12 @@ func pickTenant(tenants []string, preferred string, picker TenantPicker) (string
 	return picker(tenants)
 }
 
-func createAPIKey(ctx context.Context, token, tenant, name string, expiryDays int) (string, time.Time, error) {
+func createAPIKey(ctx context.Context, connFor ControlPlaneConnFunc, token, tenant, name string, expiryDays int) (string, time.Time, error) {
 	if expiryDays <= 0 || expiryDays > math.MaxInt32 {
 		return "", time.Time{}, fmt.Errorf("auth: api key expiry days out of range: %d", expiryDays)
 	}
 
-	conn, err := ControlPlaneConn(token, tenant)
+	conn, err := connFor(token, tenant)
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -137,12 +148,8 @@ func createAPIKey(ctx context.Context, token, tenant, name string, expiryDays in
 	return resp.GetKey(), resp.GetExpiresAt().AsTime(), nil
 }
 
-func closeConn(label string, conn closer) {
+func closeConn(label string, conn *grpc.ClientConn) {
 	if err := conn.Close(); err != nil {
 		log.Warnf("auth: close %s connection: %v", label, err)
 	}
-}
-
-type closer interface {
-	Close() error
 }

@@ -24,6 +24,7 @@ make release-snapshot # Local release build via goreleaser
 - Refactor code when required instead of violating DRY
 - Keep this file distilled. Avoid fluff
 - No unnecessary comments
+- Do not explain how Go works (e.g. how `context.Context` propagates cancellation, what a `defer` does, what `sync.Mutex` guards). Comment the *why* and the non-obvious invariants only
 - Code comments must be ASCII only. No em-dash, unnecessary compound words
 - Do not use `;` to join sentences. In error messages use `:` (label:detail). In comments end the sentence with `.` and start the next one
 - Idiomatic Go: explicit error handling, table-driven tests, no swallowed errors

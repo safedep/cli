@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -13,20 +14,18 @@ const (
 	defaultControlPlaneAddr = "cloud.safedep.io:443"
 	envControlPlaneAddr     = "SAFEDEP_CLOUD_CONTROL_ADDR"
 	tenantIDHeader          = "x-tenant-id"
+	defaultGRPCPort         = "443"
 )
 
-// ControlPlaneConn opens a gRPC connection to the SafeDep control plane
-// using the supplied access token. When tenant is empty (e.g. the
-// post-OAuth bootstrap call to GetUserInfo before a tenant is known) no
-// tenant header is sent. Otherwise the tenant header is set so the
-// service can scope responses correctly.
-//
-// dry/cloud.NewControlPlaneClient requires a non-empty tenant in the
-// Credentials struct. This helper sidesteps that constraint for the
-// bootstrap step.
-func ControlPlaneConn(token, tenant string) (*grpc.ClientConn, error) {
+// controlPlaneConn is the default ControlPlaneConnFunc used by bootstrap
+// when the caller does not inject one. Lives here (not on App) because
+// the post-OAuth bootstrap is the only consumer that needs an
+// untenanted control-plane connection. dry/cloud.NewControlPlaneClient
+// requires a non-empty tenant in the credential, which is unavailable
+// before GetUserInfo runs.
+func controlPlaneConn(token, tenant string) (*grpc.ClientConn, error) {
 	if token == "" {
-		return nil, fmt.Errorf("auth: empty access token")
+		return nil, errors.New("auth: control plane conn: empty access token")
 	}
 
 	host, port := splitAddr(envOr(envControlPlaneAddr, defaultControlPlaneAddr))
@@ -38,7 +37,7 @@ func ControlPlaneConn(token, tenant string) (*grpc.ClientConn, error) {
 
 	conn, err := drygrpc.GrpcClient(GRPCAppName, host, port, token, headers, []grpc.DialOption{})
 	if err != nil {
-		return nil, fmt.Errorf("auth: control plane connect: %w", err)
+		return nil, fmt.Errorf("auth: control plane conn: %w", err)
 	}
 	return conn, nil
 }
@@ -46,8 +45,7 @@ func ControlPlaneConn(token, tenant string) (*grpc.ClientConn, error) {
 func splitAddr(addr string) (host, port string) {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
-		return addr, "443"
+		return addr, defaultGRPCPort
 	}
 	return host, port
 }
-

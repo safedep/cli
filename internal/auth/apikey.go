@@ -34,7 +34,7 @@ func SaveAPIKey(_ context.Context, store cloud.CredentialStore, in APIKeyInput) 
 // VerifyAPIKey checks that the supplied API key + tenant authenticate
 // against the SafeDep data plane. We connect and issue a low-cost RPC. A
 // successful round trip means the key is valid for that tenant.
-func VerifyAPIKey(_ context.Context, in APIKeyInput) error {
+func VerifyAPIKey(ctx context.Context, in APIKeyInput) error {
 	if in.APIKey == "" || in.Tenant == "" {
 		return errors.New("auth: api key and tenant are required for verification")
 	}
@@ -54,7 +54,7 @@ func VerifyAPIKey(_ context.Context, in APIKeyInput) error {
 		}
 	}()
 
-	if err := pingDataPlane(client); err != nil {
+	if err := pingDataPlane(ctx, client); err != nil {
 		return fmt.Errorf("auth: data plane ping: %w", err)
 	}
 	return nil

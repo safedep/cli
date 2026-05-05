@@ -14,11 +14,11 @@ const pingTimeout = 10 * time.Second
 
 // pingDataPlane issues a control-tower Ping over the supplied data-plane
 // client. A successful round trip authenticates the API key + tenant.
-func pingDataPlane(client *cloud.Client) error {
+func pingDataPlane(parent context.Context, client *cloud.Client) error {
 	if client == nil {
 		return fmt.Errorf("auth: nil data plane client")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), pingTimeout)
+	ctx, cancel := context.WithTimeout(parent, pingTimeout)
 	defer cancel()
 
 	svc := controltowerv1grpc.NewPingServiceClient(client.Connection())

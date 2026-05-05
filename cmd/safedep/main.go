@@ -6,8 +6,6 @@ import (
 
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/cmd"
-	"github.com/safedep/cli/internal/cmd/auth"
-	"github.com/safedep/cli/internal/cmd/version"
 	"github.com/safedep/cli/internal/config"
 	clitheme "github.com/safedep/cli/internal/theme"
 	drytheme "github.com/safedep/dry/tui/theme"
@@ -31,9 +29,5 @@ func run() error {
 	a := app.New(cfg)
 	defer a.Close()
 
-	root := cmd.NewRootCommand(a)
-	auth.Register(root, a)
-	version.Register(root, a)
-
-	return root.Execute()
+	return cmd.NewSafedep(a).Execute()
 }

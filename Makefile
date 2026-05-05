@@ -1,6 +1,6 @@
 BIN := bin/safedep
 
-.PHONY: build test lint fmt deps clean release-snapshot
+.PHONY: build test lint lint-conventions fmt deps clean release-snapshot
 
 build:
 	go build -ldflags "-s -w" -o $(BIN) ./cmd/safedep
@@ -10,6 +10,9 @@ test:
 
 lint:
 	golangci-lint run
+
+lint-conventions: lint
+	go test ./internal/cmd/ -run Conventions -count=1
 
 fmt:
 	go fmt ./...

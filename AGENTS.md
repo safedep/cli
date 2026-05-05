@@ -5,7 +5,7 @@ Guidance for AI coding agents. Sources of truth:
 - [docs/ADR.md](./docs/ADR.md) — architectural decisions and rationale.
 - [docs/DEVGUIDE.md](./docs/DEVGUIDE.md) — operational rules, layout, lints, walkthrough.
 
-Coding agents and code review agents must read and conform to both.
+Coding agents and code review agents must read and conform to both. Treat any rule tagged **(lint)** in DEVGUIDE as required even when CI hasn't caught up.
 
 ## Build
 
@@ -14,42 +14,21 @@ make deps             # Download dependencies
 make build            # Build binary → bin/safedep
 make test             # Run tests
 make lint             # Run linter (golangci-lint)
+make lint-conventions # Run lint + convention tests over the cobra tree
 make release-snapshot # Local release build via goreleaser
 ```
 
-## Architecture
+## CI / GitHub Actions
 
+Always pin third-party GitHub Actions to a full commit SHA, not a tag or branch. A tag can be moved silently by the action's owner; a SHA cannot. This is the project's only defence against supply-chain compromise of upstream actions.
+
+Format:
+
+```yaml
+# actions/checkout v6.0.2
+- uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 ```
-cmd/safedep/        → Entry point; wires App, calls root.Execute()
-internal/app/       → App struct (dependency container injected into all commands)
-internal/config/    → TOML config: ~/.config/safedep/config.toml (non-secret state)
-internal/output/    → Formatter: -o flag dispatch, Renderable interface
-internal/protect/   → MCP adapter interface + IDE implementations
-internal/cmd/       → Cobra commands, one package per domain
-```
 
-## Command pattern
+Always include a comment with the human-readable version on the line immediately above so the SHA stays auditable. When bumping, resolve the new SHA via `gh api repos/<owner>/<repo>/git/refs/tags/<version>` and update both the SHA and the comment in the same commit.
 
-Each domain is its own package under `internal/cmd/<domain>/` with a `Register(root *cobra.Command, app *app.App)` function. Adding a new command = new file, one `Register` call in `main.go`.
-
-## Auth model
-
-- Phase 1: API key only. `app.DataPlane` is the only wired client.
-- `app.ControlPlane` is nil until OAuth lands (Phase 2). Commands needing it must call `app.RequireControlPlane()` and return its error with a clear message.
-- Credentials stored via `dry/cloud.CredentialStore` → OS keychain with file fallback for WSL2/headless.
-
-## Output
-
-- `-o` / `--output` flag: `table` (default), `plain`, `json`
-- Data commands implement `output.Renderable`. Operational commands use `tui.Info/Success/Error`.
-- Errors always go to stderr + non-zero exit, regardless of `-o`.
-
-## Guidance
-
-- Refactor code when required instead of violating DRY
-- No unnecessary comments
-- Idiomatic Go: explicit error handling, table-driven tests, no swallowed errors
-- Use `testify/require` for fatal assertions, `testify/assert` for non-fatal
-- Re-use existing patterns; prefer refactoring over copying
-- `dry/log` for internal logging (`log.Warnf` for soft failures)
-- Keep this file distilled. Avoid fluff
+This rule applies to every action under `.github/workflows/` regardless of trust. First-party actions from `actions/*` are not exempt.

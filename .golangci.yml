@@ -1,28 +1,57 @@
 version: "2"
 
+run:
+  timeout: 5m
+
 linters:
   default: standard
   enable:
-    - gocritic
-    - misspell
-    - revive
     - copyloopvar
     - errorlint
+    - forbidigo
+    - gocritic
     - gosec
+    - misspell
+    - revive
 
   settings:
     revive:
       rules:
         - name: exported
           disabled: true
+
     gosec:
       excludes:
-        - G304  # file path from variable: intentional in MCP config reader
+        - G304  # file path from variable: tolerated where users supply paths
 
-issues:
-  max-issues-per-linter: 0
-  max-same-issues: 0
+    forbidigo:
+      forbid:
+        # Direct stdout/stderr writes bypass the output dispatcher and dry/tui.
+        - pattern: ^fmt\.F?[Pp]rint(ln|f)?$
+          msg: route output via internal/output (a.Output.Print) or dry/tui
+        - pattern: ^os\.Std(out|err)$
+          msg: route writes via internal/output or dry/tui
+        # Env reads belong in internal/config (or internal/app for SAFEDEP_PROFILE).
+        - pattern: ^os\.Getenv$
+          msg: read env vars in internal/config or internal/app
+
   exclusions:
     rules:
       - linters: [gocritic]
         text: "hugeParam"
+      # main owns the top-level fatal-error path to stderr.
+      - path: cmd/safedep/main\.go
+        linters: [forbidigo]
+      # output package implements the dispatcher.
+      - path: internal/output/.*\.go
+        linters: [forbidigo]
+      # config + app are the only places that read env vars and write file state.
+      - path: internal/(app|config)/.*\.go
+        linters: [forbidigo]
+      # Tests construct ad-hoc fixtures and may print debug context.
+      - path: _test\.go
+        linters: [forbidigo]
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

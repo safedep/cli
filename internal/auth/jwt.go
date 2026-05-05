@@ -8,7 +8,7 @@ import (
 )
 
 // AccessTokenExpiry decodes the unverified `exp` claim of a JWT and returns
-// it as a UTC time. Verification is the identity provider's job; we only
+// it as a UTC time. Verification is the identity provider's job. We only
 // need the expiry to drive UI hints and the "session expired" error path.
 func AccessTokenExpiry(token string) (time.Time, error) {
 	if token == "" {

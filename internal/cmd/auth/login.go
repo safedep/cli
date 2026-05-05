@@ -148,8 +148,8 @@ func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 }
 
 // apiKeyCreationPlan decides whether to ask the bootstrap to create an API
-// key, and what to name it. --no-api-key wins; --rotate-api-key always
-// creates; otherwise we skip when the profile already holds a key for the
+// key, and what to name it. --no-api-key wins. --rotate-api-key always
+// creates. Otherwise we skip when the profile already holds a key for the
 // preferred tenant.
 func apiKeyCreationPlan(a *app.App, preferredTenant string, flags loginFlags) (bool, string) {
 	if flags.noAPIKey {

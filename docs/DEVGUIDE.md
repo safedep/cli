@@ -79,17 +79,17 @@ Operational commands (no structured result) use `tui.Info / Success / Warning / 
 
 ## Authentication
 
-- API key (data plane): `a.RequireDataPlane()`.
-- JWT (control plane): `a.RequireControlPlane()`.
+- API key (data plane): `a.DataPlane()`.
+- JWT (control plane): `a.ControlPlane()`.
 - Both return user-facing errors. Propagate them directly.
 - A static map of command → required plane lives in the convention test; mismatches fail CI. **(lint)**
-- Credentials are accessed only through `App` accessors (`CredentialStore`, `CredentialResolver`, `RequireDataPlane`, `RequireControlPlane`). No direct keychain or env-var reads from command code. **(lint, depguard)** A dedicated `internal/auth` package will absorb these accessors when the credential surface grows.
+- Credentials are accessed only through `App` accessors (`CredentialStore`, `APIKeyResolver`, `TokenResolver`, `DataPlane`, `ControlPlane`). No direct keychain or env-var reads from command code. **(lint, depguard)** A dedicated `internal/auth` package will absorb these accessors when the credential surface grows.
 
 ### Profiles
 
 - The `--profile` flag is a persistent flag on the root command; all subcommands inherit it.
 - `App` resolves the active profile once at init from `--profile`, `SAFEDEP_PROFILE`, persisted default, then `"default"`.
-- Command code never references the active profile directly. `a.RequireDataPlane()` and `a.RequireControlPlane()` build clients with the resolved profile via `dry/cloud`'s `WithProfile`.
+- Command code never references the active profile directly. `a.DataPlane()` and `a.ControlPlane()` build clients with the resolved profile via `dry/cloud`'s `WithProfile`.
 - The `auth` domain owns profile-management verbs: `login`, `logout`, `status`, `profile list`. Profile creation and deletion happen nowhere else.
 - Local state cached per profile (last-used tenant, command-specific caches) must be keyed by profile name. Global preferences (output format, etc.) are unscoped.
 
@@ -172,7 +172,7 @@ func runCmd(a *app.App) *cobra.Command {
         Use:   "run",
         Short: "Scan a manifest for vulnerabilities",
         RunE: func(cmd *cobra.Command, args []string) error {
-            client, err := a.RequireDataPlane()
+            client, err := a.DataPlane()
             if err != nil {
                 return err
             }
@@ -208,8 +208,8 @@ Otherwise keep the orchestration as a function in the verb file.
 
 | Need | Use |
 |------|-----|
-| Data plane gRPC client | `a.RequireDataPlane()` |
-| Control plane client (Phase 2) | `a.RequireControlPlane()` |
+| Data plane gRPC client | `a.DataPlane()` |
+| Control plane client (Phase 2) | `a.ControlPlane()` |
 | Credential store | `a.CredentialStore()` |
 | Credential resolver | `a.CredentialResolver()` |
 | Active credential profile | `a.Profile()` (read-only; flag/env wired in root) |

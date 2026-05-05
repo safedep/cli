@@ -59,7 +59,7 @@ func isCobraGenerated(c *cobra.Command) bool {
 }
 
 // isLeaf reports whether c executes a command (vs. acting as a parent
-// noun). Cobra parents have no Run/RunE; leaves have one.
+// noun). Cobra parents have no Run/RunE. Leaves have one.
 func isLeaf(c *cobra.Command) bool {
 	return c.RunE != nil || c.Run != nil
 }
@@ -95,7 +95,7 @@ func TestConventions_NoHyphensInUse(t *testing.T) {
 		if isCobraGenerated(c) {
 			return
 		}
-		// c.Name() is the first token of Use; that is what enters the path.
+		// c.Name() is the first token of Use. That is what enters the path.
 		assert.NotContains(t, c.Name(), "-",
 			"command name must not contain hyphens: path=%v", path)
 	})
@@ -156,7 +156,7 @@ func TestConventions_NoCrossCmdImports(t *testing.T) {
 		segs := strings.Split(filepath.ToSlash(rel), "/")
 		if len(segs) < 2 {
 			// File directly under internal/cmd (verbs.go, root.go, etc.) is the
-			// parent package; cross-cmd imports there are intentional.
+			// parent package. Cross-cmd imports there are intentional.
 			return nil
 		}
 		owner := segs[0]

@@ -2,7 +2,7 @@
 // the OAuth2 device-code login, the static API-key login, and the helpers
 // that read and write credentials via dry/cloud's keychain.
 //
-// Commands under internal/cmd/auth invoke these flows; nothing else in
+// Commands under internal/cmd/auth invoke these flows. Nothing else in
 // the CLI talks to the keychain directly.
 package auth
 
@@ -58,7 +58,7 @@ func envOr(key, fallback string) string {
 
 // APIKeyName returns the human-readable name used when creating API keys
 // from the device login flow. Stable enough for users to identify keys in
-// the cloud UI; unique enough to avoid collisions on repeated logins.
+// the cloud UI. Unique enough to avoid collisions on repeated logins.
 func APIKeyName(hostname string, now time.Time) string {
 	if hostname == "" {
 		hostname = "unknown-host"

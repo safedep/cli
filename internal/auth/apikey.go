@@ -32,7 +32,7 @@ func SaveAPIKey(_ context.Context, store cloud.CredentialStore, in APIKeyInput) 
 }
 
 // VerifyAPIKey checks that the supplied API key + tenant authenticate
-// against the SafeDep data plane. We connect and issue a low-cost RPC; a
+// against the SafeDep data plane. We connect and issue a low-cost RPC. A
 // successful round trip means the key is valid for that tenant.
 func VerifyAPIKey(_ context.Context, in APIKeyInput) error {
 	if in.APIKey == "" || in.Tenant == "" {

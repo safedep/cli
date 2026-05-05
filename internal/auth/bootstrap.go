@@ -37,7 +37,7 @@ type BootstrapResult struct {
 
 // PostOAuthBootstrap completes the work that follows a successful device
 // flow: discover accessible tenants, pick one, optionally create an API
-// key. It does not write to the keychain; the caller does that, since
+// key. It does not write to the keychain. The caller does that, since
 // the keychain store is owned by App.
 func PostOAuthBootstrap(ctx context.Context, in BootstrapInput) (*BootstrapResult, error) {
 	if in.AccessToken == "" {
@@ -49,7 +49,7 @@ func PostOAuthBootstrap(ctx context.Context, in BootstrapInput) (*BootstrapResul
 		return nil, err
 	}
 	if len(tenants) == 0 {
-		return nil, errors.New("auth: this account has no accessible tenant; contact SafeDep support")
+		return nil, errors.New("auth: this account has no accessible tenant: contact SafeDep support")
 	}
 
 	tenant, err := pickTenant(tenants, in.PreferredTenant, in.Picker)

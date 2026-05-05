@@ -1,5 +1,5 @@
 // Package auth registers the `safedep auth` domain. Verbs in this package
-// are placeholders during foundation bring-up; they exist so the command
+// are placeholders during foundation bring-up. They exist so the command
 // tree, output dispatch, and profile flag are exercisable end-to-end.
 package auth
 

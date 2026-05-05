@@ -44,8 +44,8 @@ func New(mode Mode) *Output {
 
 func (o *Output) Mode() Mode { return o.mode }
 
-// Print routes the Renderer based on Mode. JSON encodes AsJSON() to stdout;
-// every other mode delegates to dry/tui.Print which honours its own Mode.
+// Print routes the Renderer based on Mode. JSON encodes AsJSON() to stdout.
+// Every other mode delegates to dry/tui.Print which honours its own Mode.
 func (o *Output) Print(r Renderer) error {
 	if o.mode == ModeJSON {
 		v, err := r.AsJSON()
@@ -62,7 +62,7 @@ func (o *Output) Print(r Renderer) error {
 
 // ParseMode validates a user-supplied --output value. Empty input means
 // "auto-detect": we resolve to the dry/tui-detected mode for non-JSON
-// presentation; JSON is never auto-selected.
+// presentation. JSON is never auto-selected.
 func ParseMode(s string) (Mode, error) {
 	switch Mode(s) {
 	case ModeRich, ModePlain, ModeAgent, ModeJSON:
@@ -86,7 +86,7 @@ func autoDetect() Mode {
 }
 
 // AutoMode returns the auto-detected presentation Mode. JSON is never
-// auto-selected; it must be requested explicitly via --output.
+// auto-selected. It must be requested explicitly via --output.
 func AutoMode() Mode { return autoDetect() }
 
 // ApplyToTUI mirrors the resolved Mode into dry/tui's global state so
@@ -102,6 +102,6 @@ func (o *Output) ApplyToTUI() {
 	case ModeRich:
 		tuioutput.SetMode(tuioutput.Rich)
 	case ModeJSON:
-		// Leave dry/tui auto-detected; structured output bypasses tui.Print.
+		// Leave dry/tui auto-detected. Structured output bypasses tui.Print.
 	}
 }

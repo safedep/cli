@@ -80,7 +80,7 @@ func (a *App) Profile() string {
 
 // KeychainOptions returns the dry/cloud options the auth flows must use
 // when constructing stores or resolvers themselves. Only the profile is
-// scoped; the keychain app name is left at dry/cloud's DefaultAppName
+// scoped. The keychain app name is left at dry/cloud's DefaultAppName
 // ("safedep") so credentials saved here are visible to vet, pmg, and any
 // other SafeDep tool that shares the same default.
 func (a *App) KeychainOptions() []cloud.KeychainOption {
@@ -112,6 +112,12 @@ func (a *App) CredentialStore() (cloud.CredentialStore, error) {
 // SAFEDEP_TENANT_ID) win over the keychain, matching the convention
 // shared with vet/pmg: CI/headless environments stay self-contained
 // without needing an explicit `auth login`.
+//
+// A keychain construction failure (e.g. headless Linux with no DBus) is
+// non-fatal here: we log it and fall back to an env-only chain so the
+// documented headless/CI flow keeps working when the env vars are set.
+// If neither env vars nor a keychain are usable, the error surfaces at
+// Resolve time on the first DataPlane() call.
 func (a *App) APIKeyResolver() (cloud.CredentialResolver, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -125,12 +131,16 @@ func (a *App) APIKeyResolver() (cloud.CredentialResolver, error) {
 		return nil, fmt.Errorf("app: env resolver: %w", err)
 	}
 
+	resolvers := []cloud.CredentialResolver{envResolver}
+
 	keychainResolver, err := cloud.NewKeychainCredentialResolver(cloud.CredentialTypeAPIKey, a.keychainOptsLocked()...)
 	if err != nil {
-		return nil, fmt.Errorf("app: api-key resolver: %w", err)
+		log.Warnf("app: keychain unavailable for API-key resolver; falling back to env-only chain: %v", err)
+	} else {
+		resolvers = append(resolvers, keychainResolver)
 	}
 
-	a.apiKeyResolver = cloud.NewChainCredentialResolver(envResolver, keychainResolver)
+	a.apiKeyResolver = cloud.NewChainCredentialResolver(resolvers...)
 	return a.apiKeyResolver, nil
 }
 
@@ -153,9 +163,10 @@ func (a *App) TokenResolver() (cloud.CredentialResolver, error) {
 	return r, nil
 }
 
-// RequireDataPlane returns the data plane client for the active profile,
-// initialising it on first call.
-func (a *App) RequireDataPlane() (*cloud.Client, error) {
+// DataPlane returns the data plane client for the active profile,
+// initialising it on first call. Returns a user-facing error when no
+// credentials are available so commands can propagate it directly.
+func (a *App) DataPlane() (*cloud.Client, error) {
 	resolver, err := a.APIKeyResolver()
 	if err != nil {
 		return nil, err
@@ -170,7 +181,7 @@ func (a *App) RequireDataPlane() (*cloud.Client, error) {
 
 	creds, err := resolver.Resolve()
 	if err != nil {
-		return nil, errors.New("not authenticated; run `safedep auth login` first")
+		return nil, errors.New("not authenticated: run `safedep auth login` first")
 	}
 
 	client, err := cloud.NewDataPlaneClient(gRPCClientName, creds)
@@ -182,10 +193,11 @@ func (a *App) RequireDataPlane() (*cloud.Client, error) {
 	return a.dataPlane, nil
 }
 
-// RequireControlPlane returns the control plane client for the active
-// profile. Auto-refresh of expired tokens is a future feature; today an
-// expired token surfaces as a clear "session expired" error.
-func (a *App) RequireControlPlane() (*cloud.Client, error) {
+// ControlPlane returns the control plane client for the active profile.
+// Returns a user-facing error when no OAuth credentials are available.
+// Auto-refresh of expired tokens is a future feature. Today an expired
+// token surfaces as a clear "session expired" error.
+func (a *App) ControlPlane() (*cloud.Client, error) {
 	resolver, err := a.TokenResolver()
 	if err != nil {
 		return nil, err
@@ -200,7 +212,7 @@ func (a *App) RequireControlPlane() (*cloud.Client, error) {
 
 	creds, err := resolver.Resolve()
 	if err != nil {
-		return nil, errors.New("not authenticated for control plane; run `safedep auth login`")
+		return nil, errors.New("not authenticated for control plane: run `safedep auth login`")
 	}
 
 	client, err := cloud.NewControlPlaneClient(gRPCClientName, creds)

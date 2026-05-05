@@ -25,9 +25,10 @@ make release-snapshot # Local release build via goreleaser
 - Keep this file distilled. Avoid fluff
 - No unnecessary comments
 - Code comments must be ASCII only. No em-dash, unnecessary compound words
+- Do not use `;` to join sentences. In error messages use `:` (label:detail). In comments end the sentence with `.` and start the next one
 - Idiomatic Go: explicit error handling, table-driven tests, no swallowed errors
 - Use `testify/require` for fatal assertions, `testify/assert` for non-fatal
-- Re-use existing patterns; prefer refactoring over copying
+- Re-use existing patterns. Prefer refactoring over copying
 - `dry/log` for internal logging (`log.Warnf` for soft failures)
 
 For any changes in `.github/workflows/`:

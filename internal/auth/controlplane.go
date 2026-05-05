@@ -22,7 +22,7 @@ const (
 // service can scope responses correctly.
 //
 // dry/cloud.NewControlPlaneClient requires a non-empty tenant in the
-// Credentials struct; this helper sidesteps that constraint for the
+// Credentials struct. This helper sidesteps that constraint for the
 // bootstrap step.
 func ControlPlaneConn(token, tenant string) (*grpc.ClientConn, error) {
 	if token == "" {

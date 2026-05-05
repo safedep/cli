@@ -19,6 +19,13 @@ import (
 
 const cmdPkgPrefix = "github.com/safedep/cli/internal/cmd/"
 
+// rootLevelExceptions are leaves intentionally permitted at depth 1,
+// against the noun-verb shape rule. Universal CLI conventions trump our
+// rule for a small set of well-known commands. See DEVGUIDE Command shape.
+var rootLevelExceptions = map[string]struct{}{
+	"version": {},
+}
+
 // repoRoot resolves the repository root by walking up from this file's
 // location. The lints inspect docs/ and README.md, so we need a real path
 // independent of the test's CWD.
@@ -79,6 +86,12 @@ func TestConventions_LeafShape(t *testing.T) {
 		}
 		full := strings.Join(append([]string{"safedep"}, path...), " ")
 		t.Run(full, func(t *testing.T) {
+			if len(path) == 1 {
+				if _, ok := rootLevelExceptions[path[0]]; ok {
+					return
+				}
+			}
+
 			require.GreaterOrEqual(t, len(path), 2,
 				"leaf %q must be at depth >= 2 (noun/verb); got %v", full, path)
 

@@ -50,6 +50,14 @@ Logging uses `dry/log` directly; the CLI does not wrap it.
 Initial verb allow-list:
 `get, list, show, run, exec, login, logout, status, install, uninstall, enable, disable, create, delete, update, set, init, sync, edit`.
 
+### Exceptions
+
+A small number of commands are intentionally allowed at depth 1 against the noun-verb rule, where universal CLI convention is older and stronger than ours:
+
+- `safedep version` — every CLI in the ecosystem (kubectl, gh, git, vet, pmg) responds to a bare `version`. Forcing `version show` would cost UX without buying anything.
+
+Exceptions live in `rootLevelExceptions` in `internal/cmd/conventions_test.go`. Adding to the list requires a PR explaining why the universal convention overrides ours. Default answer: no.
+
 ## Naming
 
 - Service structs use `-er` when the verb forms a natural noun (`Runner`, `Scanner`, `Installer`). Use `Service` suffix when it does not (`SetupService`, `QueryService`).

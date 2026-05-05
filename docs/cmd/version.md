@@ -1,16 +1,21 @@
-# safedep version show
+# safedep version
 
 Print the version, commit, and build metadata of this CLI.
 
 ## Synopsis
 
 ```
-safedep version show
+safedep version
 ```
 
 ## Output
 
-Emits a single line via `tui.Info` with the form `<version> (<commit>)`.
+Two lines via `tui.Info`:
+
+```
+Version:   <version>
+CommitSHA: <commit-sha>
+```
 
 ## Exit codes
 

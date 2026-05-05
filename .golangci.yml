@@ -47,6 +47,10 @@ linters:
       # tui package implements the printer/dispatcher.
       - path: internal/tui/.*\.go
         linters: [forbidigo]
+      # version command writes raw lines to stdout intentionally
+      # (no [INFO] prefix, parseable by humans and scripts alike).
+      - path: internal/cmd/version/.*\.go
+        linters: [forbidigo]
       # config, app, and auth read env vars (auth resolves OAuth endpoint overrides).
       - path: internal/(app|config|auth)/.*\.go
         linters: [forbidigo]

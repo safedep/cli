@@ -293,11 +293,12 @@ func resolveTenant(_ *cobra.Command, a *app.App, flag string) (string, error) {
 	return tenant, nil
 }
 
-// apiKeyFromEnvResolver tries dry/cloud's env credential resolver and
-// returns the API-key value if both SAFEDEP_API_KEY and SAFEDEP_TENANT_ID
-// are populated. We use the resolver rather than calling os.Getenv so the
-// env-var contract stays owned by dry/cloud and the CLI honours the same
-// shape as vet and pmg.
+// apiKeyFromEnvResolver returns the SAFEDEP_API_KEY value via dry/cloud's
+// env credential resolver. SAFEDEP_TENANT_ID is not required here: tenant
+// resolution happens separately (flag, then keychain, then prompt) and
+// the env resolver constructs valid data-plane credentials with just the
+// API key. Routing through dry/cloud rather than os.Getenv keeps the
+// env-var contract owned upstream so the CLI matches vet and pmg.
 func apiKeyFromEnvResolver() string {
 	r, err := cloud.NewEnvCredentialResolver()
 	if err != nil {

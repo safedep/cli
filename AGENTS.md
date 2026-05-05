@@ -18,17 +18,19 @@ make lint-conventions # Run lint + convention tests over the cobra tree
 make release-snapshot # Local release build via goreleaser
 ```
 
-## CI / GitHub Actions
+## Guidance
 
-Always pin third-party GitHub Actions to a full commit SHA, not a tag or branch. A tag can be moved silently by the action's owner; a SHA cannot. This is the project's only defence against supply-chain compromise of upstream actions.
+- NO EMOJI
+- Refactor code when required instead of violating DRY
+- Keep this file distilled. Avoid fluff
+- No unnecessary comments
+- Code comments must be ASCII only. No em-dash, unnecessary compound words
+- Idiomatic Go: explicit error handling, table-driven tests, no swallowed errors
+- Use `testify/require` for fatal assertions, `testify/assert` for non-fatal
+- Re-use existing patterns; prefer refactoring over copying
+- `dry/log` for internal logging (`log.Warnf` for soft failures)
 
-Format:
+For any changes in `.github/workflows/`:
 
-```yaml
-# actions/checkout v6.0.2
-- uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-```
-
-Always include a comment with the human-readable version on the line immediately above so the SHA stays auditable. When bumping, resolve the new SHA via `gh api repos/<owner>/<repo>/git/refs/tags/<version>` and update both the SHA and the comment in the same commit.
-
-This rule applies to every action under `.github/workflows/` regardless of trust. First-party actions from `actions/*` are not exempt.
+- Always pin GitHub Actions to commit sha
+- Always check latest stable version of a GitHub action before use

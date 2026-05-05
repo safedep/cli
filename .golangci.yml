@@ -26,8 +26,10 @@ linters:
 
     forbidigo:
       forbid:
-        # Direct stdout/stderr writes bypass the output dispatcher and dry/tui.
-        - pattern: ^fmt\.F?[Pp]rint(ln|f)?$
+        # fmt.Print/Println/Printf write to stdout implicitly. fmt.Fprint*
+        # is allowed because it takes an explicit writer; writes to
+        # os.Stdout/os.Stderr are caught by the next rule below.
+        - pattern: ^fmt\.Print(ln|f)?$
           msg: route output via internal/output (a.Output.Print) or dry/tui
         - pattern: ^os\.Std(out|err)$
           msg: route writes via internal/output or dry/tui
@@ -45,8 +47,8 @@ linters:
       # output package implements the dispatcher.
       - path: internal/output/.*\.go
         linters: [forbidigo]
-      # config + app are the only places that read env vars and write file state.
-      - path: internal/(app|config)/.*\.go
+      # config, app, and auth read env vars (auth resolves OAuth endpoint overrides).
+      - path: internal/(app|config|auth)/.*\.go
         linters: [forbidigo]
       # Tests construct ad-hoc fixtures and may print debug context.
       - path: _test\.go

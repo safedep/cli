@@ -1,8 +1,6 @@
 # safedep auth logout
 
-Remove the credentials stored for the active profile from the keychain.
-
-> Status: not yet implemented. The command is wired into the CLI tree but returns an error on use.
+Remove every credential field stored for the active profile (API key, OAuth access token, refresh token, tenant).
 
 ## Synopsis
 
@@ -14,7 +12,11 @@ safedep auth logout [--profile <name>]
 
 Inherits root flags `--output` and `--profile`.
 
+## Behaviour
+
+Calls `Clear` on the keychain for the active profile. Other profiles are unaffected.
+
 ## Exit codes
 
 - `0` on success.
-- `1` on any failure.
+- `1` if the keychain cannot be opened or cleared.

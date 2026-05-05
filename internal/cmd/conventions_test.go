@@ -26,7 +26,7 @@ func repoRoot(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
 	require.True(t, ok, "runtime.Caller failed")
-	// internal/cmd/conventions_test.go → repo root is two levels up.
+	// internal/cmd/conventions_test.go: repo root is two levels up.
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }
 

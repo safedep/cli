@@ -1,20 +1,24 @@
 # safedep auth status
 
-Report whether the active profile holds valid credentials and which tenant they bind to.
-
-> Status: not yet implemented. The command is wired into the CLI tree but returns an error on use.
+Report which credentials the active profile holds.
 
 ## Synopsis
 
 ```
-safedep auth status [--profile <name>]
+safedep auth status [--output rich|plain|agent|json] [--profile <name>]
 ```
 
-## Flags
+## Output
 
-Inherits root flags `--output` and `--profile`.
+Reports profile name, tenant, presence of an API key, presence of an OAuth token, and the OAuth access-token expiry decoded from the JWT.
+
+| Mode | Format |
+|---|---|
+| `rich` | Tabular block with badges for each credential. |
+| `plain` | `key: value` lines. |
+| `agent` | Single-line `key=value` pairs. |
+| `json` | `{profile, tenant, api_key_present, oauth_token_present, oauth_expires_at}`. |
 
 ## Exit codes
 
-- `0` on success.
-- `1` on any failure.
+- `0` always (status is informational, not a probe).

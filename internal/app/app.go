@@ -13,12 +13,19 @@ import (
 	"github.com/safedep/cli/internal/config"
 	"github.com/safedep/cli/internal/output"
 	"github.com/safedep/dry/cloud"
+	"github.com/safedep/dry/log"
 )
 
 const (
 	envProfile     = "SAFEDEP_PROFILE"
 	defaultProfile = "default"
-	appName        = "safedep-cli"
+
+	// gRPCClientName identifies the CLI in server logs and request
+	// metadata. It is NOT the keychain app name: dry/cloud's
+	// DefaultAppName ("safedep") is shared across vet, pmg, and the CLI
+	// so credentials saved by one tool are discoverable by the others
+	// (per ADR Authentication section).
+	gRPCClientName = "safedep-cli"
 )
 
 // App is constructed once in main(). Output and profile are populated by
@@ -30,8 +37,9 @@ type App struct {
 	mu      sync.Mutex
 	profile string
 
-	credStore    cloud.CredentialStore
-	credResolver cloud.CredentialResolver
+	credStore      cloud.CredentialStore
+	apiKeyResolver cloud.CredentialResolver
+	tokenResolver  cloud.CredentialResolver
 
 	dataPlane    *cloud.Client
 	controlPlane *cloud.Client
@@ -46,8 +54,8 @@ func New(cfg *config.Config) *App {
 }
 
 // SetProfile records the active credential profile. Called by the root
-// PersistentPreRunE with the value of --profile (which may be empty). The
-// resolution order is: flag → env → built-in default.
+// PersistentPreRunE with the value of --profile (which may be empty).
+// Resolution order: flag, then env, then built-in default.
 func (a *App) SetProfile(flagValue string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -70,9 +78,19 @@ func (a *App) Profile() string {
 	return a.profile
 }
 
+// KeychainOptions returns the dry/cloud options the auth flows must use
+// when constructing stores or resolvers themselves. Only the profile is
+// scoped; the keychain app name is left at dry/cloud's DefaultAppName
+// ("safedep") so credentials saved here are visible to vet, pmg, and any
+// other SafeDep tool that shares the same default.
+func (a *App) KeychainOptions() []cloud.KeychainOption {
+	return []cloud.KeychainOption{
+		cloud.WithProfile(a.Profile()),
+	}
+}
+
 // CredentialStore returns the keychain-backed credential store, scoped to
-// the active profile. The store is initialised lazily so commands that do
-// not touch credentials (e.g. --help) don't pay the cost.
+// the active profile. Initialised lazily.
 func (a *App) CredentialStore() (cloud.CredentialStore, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -80,58 +98,82 @@ func (a *App) CredentialStore() (cloud.CredentialStore, error) {
 		return a.credStore, nil
 	}
 
-	store, err := cloud.NewKeychainCredentialStore(
-		cloud.WithAppName(appName),
-		cloud.WithProfile(a.profile),
-	)
+	store, err := cloud.NewKeychainCredentialStore(a.keychainOptsLocked()...)
 	if err != nil {
 		return nil, fmt.Errorf("app: credential store: %w", err)
 	}
+
 	a.credStore = store
 	return store, nil
 }
 
-// CredentialResolver returns the API-key credential resolver for the active
-// profile. Initialised lazily.
-func (a *App) CredentialResolver() (cloud.CredentialResolver, error) {
+// APIKeyResolver returns the API-key credential resolver for the active
+// profile. Initialised lazily. Env vars (SAFEDEP_API_KEY +
+// SAFEDEP_TENANT_ID) win over the keychain, matching the convention
+// shared with vet/pmg: CI/headless environments stay self-contained
+// without needing an explicit `auth login`.
+func (a *App) APIKeyResolver() (cloud.CredentialResolver, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.credResolver != nil {
-		return a.credResolver, nil
+
+	if a.apiKeyResolver != nil {
+		return a.apiKeyResolver, nil
 	}
 
-	resolver, err := cloud.NewKeychainCredentialResolver(
-		cloud.CredentialTypeAPIKey,
-		cloud.WithAppName(appName),
-		cloud.WithProfile(a.profile),
-	)
+	envResolver, err := cloud.NewEnvCredentialResolver()
 	if err != nil {
-		return nil, fmt.Errorf("app: credential resolver: %w", err)
+		return nil, fmt.Errorf("app: env resolver: %w", err)
 	}
-	a.credResolver = resolver
-	return resolver, nil
+
+	keychainResolver, err := cloud.NewKeychainCredentialResolver(cloud.CredentialTypeAPIKey, a.keychainOptsLocked()...)
+	if err != nil {
+		return nil, fmt.Errorf("app: api-key resolver: %w", err)
+	}
+
+	a.apiKeyResolver = cloud.NewChainCredentialResolver(envResolver, keychainResolver)
+	return a.apiKeyResolver, nil
+}
+
+// TokenResolver returns the OAuth-token credential resolver for the
+// active profile. Initialised lazily.
+func (a *App) TokenResolver() (cloud.CredentialResolver, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.tokenResolver != nil {
+		return a.tokenResolver, nil
+	}
+
+	r, err := cloud.NewKeychainCredentialResolver(cloud.CredentialTypeToken, a.keychainOptsLocked()...)
+	if err != nil {
+		return nil, fmt.Errorf("app: token resolver: %w", err)
+	}
+
+	a.tokenResolver = r
+	return r, nil
 }
 
 // RequireDataPlane returns the data plane client for the active profile,
 // initialising it on first call.
 func (a *App) RequireDataPlane() (*cloud.Client, error) {
-	resolver, err := a.CredentialResolver()
+	resolver, err := a.APIKeyResolver()
 	if err != nil {
 		return nil, err
 	}
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
+
 	if a.dataPlane != nil {
 		return a.dataPlane, nil
 	}
 
 	creds, err := resolver.Resolve()
 	if err != nil {
-		return nil, errors.New("not authenticated — run `safedep auth login` first")
+		return nil, errors.New("not authenticated; run `safedep auth login` first")
 	}
 
-	client, err := cloud.NewDataPlaneClient(appName, creds)
+	client, err := cloud.NewDataPlaneClient(gRPCClientName, creds)
 	if err != nil {
 		return nil, fmt.Errorf("app: data plane client: %w", err)
 	}
@@ -140,15 +182,34 @@ func (a *App) RequireDataPlane() (*cloud.Client, error) {
 	return a.dataPlane, nil
 }
 
-// RequireControlPlane returns the control plane client. Until OAuth lands
-// it returns a clear, user-facing error.
+// RequireControlPlane returns the control plane client for the active
+// profile. Auto-refresh of expired tokens is a future feature; today an
+// expired token surfaces as a clear "session expired" error.
 func (a *App) RequireControlPlane() (*cloud.Client, error) {
+	resolver, err := a.TokenResolver()
+	if err != nil {
+		return nil, err
+	}
+
 	a.mu.Lock()
 	defer a.mu.Unlock()
+
 	if a.controlPlane != nil {
 		return a.controlPlane, nil
 	}
-	return nil, errors.New("this command requires OAuth login — not yet available, coming in a future release")
+
+	creds, err := resolver.Resolve()
+	if err != nil {
+		return nil, errors.New("not authenticated for control plane; run `safedep auth login`")
+	}
+
+	client, err := cloud.NewControlPlaneClient(gRPCClientName, creds)
+	if err != nil {
+		return nil, fmt.Errorf("app: control plane client: %w", err)
+	}
+
+	a.controlPlane = client
+	return a.controlPlane, nil
 }
 
 // Close releases resources held by lazily-initialised collaborators.
@@ -157,9 +218,42 @@ func (a *App) Close() {
 	defer a.mu.Unlock()
 
 	if a.credStore != nil {
-		_ = a.credStore.Close()
+		closeAndLog("credential store", a.credStore.Close)
 	}
-	if closer, ok := a.credResolver.(interface{ Close() error }); ok {
-		_ = closer.Close()
+
+	closeResolverIfCloseable("api-key resolver", a.apiKeyResolver)
+	closeResolverIfCloseable("token resolver", a.tokenResolver)
+
+	if a.dataPlane != nil {
+		closeAndLog("data plane client", a.dataPlane.Close)
+	}
+
+	if a.controlPlane != nil {
+		closeAndLog("control plane client", a.controlPlane.Close)
+	}
+}
+
+func (a *App) keychainOptsLocked() []cloud.KeychainOption {
+	return []cloud.KeychainOption{
+		cloud.WithProfile(a.profile),
+	}
+}
+
+func closeResolverIfCloseable(label string, r cloud.CredentialResolver) {
+	if r == nil {
+		return
+	}
+
+	c, ok := r.(cloud.CloseableCredentialResolver)
+	if !ok {
+		return
+	}
+
+	closeAndLog(label, c.Close)
+}
+
+func closeAndLog(label string, closeFn func() error) {
+	if err := closeFn(); err != nil {
+		log.Warnf("app: close %s: %v", label, err)
 	}
 }

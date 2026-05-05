@@ -61,7 +61,7 @@ func (o *Output) Print(r Renderer) error {
 }
 
 // ParseMode validates a user-supplied --output value. Empty input means
-// "auto-detect" — we resolve to the dry/tui-detected mode for non-JSON
+// "auto-detect": we resolve to the dry/tui-detected mode for non-JSON
 // presentation; JSON is never auto-selected.
 func ParseMode(s string) (Mode, error) {
 	switch Mode(s) {

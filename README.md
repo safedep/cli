@@ -4,11 +4,6 @@ The SafeDep Platform CLI. The unified DevEx layer over [vet](https://github.com/
 [pmg](https://github.com/safedep/pmg), [gryph](https://github.com/safedep/gryph), and [SafeDep
 Cloud](https://docs.safedep.io/cloud/overview).
 
-## Documentation
-
-- [Architectural decisions (ADR)](./docs/ADR.md)
-- [Developer guide](./docs/DEVGUIDE.md)
-
 ## Commands
 
 | Command | Description |

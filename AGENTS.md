@@ -28,6 +28,7 @@ make release-snapshot # Local release build via goreleaser
 - Do not use `;` to join sentences. In error messages use `:` (label:detail). In comments end the sentence with `.` and start the next one
 - Idiomatic Go: explicit error handling, table-driven tests, no swallowed errors
 - Use `testify/require` for fatal assertions, `testify/assert` for non-fatal
+- Generate mocks with mockery v3 (testify template) for non-trivial interfaces. Hand-rolled fakes for single-method interfaces or function-type parameters. See DEVGUIDE Mocks section
 - Re-use existing patterns. Prefer refactoring over copying
 - `dry/log` for internal logging (`log.Warnf` for soft failures)
 

@@ -143,6 +143,14 @@ A *domain* is the top-level noun in a `safedep` command. This walkthrough shows 
 
 ## Anatomy of a leaf command
 
+`RunE` does exactly three things, in order:
+
+1. Resolve dependencies from `a` (App) and flag values.
+2. Call the orchestration (a function in this file, or a service struct).
+3. Print the result via `a.Output.Print(result)` for data commands, or via `tui.Info / Success / Warning` for operational ones.
+
+If `RunE` does anything else, the code belongs in a function or a `service.go`.
+
 ```go
 // internal/cmd/scan/run.go
 package scan
@@ -201,6 +209,37 @@ Extract a `service.go` only when:
 - The orchestration deserves unit tests in isolation from cobra.
 
 Otherwise keep the orchestration as a function in the verb file.
+
+## Injecting collaborators
+
+When orchestration depends on something that is hard to fake in a unit test (network, filesystem, subprocess, interactive prompt), accept it as an interface or function-type parameter rather than reaching out from inside the orchestration. The cobra wiring passes the real implementation. The test passes a fake.
+
+```go
+// internal/cmd/scan/service.go
+type packageRepo interface {
+    ListVulnerabilities(ctx context.Context, pkg string) ([]vuln, error)
+}
+
+func runScan(ctx context.Context, repo packageRepo, in runInput) (*runResult, error) {
+    // pure orchestration, no network calls of its own
+}
+```
+
+Concrete implementations (the gRPC client wrapper, the file reader, etc.) live in the same package as a sibling file, e.g. `grpc_repo.go`. Pull them out only when reused across packages, in which case they belong somewhere shared (`dry`, or a future `internal/...` package).
+
+## Mocks
+
+Use [mockery v3](https://vektra.github.io/mockery/) to generate mocks for non-trivial interfaces, matching the convention used in `malysis`. Hand-rolled struct fakes are fine for single-method interfaces or function-type parameters (such as the `TenantPicker` in `internal/auth/bootstrap.go`). Reach for mockery when an interface has two or more methods, or when tests need to verify call sequences or argument capture.
+
+Conventions:
+
+- `.mockery.yml` at repo root lists packages and interfaces explicitly. No `//go:generate` directives in source files.
+- Generated mocks land in a `mocks/` subdir under the interface's package, with type name `<Interface>Mock` and file name `<Interface>_mock.go`.
+- Generated files are committed to the repo so test runs are hermetic.
+- Use the testify template (`template: testify`) so mocks integrate with `testify/assert` and `testify/require` already used elsewhere.
+- mockery is wired as a Go tool dependency (`tool ( github.com/vektra/mockery/v3 )` in `go.mod`). Regenerate with `go tool mockery`.
+
+`.mockery.yml` and the `tool` directive are added when the first interface needs mocking. The first PR doing so should also wire a `make mocks` target.
 
 ## App accessors
 

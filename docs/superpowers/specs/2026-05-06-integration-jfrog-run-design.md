@@ -39,13 +39,12 @@ Credentials are resolved entirely through the existing auth system. No new auth 
 ```
 RunE
   a.DataPlane()   →  *cloud.Client  (API key from --profile / keychain / env)
-  a.DB()          →  *db.DB         (sqlite; first command to use this accessor)
   loadConfig()    →  Config
 
   newFeedService(
       malysisv1grpc.NewMalwareAnalysisServiceClient(client.Connection()),
       newJFrogPusher(cfg.JFrog),
-      newCursorStore(db, a.Profile()),
+      newCursorStore(cfg.Source.CursorFile),
   ).Run(cmd.Context())
 ```
 
@@ -70,16 +69,14 @@ internal/cmd/integration/
     poller.go             # MaliciousPackagePoller: gRPC pagination + cursor save
     pusher.go             # JFrogPusher: HTTP POST to /xray/api/v1/events
     config.go             # YAML config schema + loader
-    store.go              # sqlite cursor (integration_jfrog_cursor table)
+    store.go              # file-based cursor (JSON file, path from config)
     service_test.go       # FeedService unit tests with fakes
     run_test.go           # cobra convention tests
 ```
 
-`internal/app/app.go` gains `App.DB()` — the first use of sqlite in the CLI. The
-storage bootstrap (creating the db file, running migrations) lives in
-`internal/storage/` as required by DEVGUIDE, introduced alongside this command.
-
 `cmd/safedep/main.go` gets one new line: `integration.Register(root, a)`.
+
+sqlite (`App.DB()` and `internal/storage/`) is deferred — not needed for this POC.
 
 ---
 
@@ -101,20 +98,18 @@ The loop runs until the context is cancelled (SIGINT / SIGTERM).
 
 ---
 
-## sqlite cursor
+## File-based cursor
 
-Table created on first run:
+The cursor is a small JSON file written to a path configured in `source.cursor_file`
+(defaults to `~/.safedep/integration-jfrog-cursor.json`):
 
-```sql
-CREATE TABLE IF NOT EXISTS integration_jfrog_cursor (
-    profile      TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    PRIMARY KEY (profile)
-);
+```json
+{"last_seen_at": "2026-05-06T10:00:00Z"}
 ```
 
-`last_seen_at` is stored as RFC3339 UTC. Keyed by profile name so multiple profiles
-(tenants) can run independently on the same machine.
+The file is read at startup and written after each page of results. If the file does
+not exist, polling starts from the beginning (zero time). The file is overwritten
+atomically (write to a temp file, rename) to avoid corruption on crash.
 
 ---
 
@@ -167,7 +162,8 @@ to push will not block new packages from being delivered.
 
 ```yaml
 source:
-  poll_interval: 60s       # sleep between poll cycles; default 60s if omitted
+  poll_interval: 60s                                        # default 60s if omitted
+  cursor_file: ~/.safedep/integration-jfrog-cursor.json    # default if omitted
 
 jfrog:
   url: https://company.jfrog.io   # base URL; no trailing slash

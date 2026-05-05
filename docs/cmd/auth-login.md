@@ -23,7 +23,7 @@ safedep auth login --api-key [--api-key-value <key> | --from-stdin] [--tenant <d
 | `--rotate-api-key` | Force creation of a new API key during device login. By default, an existing API key for the chosen tenant is preserved. |
 | `--no-api-key` | Skip API key creation during device login. OAuth tokens are still stored. |
 
-Inherits root flags `--output` and `--profile`.
+Inherits root flags `--output`, `--profile`, and `--insecure-keychain-fallback`.
 
 ## Inputs (precedence)
 

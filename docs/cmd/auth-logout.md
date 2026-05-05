@@ -10,7 +10,7 @@ safedep auth logout [--profile <name>]
 
 ## Flags
 
-Inherits root flags `--output` and `--profile`.
+Inherits root flags `--output`, `--profile`, and `--insecure-keychain-fallback`.
 
 ## Behaviour
 

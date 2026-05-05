@@ -34,8 +34,9 @@ type App struct {
 	Config *config.Config
 	Output *tui.Printer
 
-	mu      sync.Mutex
-	profile string
+	mu                       sync.Mutex
+	profile                  string
+	insecureKeychainFallback bool
 
 	credStore      cloud.CredentialStore
 	apiKeyResolver cloud.CredentialResolver
@@ -78,15 +79,28 @@ func (a *App) Profile() string {
 	return a.profile
 }
 
+// SetInsecureKeychainFallback toggles the plaintext-file fallback for the
+// keychain. Called by the root PersistentPreRunE with the value of
+// --insecure-keychain-fallback. Must be set before the first credential
+// store or resolver is constructed; flipping it later has no effect on
+// already-cached collaborators.
+func (a *App) SetInsecureKeychainFallback(enabled bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.insecureKeychainFallback = enabled
+}
+
 // KeychainOptions returns the dry/cloud options the auth flows must use
-// when constructing stores or resolvers themselves. Only the profile is
-// scoped. The keychain app name is left at dry/cloud's DefaultAppName
-// ("safedep") so credentials saved here are visible to vet, pmg, and any
-// other SafeDep tool that shares the same default.
+// when constructing stores or resolvers themselves. The profile is scoped
+// and the insecure file fallback is enabled when the user opted in via
+// --insecure-keychain-fallback. The keychain app name is left at
+// dry/cloud's DefaultAppName ("safedep") so credentials saved here are
+// visible to vet, pmg, and any other SafeDep tool that shares the same
+// default.
 func (a *App) KeychainOptions() []cloud.KeychainOption {
-	return []cloud.KeychainOption{
-		cloud.WithProfile(a.Profile()),
-	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.keychainOptsLocked()
 }
 
 // CredentialStore returns the keychain-backed credential store, scoped to
@@ -246,9 +260,13 @@ func (a *App) Close() {
 }
 
 func (a *App) keychainOptsLocked() []cloud.KeychainOption {
-	return []cloud.KeychainOption{
+	opts := []cloud.KeychainOption{
 		cloud.WithProfile(a.profile),
 	}
+	if a.insecureKeychainFallback {
+		opts = append(opts, cloud.WithInsecureFileFallback())
+	}
+	return opts
 }
 
 func closeResolverIfCloseable(label string, r cloud.CredentialResolver) {

@@ -8,13 +8,12 @@ import (
 
 var (
 	outputFlag  string
-	noColorFlag bool
-	verboseFlag bool
+	profileFlag string
 )
 
-// NewRootCommand creates the root cobra command. The provided App is
-// mutated in PersistentPreRunE (output format resolved from flags) before
-// any RunE fires, so domain commands can safely use it at call time.
+// NewRootCommand creates the root cobra command. Persistent flags are
+// resolved in PersistentPreRunE before any RunE fires, so domain commands
+// can read App.Output and the resolved profile at call time.
 func NewRootCommand(a *app.App) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "safedep",
@@ -23,16 +22,20 @@ func NewRootCommand(a *app.App) *cobra.Command {
 		SilenceErrors: true,
 	}
 
-	root.PersistentFlags().StringVarP(&outputFlag, "output", "o", "", "output format: table, plain, json")
-	root.PersistentFlags().BoolVar(&noColorFlag, "no-color", false, "disable color output")
-	root.PersistentFlags().BoolVarP(&verboseFlag, "verbose", "v", false, "verbose output")
+	root.PersistentFlags().StringVarP(&outputFlag, "output", "o", "", "output mode: rich, plain, agent, json (auto-detected when empty)")
+	root.PersistentFlags().StringVar(&profileFlag, "profile", "", "credential profile (overrides SAFEDEP_PROFILE; defaults to \"default\")")
 
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
-		format, err := output.ParseFormat(outputFlag)
+		mode, err := output.ParseMode(outputFlag)
 		if err != nil {
 			return err
 		}
-		a.Output = output.New(format)
+
+		out := output.New(mode)
+		out.ApplyToTUI()
+		a.Output = out
+
+		a.SetProfile(profileFlag)
 		return nil
 	}
 

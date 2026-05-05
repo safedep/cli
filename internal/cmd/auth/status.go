@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"errors"
+
 	"github.com/safedep/cli/internal/app"
 	"github.com/spf13/cobra"
 )
@@ -8,18 +10,11 @@ import (
 func statusCmd(a *app.App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
-		Short: "Show current authentication state",
+		Short: "Show authentication status for the active profile",
+		Long:  "Report whether the active profile holds valid credentials and which tenant they bind to.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			creds, err := a.CredentialResolver().Resolve()
-			if err != nil {
-				a.Output.Warning("Not authenticated. Run `safedep auth login`.")
-				return nil
-			}
-
-			tenant, _ := creds.GetTenantDomain()
-			a.Output.Success("Authenticated")
-			a.Output.Info("Tenant: %s", tenant)
-			return nil
+			_ = a
+			return errors.New("auth status: not yet implemented")
 		},
 	}
 }

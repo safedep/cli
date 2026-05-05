@@ -4,6 +4,7 @@ package jfrog
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -46,7 +47,7 @@ func loadConfig(path string) (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("config: resolve cursor file home dir: %w", err)
 		}
-		cfg.Source.CursorFile = home + "/.safedep/integration-jfrog-cursor.json"
+		cfg.Source.CursorFile = filepath.Join(home, ".safedep", "integration-jfrog-cursor.json")
 	}
 	if tok := os.Getenv("SAFEDEP_JFROG_ACCESS_TOKEN"); tok != "" {
 		cfg.JFrog.AccessToken = tok

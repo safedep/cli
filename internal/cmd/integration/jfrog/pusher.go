@@ -86,6 +86,12 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 		log.Warnf("jfrog pusher: skipping record %s: empty package name", record.GetAnalysisId())
 		return 0, nil
 	}
+	// Empty version would render as "[]" in XRay's range notation, which the
+	// API silently drops. Refuse rather than push a record that will not flag.
+	if version == "" {
+		log.Warnf("jfrog pusher: skipping record %s: empty version", record.GetAnalysisId())
+		return 0, nil
+	}
 	pkgType := ecosystemToJFrog(pkg.GetEcosystem())
 
 	event := jfrogEvent{

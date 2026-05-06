@@ -112,9 +112,15 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 	return nil
 }
 
-// issueID builds a JFrog-safe issue ID from name and version.
-// Max 32 chars total; must not start with "Xray".
-// Fixed budget: 7 prefix + 13 name + 1 separator + 11 version = 32.
+// issueID builds a JFrog XRay custom issue ID from package name and version.
+//
+// JFrog constraints: max 32 chars, must not start with "Xray", must not be "JFrog".
+//
+// Budget: "SD-MAL-" (7) + name (13) + "-" (1) + version (11) = 32.
+// Both name and version are independently truncated so the version is never
+// silently dropped. This matters for scoped packages like @company/pkg where
+// the name alone can exhaust the budget, making multiple versions
+// indistinguishable in XRay.
 func issueID(name, version string) string {
 	const prefix = "SD-MAL-"
 	const nameBudget = 13

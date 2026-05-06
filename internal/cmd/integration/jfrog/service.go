@@ -79,11 +79,15 @@ func (s *feedService) runOnce(ctx context.Context) error {
 			log.Warnf("feed: push %s: %v", record.GetAnalysisId(), err)
 			return nil
 		}
-		pv := record.GetTarget().GetPackageVersion()
-		if pv == nil {
+		// Push contract: status == 0 with nil error means the record was
+		// skipped before the HTTP call (nil PackageVersion, empty name, or
+		// empty version). The pusher already logged the reason; we must not
+		// count it as pushed or emit a misleading "Pushed:" line.
+		if status == 0 {
 			return nil
 		}
 		pushed++
+		pv := record.GetTarget().GetPackageVersion()
 		name := pv.GetPackage().GetName()
 		version := pv.GetVersion()
 		drytui.Info("Pushed: %s@%s (%s)", name, version, ecosystemToJFrog(pv.GetPackage().GetEcosystem()))

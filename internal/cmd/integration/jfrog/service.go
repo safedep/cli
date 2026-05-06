@@ -54,6 +54,13 @@ func (s *feedService) runOnce(ctx context.Context) error {
 			return nil
 		}
 		pushed++
+		pv := record.GetTarget().GetPackageVersion()
+		drytui.Info("Pushed: %s@%s (%s) → %s",
+			pv.GetPackage().GetName(),
+			pv.GetVersion(),
+			pv.GetPackage().GetEcosystem(),
+			issueID(pv.GetPackage().GetName()),
+		)
 		return nil
 	})
 	if err != nil {

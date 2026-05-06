@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/safedep/cli/internal/config"
+	"github.com/safedep/cli/internal/storage"
 	"github.com/safedep/cli/internal/tui"
 	"github.com/safedep/dry/cloud"
 	"github.com/safedep/dry/log"
@@ -44,6 +45,8 @@ type App struct {
 
 	dataPlane    *cloud.Client
 	controlPlane *cloud.Client
+
+	storage storage.Storage
 }
 
 func New(cfg *config.Config) *App {
@@ -256,6 +259,10 @@ func (a *App) Close() {
 
 	if a.controlPlane != nil {
 		closeAndLog("control plane client", a.controlPlane.Close)
+	}
+
+	if a.storage != nil {
+		closeAndLog("storage", a.storage.Close)
 	}
 }
 

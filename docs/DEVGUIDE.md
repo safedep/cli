@@ -27,7 +27,6 @@ docs/
 Deferred subsystems (introduced when first command needs them):
 
 - `internal/auth/` — currently App methods are the auth surface; a dedicated package will land when the credential surface grows beyond accessors.
-- `internal/storage/` and `App.DB()` — sqlite via `dry/db`; deferred until the first command persisting state.
 - `internal/orchestrator/` — subprocess adapter for upstream tools; deferred until the first integration.
 - `internal/testutil/` — fakes and golden helpers; added with the first reusable test fixture.
 - `pkg/` — CLI public API; stays empty until an external consumer exists.
@@ -119,11 +118,27 @@ Operational commands (no structured result) call `dry/tui` directly and do not i
 
 ## Storage
 
-Storage is deferred until the first command needs persistent state.
+Local CLI state lives in sqlite under `internal/storage`. A single
+`storage.Storage` is exposed via `App.Storage()` (lazy, process-scoped,
+closed in `App.Close`).
 
-- When introduced, local CLI state will live in sqlite via `internal/storage` over `dry/db`, with a single connection exposed as `App.DB()`.
-- Daemon-mode commands needing swap-able backends will define a repository interface in their own package; the default implementation is sqlite.
-- `dry/endpointsync` is a use-case-specific WAL inside DRY. Do not generalise it as CLI storage.
+- Commands never call `storage.Open` and never write SQL. They obtain
+  primitives via `App` accessors.
+- The `KV[T]` primitive is the default for command-specific state.
+  See [storage-kv.md](./storage-kv.md) for the full guide and call-site
+  examples. Per-profile state uses `app.ProfileKV[T]`; unscoped state
+  uses `app.GlobalKV[T]`.
+- Schema changes are forward-only via embedded migrations under
+  `internal/storage/migrations/sqlite/`. Files are append-only once
+  released; a downgrade refuses to open with `ErrSchemaTooNew`.
+- Cross-cutting operations (`Stats`, `Cleanup`) are descriptor-driven so
+  adding a new primitive is a one-line append in `descriptor.go` plus
+  the primitive's own file. Future `safedep doctor` and `safedep
+  cleanup` commands consume these.
+- Daemon-mode commands needing Postgres or MySQL backends will land as
+  sibling implementations of `storage.Storage`; callers do not change.
+- `dry/endpointsync` is a use-case-specific WAL inside DRY. Do not
+  generalise it as CLI storage.
 
 ## External tool orchestration
 
@@ -274,7 +289,9 @@ Conventions:
 | Active credential profile | `a.Profile()` (read-only; flag/env wired in root) |
 | Config | `a.Config` |
 | Output dispatcher | `a.Output` |
-| Storage (sqlite via dry/db) | `a.DB()` *(deferred; lands with first persisting command)* |
+| Storage (sqlite, raw access) | `a.Storage()` |
+| Typed KV (per profile) | `app.ProfileKV[T](a, "<namespace>")` |
+| Typed KV (global) | `app.GlobalKV[T](a, "<namespace>")` |
 
 ## Registration
 

@@ -46,7 +46,9 @@ const (
 
 // Config is the deserialised CLI config file. Add fields here. Load/Save
 // pick them up automatically via viper's mapstructure binding.
-type Config struct{}
+type Config struct {
+	Storage StorageConfig `mapstructure:"storage"`
+}
 
 // Load reads the config file into a Config. A missing file is not an
 // error: it returns a zero Config so first-run commands behave like a
@@ -72,6 +74,14 @@ func Load() (*Config, error) {
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("config: parse: %w", err)
+	}
+
+	// Defaults for absent sections. Viper's StringToTimeDurationHookFunc
+	// is required for the Retention map to decode duration strings; the
+	// wiring PR adds it. Until then, an empty/missing section yields the
+	// default values below.
+	if cfg.Storage.Retention == nil {
+		cfg.Storage = DefaultStorageConfig()
 	}
 
 	return &cfg, nil

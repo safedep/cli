@@ -6,12 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
 	"github.com/safedep/dry/log"
+	drytui "github.com/safedep/dry/tui"
 )
 
 type jfrogPusher struct {
@@ -83,6 +85,9 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 		return fmt.Errorf("jfrog pusher: marshal: %w", err)
 	}
 
+	drytui.Info("JFrog request: POST %s/xray/api/v1/events payload: %s",
+		strings.TrimRight(p.cfg.URL, "/"), string(body))
+
 	url := strings.TrimRight(p.cfg.URL, "/") + "/xray/api/v1/events"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -97,8 +102,15 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 	}
 	defer resp.Body.Close()
 
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Warnf("jfrog pusher: read response body: %v", err)
+	}
+
+	drytui.Info("JFrog response: status %d body: %s", resp.StatusCode, string(respBody))
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		log.Warnf("jfrog pusher: non-2xx for %s: status %d", event.ID, resp.StatusCode)
+		return fmt.Errorf("jfrog pusher: %s: status %d: %s", event.ID, resp.StatusCode, string(respBody))
 	}
 
 	return nil

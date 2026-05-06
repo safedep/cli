@@ -50,6 +50,12 @@ type Config struct {
 	Storage StorageConfig `mapstructure:"storage"`
 }
 
+// EnvVar returns the value of the named environment variable, or empty string
+// if unset. Centralises os.Getenv usage per the project lint rule.
+func EnvVar(key string) string {
+	return os.Getenv(key)
+}
+
 // Load reads the config file into a Config. A missing file is not an
 // error: it returns a zero Config so first-run commands behave like a
 // fresh install. Any other read error (permission, malformed) is fatal.

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/safedep/cli/internal/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -49,7 +50,7 @@ func loadConfig(path string) (*Config, error) {
 		}
 		cfg.Source.CursorFile = filepath.Join(home, ".safedep", "integration-jfrog-cursor.json")
 	}
-	if tok := os.Getenv("SAFEDEP_JFROG_ACCESS_TOKEN"); tok != "" {
+	if tok := config.EnvVar("SAFEDEP_JFROG_ACCESS_TOKEN"); tok != "" {
 		cfg.JFrog.AccessToken = tok
 	}
 	if cfg.JFrog.AccessToken == "" {

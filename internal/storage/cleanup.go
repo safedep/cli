@@ -6,6 +6,15 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/safedep/dry/log"
+)
+
+// Verbs used in cleanup log lines. Distinguishing dry-run output from a
+// real run matters for operators reading logs.
+const (
+	cleanupVerbDeleted    = "deleted"
+	cleanupVerbWouldDelete = "would delete"
 )
 
 // Cleanup applies retention to every registered primitive. `now` and
@@ -35,6 +44,12 @@ func (s *sqliteImpl) Cleanup(ctx context.Context, policy CleanupPolicy) (Cleanup
 			DeletedRows:   deleted,
 			PolicySeconds: int64(retention.Seconds()),
 		})
+
+		verb := cleanupVerbDeleted
+		if policy.DryRun {
+			verb = cleanupVerbWouldDelete
+		}
+		log.Infof("storage: cleanup %s: %s %d rows (retention %s)", p.Name, verb, deleted, retention)
 	}
 
 	if policy.Vacuum && !policy.DryRun {

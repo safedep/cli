@@ -107,10 +107,6 @@ func (s *sqliteImpl) applyMigrations(ctx context.Context) error {
 		}
 		log.Infof("storage: applied migration %d %s", m.Version, m.Name)
 	}
-
-	s.mu.Lock()
-	s.schemaVer = len(migrations)
-	s.mu.Unlock()
 	return nil
 }
 

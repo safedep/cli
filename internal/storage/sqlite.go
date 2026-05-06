@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -17,9 +16,6 @@ import (
 type sqliteImpl struct {
 	path string
 	conn *sql.DB
-
-	mu        sync.Mutex
-	schemaVer int
 }
 
 func openSqlite(ctx context.Context, opts Options) (Storage, error) {

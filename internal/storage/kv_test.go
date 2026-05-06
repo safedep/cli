@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -123,7 +124,8 @@ func TestKV_Put_IsUpsert_PreservesCreatedAt(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "v2", second.Value)
 	require.Equal(t, first.CreatedAt, second.CreatedAt, "created_at must be preserved on upsert")
-	require.True(t, second.UpdatedAt.After(first.UpdatedAt) || second.UpdatedAt.Equal(first.UpdatedAt))
+	require.True(t, second.UpdatedAt.After(first.UpdatedAt),
+		"updated_at must advance on second Put (was %s, then %s)", first.UpdatedAt, second.UpdatedAt)
 }
 
 func TestKV_Delete_NoopOnMissing(t *testing.T) {
@@ -230,21 +232,28 @@ func TestKV_ScopeIsolation_GlobalSeparateFromProfile(t *testing.T) {
 func TestKV_NamespaceValidation(t *testing.T) {
 	s := newTestStorage(t)
 
-	cases := []string{
+	// Boundary lengths: regex permits exactly 64 chars (1 leading + up to 63 trailing).
+	maxValid := "a" + strings.Repeat("b", 63) // 64 chars
+	tooLong := "a" + strings.Repeat("b", 64)  // 65 chars
+
+	reject := []string{
 		"",
 		"UPPER",
 		" leading-space",
 		"with space",
 		"123starts-with-digit",
-		"toolong-toolong-toolong-toolong-toolong-toolong-toolong-toolong-toolong",
+		tooLong,
 	}
-	for _, c := range cases {
+	for _, c := range reject {
 		_, err := NewGlobalKV[string](s, c)
 		assert.Errorf(t, err, "expected rejection for namespace %q", c)
 	}
 
-	_, err := NewGlobalKV[string](s, "ok-name_1")
-	require.NoError(t, err)
+	accept := []string{"ok-name_1", "a", maxValid}
+	for _, c := range accept {
+		_, err := NewGlobalKV[string](s, c)
+		require.NoErrorf(t, err, "expected acceptance for namespace %q (len %d)", c, len(c))
+	}
 }
 
 func TestKV_ProfileValidation_RejectsEmpty(t *testing.T) {

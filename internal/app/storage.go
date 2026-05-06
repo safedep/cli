@@ -39,12 +39,19 @@ func (a *App) Storage() (storage.Storage, error) {
 
 // ProfileKV returns a typed KV store scoped to the active profile.
 // Free function because Go does not allow type parameters on methods.
+//
+// The active profile is captured at call time via a.Profile(). Cobra's
+// PersistentPreRunE resolves the profile before any RunE fires and
+// commands run single-threaded, so the captured value is stable for
+// the duration of the call. Callers that hold the returned KV across
+// a profile change must re-construct after.
 func ProfileKV[T any](a *App, namespace string) (*storage.KV[T], error) {
 	s, err := a.Storage()
 	if err != nil {
 		return nil, err
 	}
-	return storage.NewProfileKV[T](s, a.Profile(), namespace)
+	profile := a.Profile()
+	return storage.NewProfileKV[T](s, profile, namespace)
 }
 
 // GlobalKV returns a typed KV store in the global (profile-independent)

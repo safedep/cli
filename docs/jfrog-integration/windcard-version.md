@@ -1,13 +1,11 @@
 # Flagging All Versions of a Package as Malicious
 
-## Problem
+## @0 version
 
-When a backend sends `package@0` (meaning all versions are malicious), what we will put in `vulnerable_versions`?
+When a backend sends `package@0` (meaning all versions are malicious), we need to use open ended range in XRay Request.
 
 Using a specific version like `["[1.0.4]"]` only flags that exact version.
 Using `["0"]` or `["[0]"]` only flags version `0.0.0`.
-
-## Solution
 
 We will use the open-ended range notation `(,)` to match all versions:
 

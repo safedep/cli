@@ -43,7 +43,7 @@ source:
 
 jfrog:
   url: https://yourcompany.jfrog.io
-  access_token: YOUR_JFROG_TOKEN
+  access_token: YOUR_JFROG_TOKEN # access token can be provided with env also, no need for config, see below
 ```
 
 ### `source` section

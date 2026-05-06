@@ -42,11 +42,10 @@ func newFeedService(svc malysisv1grpc.MalwareAnalysisServiceClient, cfg Config) 
 // Cancellation between cycles is honoured immediately.
 func (s *feedService) Run(ctx context.Context) error {
 	drytui.Info("Validating JFrog connectivity at %s", s.jfrogCfg.URL)
-	version, err := validateJFrog(ctx, s.jfrogCfg)
-	if err != nil {
+	if err := validateJFrog(ctx, s.jfrogCfg); err != nil {
 		return err
 	}
-	drytui.Success("JFrog connectivity OK (XRay %s)", version)
+	drytui.Success("JFrog connectivity OK (URL + token verified)")
 
 	drytui.Info("Starting JFrog integration feed (poll interval: %s)", s.poll)
 

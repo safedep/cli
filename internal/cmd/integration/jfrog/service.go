@@ -49,7 +49,8 @@ func (s *feedService) Run(ctx context.Context) error {
 func (s *feedService) runOnce(ctx context.Context) error {
 	var pushed int
 	err := s.poller.Poll(ctx, func(record *malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) error {
-		if err := s.pusher.Push(ctx, record); err != nil {
+		status, err := s.pusher.Push(ctx, record)
+		if err != nil {
 			log.Warnf("feed: push %s: %v", record.GetAnalysisId(), err)
 			return nil
 		}
@@ -58,12 +59,10 @@ func (s *feedService) runOnce(ctx context.Context) error {
 			return nil
 		}
 		pushed++
-		drytui.Info("Pushed: %s@%s (%s) → %s",
-			pv.GetPackage().GetName(),
-			pv.GetVersion(),
-			ecosystemToJFrog(pv.GetPackage().GetEcosystem()),
-			issueID(pv.GetPackage().GetName(), pv.GetVersion()),
-		)
+		name := pv.GetPackage().GetName()
+		version := pv.GetVersion()
+		drytui.Info("Pushed: %s@%s (%s)", name, version, ecosystemToJFrog(pv.GetPackage().GetEcosystem()))
+		drytui.Info("  JFrog: %s [%d]", issueID(name, version), status)
 		return nil
 	})
 	if err != nil {

@@ -13,7 +13,6 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
 	"github.com/safedep/dry/log"
-	drytui "github.com/safedep/dry/tui"
 )
 
 type jfrogPusher struct {
@@ -51,11 +50,13 @@ func newJFrogPusher(cfg JFrogConfig) *jfrogPusher {
 	}
 }
 
-func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) error {
+// Push sends the record to JFrog XRay and returns the HTTP status code so the
+// caller can log it alongside package context.
+func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) (int, error) {
 	pv := record.GetTarget().GetPackageVersion()
 	if pv == nil {
 		log.Warnf("jfrog pusher: skipping record %s: nil package version", record.GetAnalysisId())
-		return nil
+		return 0, nil
 	}
 
 	pkg := pv.GetPackage()
@@ -63,7 +64,7 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 	version := pv.GetVersion()
 	if name == "" {
 		log.Warnf("jfrog pusher: skipping record %s: empty package name", record.GetAnalysisId())
-		return nil
+		return 0, nil
 	}
 	pkgType := ecosystemToJFrog(pkg.GetEcosystem())
 
@@ -86,20 +87,20 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 
 	body, err := json.Marshal(event)
 	if err != nil {
-		return fmt.Errorf("jfrog pusher: marshal: %w", err)
+		return 0, fmt.Errorf("jfrog pusher: marshal: %w", err)
 	}
 
 	url := strings.TrimRight(p.cfg.URL, "/") + "/xray/api/v1/events"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("jfrog pusher: build request: %w", err)
+		return 0, fmt.Errorf("jfrog pusher: build request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+p.cfg.AccessToken)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("jfrog pusher: http: %w", err)
+		return 0, fmt.Errorf("jfrog pusher: http: %w", err)
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
@@ -113,11 +114,10 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("jfrog pusher: %s: status %d: %s", event.ID, resp.StatusCode, string(respBody))
+		return resp.StatusCode, fmt.Errorf("jfrog pusher: %s: status %d: %s", event.ID, resp.StatusCode, string(respBody))
 	}
 
-	drytui.Info("JFrog: %s %d", event.ID, resp.StatusCode)
-	return nil
+	return resp.StatusCode, nil
 }
 
 // issueID builds a JFrog XRay custom issue ID from package name and version.

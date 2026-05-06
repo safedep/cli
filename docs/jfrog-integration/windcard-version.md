@@ -22,20 +22,20 @@ We will use the open-ended range notation `(,)` to match all versions:
 
 ## Version Range Cheat Sheet
 
-| Use case | Format | Handled |
-|---|---|---|
-| Specific version | `["[1.0.4]"]` | Yes |
-| All versions | `["(,)"]` | Yes |
-| From version X onwards | `["[1.0.0,)"]` | NO |
-| Up to version X (exclusive) | `["(,2.0.0)"]` | NO |
-| From X to Y (inclusive) | `["[1.0.0,2.0.0]"]` | NO |
+| Use case                    | Format              | Handled |
+|-----------------------------|---------------------|---------|
+| Specific version            | `["[1.0.4]"]`       | Yes     |
+| All versions                | `["(,)"]`           | Yes     |
+| From version X onwards      | `["[1.0.0,)"]`      | NO      |
+| Up to version X (exclusive) | `["(,2.0.0)"]`      | NO      |
+| From X to Y (inclusive)     | `["[1.0.0,2.0.0]"]` | NO      |
+
 
 Only [1] and [2] are handled since they are the only needed, from our backend also, we will have specific version or all versions (@0, wildcard)
 
 ## Malware ID in case of @0
 
 We will use SD-MAL-{pkg-name}-ALL, i.e ALL for version.
-
 
 ## Mapping Rule
 

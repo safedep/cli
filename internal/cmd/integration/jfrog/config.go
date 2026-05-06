@@ -49,6 +49,13 @@ func loadConfig(path string) (*Config, error) {
 			return nil, fmt.Errorf("config: resolve cursor file home dir: %w", err)
 		}
 		cfg.Source.CursorFile = filepath.Join(home, ".safedep", "integration-jfrog-cursor.json")
+	} else if len(cfg.Source.CursorFile) >= 2 && cfg.Source.CursorFile[:2] == "~/" {
+		// filepath.Join does not expand ~ — do it explicitly.
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("config: resolve cursor file home dir: %w", err)
+		}
+		cfg.Source.CursorFile = filepath.Join(home, cfg.Source.CursorFile[2:])
 	}
 	if tok := config.EnvVar("SAFEDEP_JFROG_ACCESS_TOKEN"); tok != "" {
 		cfg.JFrog.AccessToken = tok

@@ -85,9 +85,6 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 		return fmt.Errorf("jfrog pusher: marshal: %w", err)
 	}
 
-	drytui.Info("JFrog request: POST %s/xray/api/v1/events payload: %s",
-		strings.TrimRight(p.cfg.URL, "/"), string(body))
-
 	url := strings.TrimRight(p.cfg.URL, "/") + "/xray/api/v1/events"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -107,25 +104,28 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 		log.Warnf("jfrog pusher: read response body: %v", err)
 	}
 
-	drytui.Info("JFrog response: status %d body: %s", resp.StatusCode, string(respBody))
-
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("jfrog pusher: %s: status %d: %s", event.ID, resp.StatusCode, string(respBody))
 	}
 
+	drytui.Info("JFrog: %s %d", event.ID, resp.StatusCode)
 	return nil
 }
 
 // issueID builds a JFrog-safe issue ID from name and version.
 // Max 32 chars total; must not start with "Xray".
+// Fixed budget: 7 prefix + 13 name + 1 separator + 11 version = 32.
 func issueID(name, version string) string {
 	const prefix = "SD-MAL-"
-	combined := name + "-" + version
-	max := 32 - len(prefix)
-	if len(combined) > max {
-		combined = combined[:max]
+	const nameBudget = 13
+	const verBudget = 11
+	if len(name) > nameBudget {
+		name = name[:nameBudget]
 	}
-	return prefix + combined
+	if len(version) > verBudget {
+		version = version[:verBudget]
+	}
+	return prefix + name + "-" + version
 }
 
 func ecosystemToJFrog(e packagev1.Ecosystem) string {

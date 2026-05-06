@@ -120,7 +120,7 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 // Max 32 chars total; must not start with "Xray".
 func issueID(name, version string) string {
 	const prefix = "SD-MAL-"
-	combined := name + "+" + version
+	combined := name + "-" + version
 	max := 32 - len(prefix)
 	if len(combined) > max {
 		combined = combined[:max]

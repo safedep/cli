@@ -21,8 +21,11 @@ const (
 // StorageConfig captures persistent-state configuration. Zero value
 // plus DefaultStorageConfig produces a usable config.
 type StorageConfig struct {
-	// Retention overrides keyed by storage primitive name (e.g. "kv").
-	// Zero duration means "no time-based cleanup, only TTL."
+	// Retention overrides keyed by storage primitive name as a plain
+	// string (matches the TOML/env shape on disk). Callers building a
+	// storage.CleanupPolicy convert these into storage.PrimitiveName
+	// at the boundary; unknown keys are ignored. Zero duration means
+	// "no time-based cleanup, only TTL."
 	Retention map[string]time.Duration `mapstructure:"retention"`
 }
 

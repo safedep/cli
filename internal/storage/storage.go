@@ -61,7 +61,7 @@ type DBStats struct {
 
 // PrimitiveStats reports per-primitive usage.
 type PrimitiveStats struct {
-	Name        string
+	Name        PrimitiveName
 	RowCount    int64
 	OldestEntry *time.Time
 	NewestEntry *time.Time
@@ -71,7 +71,7 @@ type PrimitiveStats struct {
 // CleanupPolicy controls the cleanup walk.
 type CleanupPolicy struct {
 	DryRun bool
-	MaxAge map[string]time.Duration
+	MaxAge map[PrimitiveName]time.Duration
 	Vacuum bool
 }
 
@@ -84,7 +84,7 @@ type CleanupReport struct {
 
 // PrimitiveCleanup is the per-primitive line item in CleanupReport.
 type PrimitiveCleanup struct {
-	Name          string
+	Name          PrimitiveName
 	DeletedRows   int64
 	PolicySeconds int64
 }

@@ -29,7 +29,7 @@ func TestStats_ReportsRowCountsAndExpiry(t *testing.T) {
 	require.Len(t, got.Primitives, 1)
 
 	kvStats := got.Primitives[0]
-	require.Equal(t, "kv", kvStats.Name)
+	require.Equal(t, PrimitiveKV, kvStats.Name)
 	require.Equal(t, int64(4), kvStats.RowCount)
 	require.Equal(t, int64(1), kvStats.ExpiredRows)
 	require.NotNil(t, kvStats.OldestEntry)

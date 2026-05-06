@@ -46,7 +46,7 @@ func TestCleanup_RetentionDeletesOlderThan(t *testing.T) {
 	require.NoError(t, err)
 
 	report, err := s.Cleanup(ctx, CleanupPolicy{
-		MaxAge: map[string]time.Duration{"kv": 30 * time.Minute},
+		MaxAge: map[PrimitiveName]time.Duration{PrimitiveKV: 30 * time.Minute},
 	})
 	require.NoError(t, err)
 	require.Equal(t, int64(1), report.Primitives[0].DeletedRows)
@@ -114,7 +114,7 @@ func TestCleanup_NoRetentionMeansTTLOnly(t *testing.T) {
 	// Explicit zero retention. Should still delete TTL'd row, leave the
 	// no-TTL row alone.
 	report, err := s.Cleanup(ctx, CleanupPolicy{
-		MaxAge: map[string]time.Duration{"kv": 0},
+		MaxAge: map[PrimitiveName]time.Duration{PrimitiveKV: 0},
 	})
 	require.NoError(t, err)
 	require.Equal(t, int64(1), report.Primitives[0].DeletedRows)

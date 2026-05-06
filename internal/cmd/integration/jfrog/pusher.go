@@ -61,6 +61,10 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 	pkg := pv.GetPackage()
 	name := pkg.GetName()
 	version := pv.GetVersion()
+	if name == "" {
+		log.Warnf("jfrog pusher: skipping record %s: empty package name", record.GetAnalysisId())
+		return nil
+	}
 	pkgType := ecosystemToJFrog(pkg.GetEcosystem())
 
 	event := jfrogEvent{

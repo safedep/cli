@@ -53,12 +53,15 @@ func (s *feedService) runOnce(ctx context.Context) error {
 			log.Warnf("feed: push %s: %v", record.GetAnalysisId(), err)
 			return nil
 		}
-		pushed++
 		pv := record.GetTarget().GetPackageVersion()
+		if pv == nil {
+			return nil
+		}
+		pushed++
 		drytui.Info("Pushed: %s@%s (%s) → %s",
 			pv.GetPackage().GetName(),
 			pv.GetVersion(),
-			pv.GetPackage().GetEcosystem(),
+			ecosystemToJFrog(pv.GetPackage().GetEcosystem()),
 			issueID(pv.GetPackage().GetName(), pv.GetVersion()),
 		)
 		return nil

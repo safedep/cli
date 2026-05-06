@@ -102,7 +102,7 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 		Severity:    "Critical",
 		IssueKind:   1,
 		Summary:     fmt.Sprintf("MALICIOUS PACKAGE: %s contains malicious code", name),
-		Description: fmt.Sprintf("%s %s has been identified as a malicious package by SafeDep threat intelligence.", name, version),
+		Description: fmt.Sprintf("%s %s has been identified as a malicious package by SafeDep threat intelligence.", name, displayVersion(version)),
 		Properties:  map[string]any{},
 		Components: []jfrogComponent{{
 			ID:                 name,

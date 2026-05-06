@@ -167,18 +167,27 @@ func issueID(name, version string) string {
 	const prefix = "SD-MAL-"
 	const nameBudget = 13
 	const verBudget = 11
-	if version == "0" {
-		version = "ALL"
-	}
 	if len(name) > nameBudget {
 		name = name[:nameBudget]
 	}
+
+	version = displayVersion(version)
+
 	if len(version) > verBudget {
 		version = version[:verBudget]
 	}
 	name = strings.TrimRight(name, "-")
 	version = strings.TrimLeft(version, "-")
 	return prefix + name + "-" + version
+}
+
+// displayVersion returns the version string to be displayed in the UI
+// When version is "0" (SafeDep wildcard for all versions), it returns "ALL"
+func displayVersion(version string) string {
+	if version == "0" {
+		return "ALL"
+	}
+	return version
 }
 
 // vulnerableVersions maps a SafeDep version string to the JFrog XRay range notation.

@@ -1,4 +1,6 @@
-// internal/cmd/integration/cmd.go
+// Package integration is the umbrella domain for SafeDep's third-party
+// integrations. Each sub-noun (jfrog, slack, ...) lives in its own package
+// and self-registers under the `integration` parent command.
 package integration
 
 import (
@@ -7,6 +9,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Register attaches the `integration` parent command and all of its
+// sub-commands to the supplied root.
 func Register(root *cobra.Command, a *app.App) {
 	cmd := &cobra.Command{
 		Use:   "integration",

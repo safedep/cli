@@ -9,12 +9,32 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
 	"github.com/safedep/dry/log"
 )
 
+const (
+	// httpTimeout caps the total time of a single XRay request including dial,
+	// TLS, headers and body. Without it the daemon would hang on an
+	// unresponsive JFrog instance.
+	httpTimeout = 30 * time.Second
+
+	// maxRespBody limits how much of the XRay response body we read into
+	// memory. The body is only used for diagnostics on non-2xx responses, so
+	// 1 MiB is plenty and bounds worst-case memory if a misbehaving proxy
+	// returns an unbounded stream.
+	maxRespBody = 1 << 20
+
+	// userAgent identifies the integration on the wire so JFrog operators can
+	// distinguish our traffic in access logs.
+	userAgent = "safedep-cli/integration-jfrog"
+)
+
+// jfrogPusher converts a SafeDep malware analysis record into a JFrog XRay
+// custom issue and POSTs it to the configured XRay instance.
 type jfrogPusher struct {
 	cfg    JFrogConfig
 	client *http.Client
@@ -46,7 +66,7 @@ type jfrogSource struct {
 func newJFrogPusher(cfg JFrogConfig) *jfrogPusher {
 	return &jfrogPusher{
 		cfg:    cfg,
-		client: &http.Client{},
+		client: &http.Client{Timeout: httpTimeout},
 	}
 }
 
@@ -97,6 +117,7 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 	}
 	req.Header.Set("Authorization", "Bearer "+p.cfg.AccessToken)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := p.client.Do(req)
 	if err != nil {
@@ -108,7 +129,8 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 		}
 	}()
 
-	respBody, err := io.ReadAll(resp.Body)
+	// Bounded read: the body is only used for diagnostics, never trusted.
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxRespBody))
 	if err != nil {
 		log.Warnf("jfrog pusher: read response body: %v", err)
 	}
@@ -130,6 +152,9 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 // the name alone can exhaust the budget, making multiple versions
 // indistinguishable in XRay.
 //
+// Trailing hyphens left by truncation (e.g. "money-badger-open-rpc"[:13]
+// -> "money-badger-") are trimmed so the ID does not contain "--".
+//
 // When version is "0" (SafeDep wildcard for all versions), the version segment
 // is "ALL" so the ID is visibly distinct from any real version.
 func issueID(name, version string) string {
@@ -145,6 +170,8 @@ func issueID(name, version string) string {
 	if len(version) > verBudget {
 		version = version[:verBudget]
 	}
+	name = strings.TrimRight(name, "-")
+	version = strings.TrimLeft(version, "-")
 	return prefix + name + "-" + version
 }
 

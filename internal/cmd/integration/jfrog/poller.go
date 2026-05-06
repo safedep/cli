@@ -11,10 +11,18 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// maliciousPackagePoller drives one poll cycle against SafeDep's malware
+// analysis API. It is stateless except for the file-backed cursor — the
+// daemon loop in feedService is responsible for invoking it on a schedule.
 type maliciousPackagePoller struct {
 	svc    malysisv1grpc.MalwareAnalysisServiceClient
 	cursor *cursorStore
 }
+
+// pollPageSize is the number of records requested per page. Tuned for a
+// balance between API roundtrips and memory: at 100 a single page is small
+// enough to keep memory bounded and large enough to make pagination cheap.
+const pollPageSize = 100
 
 func newMaliciousPackagePoller(svc malysisv1grpc.MalwareAnalysisServiceClient, cursor *cursorStore) *maliciousPackagePoller {
 	return &maliciousPackagePoller{svc: svc, cursor: cursor}
@@ -42,7 +50,7 @@ func (p *maliciousPackagePoller) Poll(ctx context.Context, onRecord func(*malysi
 		req.SetFilter(filter)
 
 		pagination := &controltowerv1.PaginationRequest{}
-		pagination.SetPageSize(100)
+		pagination.SetPageSize(pollPageSize)
 		if pageToken != "" {
 			pagination.SetPageToken(pageToken)
 		}

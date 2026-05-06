@@ -11,6 +11,9 @@ import (
 	drytui "github.com/safedep/dry/tui"
 )
 
+// feedService orchestrates the poll-and-push loop: it pulls verified malware
+// records from SafeDep via the poller and forwards each record to JFrog via
+// the pusher. It owns no transport state of its own.
 type feedService struct {
 	poller *maliciousPackagePoller
 	pusher *jfrogPusher
@@ -26,7 +29,11 @@ func newFeedService(svc malysisv1grpc.MalwareAnalysisServiceClient, cfg Config) 
 	}
 }
 
-// Run polls SafeDep for verified malware and pushes to JFrog until ctx is cancelled.
+// Run executes poll cycles until ctx is cancelled (SIGINT / SIGTERM).
+//
+// A cycle that fails mid-flight (poller error) is logged and the loop
+// continues — transient gRPC failures must not bring down the daemon.
+// Cancellation between cycles is honoured immediately.
 func (s *feedService) Run(ctx context.Context) error {
 	drytui.Info("Starting JFrog integration feed (poll interval: %s)", s.poll)
 
@@ -46,6 +53,12 @@ func (s *feedService) Run(ctx context.Context) error {
 	}
 }
 
+// runOnce performs a single poll-and-push cycle.
+//
+// Push failures are logged and swallowed (best-effort delivery). The cursor
+// still advances after the page so a single bad record cannot block the
+// whole stream forever. JFrog issue IDs are deterministic, so a record that
+// later succeeds to push will overwrite the partial state safely.
 func (s *feedService) runOnce(ctx context.Context) error {
 	var pushed int
 	err := s.poller.Poll(ctx, func(record *malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) error {

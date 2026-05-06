@@ -64,7 +64,13 @@ func (p *maliciousPackagePoller) Poll(ctx context.Context, onRecord func(*malysi
 			}
 		}
 
-		if !pageMaxAt.IsZero() {
+		// Advance the cursor after processing each page. If records lacked
+		// a created_at timestamp, fall back to now so the cursor always moves
+		// forward and records are not re-delivered on the next poll cycle.
+		if len(resp.GetRecords()) > 0 {
+			if pageMaxAt.IsZero() {
+				pageMaxAt = time.Now().UTC()
+			}
 			if err := p.cursor.Save(pageMaxAt); err != nil {
 				return fmt.Errorf("poller: save cursor: %w", err)
 			}

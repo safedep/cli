@@ -75,7 +75,7 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 		Properties:  map[string]any{},
 		Components: []jfrogComponent{{
 			ID:                 name,
-			VulnerableVersions: []string{fmt.Sprintf("[%s]", version)},
+			VulnerableVersions: []string{vulnerableVersions(version)},
 		}},
 		Sources: []jfrogSource{{SourceID: "safedep-threat-intel"}},
 	}
@@ -121,10 +121,16 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 // silently dropped. This matters for scoped packages like @company/pkg where
 // the name alone can exhaust the budget, making multiple versions
 // indistinguishable in XRay.
+//
+// When version is "0" (SafeDep wildcard for all versions), the version segment
+// is "ALL" so the ID is visibly distinct from any real version.
 func issueID(name, version string) string {
 	const prefix = "SD-MAL-"
 	const nameBudget = 13
 	const verBudget = 11
+	if version == "0" {
+		version = "ALL"
+	}
 	if len(name) > nameBudget {
 		name = name[:nameBudget]
 	}
@@ -132,6 +138,21 @@ func issueID(name, version string) string {
 		version = version[:verBudget]
 	}
 	return prefix + name + "-" + version
+}
+
+// vulnerableVersions maps a SafeDep version string to the JFrog XRay range notation.
+//
+// SafeDep backend sends version "0" as a wildcard meaning all versions are malicious.
+// JFrog requires bracket notation for exact versions and open-ended range "(,)" for all versions:
+//   - version "0"    → "(,)"     matches every version of the package
+//   - any other ver  → "[1.0.4]" matches that exact version only
+//
+// Without brackets, XRay silently drops the record and nothing is flagged.
+func vulnerableVersions(version string) string {
+	if version == "0" {
+		return "(,)"
+	}
+	return "[" + version + "]"
 }
 
 func ecosystemToJFrog(e packagev1.Ecosystem) string {

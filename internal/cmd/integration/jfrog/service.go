@@ -59,7 +59,7 @@ func (s *feedService) runOnce(ctx context.Context) error {
 			pv.GetPackage().GetName(),
 			pv.GetVersion(),
 			pv.GetPackage().GetEcosystem(),
-			issueID(pv.GetPackage().GetName()),
+			issueID(pv.GetPackage().GetName(), pv.GetVersion()),
 		)
 		return nil
 	})

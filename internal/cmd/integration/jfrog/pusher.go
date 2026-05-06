@@ -64,7 +64,7 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 	pkgType := ecosystemToJFrog(pkg.GetEcosystem())
 
 	event := jfrogEvent{
-		ID:          issueID(name),
+		ID:          issueID(name, version),
 		Type:        "Security",
 		Provider:    "SafeDep",
 		PackageType: pkgType,
@@ -116,15 +116,16 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 	return nil
 }
 
-// issueID builds a JFrog-safe issue ID: prefix + truncated package name.
+// issueID builds a JFrog-safe issue ID from name and version.
 // Max 32 chars total; must not start with "Xray".
-func issueID(name string) string {
-	const prefix = "SAFEDEP-MAL-"
+func issueID(name, version string) string {
+	const prefix = "SD-MAL-"
+	combined := name + "+" + version
 	max := 32 - len(prefix)
-	if len(name) > max {
-		name = name[:max]
+	if len(combined) > max {
+		combined = combined[:max]
 	}
-	return prefix + name
+	return prefix + combined
 }
 
 func ecosystemToJFrog(e packagev1.Ecosystem) string {

@@ -33,6 +33,7 @@ func (p *maliciousPackagePoller) Poll(ctx context.Context, onRecord func(*malysi
 	filter.SetOnlyVerified(true)
 
 	var pageToken string
+	var anySaved bool
 	for {
 		req := &malysisv1.ListPackageAnalysisRecordsRequest{}
 		if !lastSeenAt.IsZero() {
@@ -75,6 +76,7 @@ func (p *maliciousPackagePoller) Poll(ctx context.Context, onRecord func(*malysi
 				return fmt.Errorf("poller: save cursor: %w", err)
 			}
 			lastSeenAt = pageMaxAt
+			anySaved = true
 		}
 
 		nextToken := resp.GetPagination().GetNextPageToken()
@@ -82,6 +84,15 @@ func (p *maliciousPackagePoller) Poll(ctx context.Context, onRecord func(*malysi
 			break
 		}
 		pageToken = nextToken
+	}
+
+	// Always write the cursor file after a complete poll cycle, even when
+	// zero records were returned. This ensures the file exists so operators
+	// can edit it to set a past timestamp and re-process history.
+	if !anySaved {
+		if err := p.cursor.Save(time.Now().UTC()); err != nil {
+			return fmt.Errorf("poller: save cursor: %w", err)
+		}
 	}
 
 	return nil

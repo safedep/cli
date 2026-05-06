@@ -7,7 +7,7 @@ flagged by SafeDep are automatically blocked for all developers using that JFrog
 ## Synopsis
 
 ```
-safedep integration jfrog run --config <file>
+safedep integration jfrog run --instance-url <url> --instance-access-token <token>
 ```
 
 ## Quick start
@@ -16,108 +16,82 @@ safedep integration jfrog run --config <file>
 # 1. Authenticate with SafeDep (once)
 safedep auth login
 
-# 2. Create a config file
-cat > config.yml <<EOF
-jfrog:
-  url: https://yourcompany.jfrog.io
-  access_token: YOUR_JFROG_TOKEN
-EOF
+# 2. Run with flags
+safedep integration jfrog run \
+  --instance-url https://yourcompany.jfrog.io \
+  --instance-access-token YOUR_JFROG_TOKEN
 
-# 3. Run
-safedep integration jfrog run --config config.yml
+# Or use environment variables (recommended for CI / server deployments)
+export SAFEDEP_INTEGRATION_JFROG_ARTIFACTORY_URL=https://yourcompany.jfrog.io
+export SAFEDEP_INTEGRATION_JFROG_ARTIFACTORY_ACCESS_TOKEN=YOUR_JFROG_TOKEN
+safedep integration jfrog run
 ```
 
 ## Flags
 
-| Flag | Required | Description |
-|---|---|---|
-| `--config`, `-c` | yes | Path to YAML config file |
-| `--profile` | no | SafeDep credential profile (defaults to `"default"`) |
+| Flag | Required | Default | Description |
+|---|---|---|---|
+| `--instance-url` | yes* | — | JFrog instance base URL. Must be `https://`. |
+| `--instance-access-token` | yes* | — | JFrog access token scoped to XRay. |
+| `--poll-interval` | no | `60s` | Sleep duration between poll cycles (`30s`, `5m`, `1h`). |
+| `--cursor-file` | no | `~/.safedep/integration-jfrog-cursor.json` | Path to the cursor file. |
+| `--profile` | no | `"default"` | SafeDep credential profile (inherited from root). |
 
-## Config file reference
+*Required unless the corresponding environment variable is set.
 
-```yaml
-source:
-  poll_interval: 60s
-  cursor_file: ~/.safedep/integration-jfrog-cursor.json
+## Environment variables
 
-jfrog:
-  url: https://yourcompany.jfrog.io
-  access_token: YOUR_JFROG_TOKEN # access token can be provided with env also, no need for config, see below
-```
+Flags take precedence. Environment variables are the fallback — useful for server
+deployments or CI where passing secrets as CLI arguments is undesirable.
 
-### `source` section
-
-| Field | Default | Description |
-|---|---|---|
-| `poll_interval` | `60s` | How long to sleep between poll cycles. Accepts Go duration strings: `30s`, `5m`, `1h`. |
-| `cursor_file` | `~/.safedep/integration-jfrog-cursor.json` | Path to the cursor file that tracks the last processed record. Created automatically on first run. Delete it to reprocess from the beginning. |
-
-### `jfrog` section
-
-| Field | Required | Description |
-|---|---|---|
-| `url` | yes | JFrog instance base URL. Must be `https://`. No trailing slash. |
-| `access_token` | yes* | JFrog access token scoped to XRay. See below for env var alternative. |
+| Variable | Corresponding flag |
+|---|---|
+| `SAFEDEP_INTEGRATION_JFROG_ARTIFACTORY_URL` | `--instance-url` |
+| `SAFEDEP_INTEGRATION_JFROG_ARTIFACTORY_ACCESS_TOKEN` | `--instance-access-token` |
 
 ## JFrog access token
 
-The JFrog access token requires **Manage Xray Metadata** permission on your JFrog instance.
-
-You can provide it in two ways:
-
-**Option 1 — config file** (simple, but keep the file out of source control):
-```yaml
-jfrog:
-  access_token: YOUR_TOKEN
-```
-
-**Option 2 — environment variable** (recommended for CI or shared machines):
-```bash
-export SAFEDEP_JFROG_ACCESS_TOKEN=YOUR_TOKEN
-safedep integration jfrog run --config config.yml
-```
-
-The environment variable takes precedence over the config file value. If both are set,
-the env var wins. If neither is set, the command exits with an error at startup.
+Requires **Manage Xray Metadata** permission on your JFrog instance.
 
 ## SafeDep authentication
 
-The command uses your SafeDep API key to poll for malicious packages. Credentials are
-resolved in this order:
+Credentials are resolved in this order:
 
 1. `SAFEDEP_API_KEY` + `SAFEDEP_TENANT_ID` environment variables
 2. Keychain credentials stored by `safedep auth login`
 
-For interactive use, run `safedep auth login` once. For CI or headless environments,
-set the environment variables.
-
 Use `--profile` to switch between multiple SafeDep tenants:
 
 ```bash
-safedep --profile customer-a integration jfrog run --config config.yml
+safedep --profile customer-a integration jfrog run \
+  --instance-url https://customer.jfrog.io \
+  --instance-access-token $TOKEN
 ```
 
-## Cursor and restarts
+## Cursor file
 
-The cursor file stores the timestamp of the last processed record. On restart, polling
-resumes from that point — no records are skipped or duplicated.
+Tracks the timestamp of the last processed record so polling resumes from the correct
+point after a restart. Created automatically on first run.
 
-To reprocess all records from the beginning, delete the cursor file:
+To go back in history, edit the file directly:
 
 ```bash
+# Reprocess from a specific date
+echo '{"last_seen_at":"2026-04-01T00:00:00Z"}' > ~/.safedep/integration-jfrog-cursor.json
+
+# Reprocess everything from the beginning
 rm ~/.safedep/integration-jfrog-cursor.json
 ```
 
 ## JFrog XRay setup
 
-Before running this command, ensure your JFrog XRay instance has a **Malware** security
-policy with a block action. SafeDep pushes findings as Custom Issues with `issue_kind: 1`
-(malicious package). Without a policy, the issues are recorded but packages are not blocked.
+Ensure your JFrog XRay instance has a **Malware** security policy with a block action.
+SafeDep pushes findings as Custom Issues with `issue_kind: 1` (malicious package).
+Without a policy, issues are recorded but packages are not blocked.
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
 | 0 | Stopped cleanly (SIGINT / SIGTERM) |
-| 1 | Fatal error: config invalid, auth failed, or unrecoverable error |
+| 1 | Fatal error: missing required config, auth failed, or unrecoverable error |

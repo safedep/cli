@@ -18,8 +18,10 @@ import (
 // Naming follows the SAFEDEP_<DOMAIN>_<NOUN>_<FIELD> convention so multiple
 // integrations can coexist without collisions.
 const (
-	envJFrogURL   = "SAFEDEP_INTEGRATION_JFROG_ARTIFACTORY_URL"
-	envJFrogToken = "SAFEDEP_INTEGRATION_JFROG_ARTIFACTORY_ACCESS_TOKEN"
+	envJFrogURL = "SAFEDEP_INTEGRATION_JFROG_ARTIFACTORY_URL"
+	// envJFrogToken is the variable NAME, not a credential. The actual token
+	// is read at runtime via config.EnvVar.
+	envJFrogToken = "SAFEDEP_INTEGRATION_JFROG_ARTIFACTORY_ACCESS_TOKEN" // #nosec G101
 )
 
 // runInput is the raw, unresolved CLI input. Defaults and env-var fallbacks

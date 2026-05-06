@@ -15,26 +15,39 @@ import (
 // records from SafeDep via the poller and forwards each record to JFrog via
 // the pusher. It owns no transport state of its own.
 type feedService struct {
-	poller *maliciousPackagePoller
-	pusher *jfrogPusher
-	poll   time.Duration
+	poller   *maliciousPackagePoller
+	pusher   *jfrogPusher
+	jfrogCfg JFrogConfig
+	poll     time.Duration
 }
 
 func newFeedService(svc malysisv1grpc.MalwareAnalysisServiceClient, cfg Config) *feedService {
 	cursor := newCursorStore(cfg.Source.CursorFile)
 	return &feedService{
-		poller: newMaliciousPackagePoller(svc, cursor),
-		pusher: newJFrogPusher(cfg.JFrog),
-		poll:   cfg.Source.PollInterval,
+		poller:   newMaliciousPackagePoller(svc, cursor),
+		pusher:   newJFrogPusher(cfg.JFrog),
+		jfrogCfg: cfg.JFrog,
+		poll:     cfg.Source.PollInterval,
 	}
 }
 
 // Run executes poll cycles until ctx is cancelled (SIGINT / SIGTERM).
 //
+// A pre-flight connectivity check runs once before the loop starts so
+// misconfigured URL or token fail fast at startup with a clear message,
+// rather than after the first poll cycle deep inside the push path.
+//
 // A cycle that fails mid-flight (poller error) is logged and the loop
 // continues — transient gRPC failures must not bring down the daemon.
 // Cancellation between cycles is honoured immediately.
 func (s *feedService) Run(ctx context.Context) error {
+	drytui.Info("Validating JFrog connectivity at %s", s.jfrogCfg.URL)
+	version, err := validateJFrog(ctx, s.jfrogCfg)
+	if err != nil {
+		return err
+	}
+	drytui.Success("JFrog connectivity OK (XRay %s)", version)
+
 	drytui.Info("Starting JFrog integration feed (poll interval: %s)", s.poll)
 
 	for {

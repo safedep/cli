@@ -189,7 +189,7 @@ func (kv *KV[T]) List(ctx context.Context) ([]Entry[T], error) {
 		}
 		var v T
 		if err := json.Unmarshal(raw, &v); err != nil {
-			return nil, fmt.Errorf("storage: kv list decode: %w", err)
+			return nil, fmt.Errorf("%w: %w", ErrKVDecode, err)
 		}
 		e := Entry[T]{
 			Key:       key,

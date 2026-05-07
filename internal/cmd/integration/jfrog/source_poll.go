@@ -2,6 +2,7 @@ package jfrog
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	malysisv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
@@ -39,13 +40,21 @@ func (s *pollSource) Subscribe(ctx context.Context, onRecord recordHandler) erro
 	drytui.Info("Starting JFrog feed poller (interval: %s)", s.pollInterval)
 
 	for {
-		if err := s.poller.Poll(ctx, onRecord); err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			drytui.Warning("Poll cycle error: %v", err)
-		} else {
+		err := s.poller.Poll(ctx, onRecord)
+		switch {
+		case err == nil:
 			drytui.Info("Poll cycle complete, next in %s", s.pollInterval)
+		case ctx.Err() != nil:
+			return nil
+		case isCallbackError(err):
+			// Per the recordHandler contract, callback errors must surface
+			// from Subscribe. Unwrap so the caller sees the original error,
+			// not our internal wrapper.
+			return errors.Unwrap(err)
+		default:
+			// Transient infrastructure error (gRPC blip, network reset, cursor
+			// save failure). Log and retry on the next cycle.
+			drytui.Warning("Poll cycle error: %v", err)
 		}
 
 		select {

@@ -105,7 +105,9 @@ func (p *maliciousPackagePoller) Poll(ctx context.Context, onRecord func(*malysi
 		var pageMaxAt time.Time
 		for _, record := range resp.GetRecords() {
 			if err := onRecord(record); err != nil {
-				return err
+				// Wrap so Subscribe can tell this apart from infra errors
+				// and surface it instead of logging+retrying.
+				return &callbackError{err: err}
 			}
 			if t := record.GetCreatedAt(); t != nil {
 				if ts := t.AsTime(); ts.After(pageMaxAt) {

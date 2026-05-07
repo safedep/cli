@@ -166,7 +166,11 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 //   - does not start with "Xray"
 //   - is not "JFrog"
 func issueID(analysisID string) string {
-	return "SD-" + analysisID
+	id := "SD-" + analysisID
+	if len(id) > 32 {
+		id = id[:32]
+	}
+	return id
 }
 
 // vulnerableVersions maps a SafeDep version string to the JFrog XRay range notation.

@@ -334,3 +334,64 @@ func TestPoll_CallbackError_StopsAndPropagates(t *testing.T) {
 	require.ErrorIs(t, err, stop)
 	assert.Equal(t, 1, delivered, "callback error stops delivery immediately on the first record")
 }
+
+// TestSubscribe_CallbackError_PropagatesImmediately verifies the contract
+// from source.go: a recordHandler error must surface from Subscribe (not
+// be logged as a transient and retried on the next cycle). Without the
+// callbackError sentinel, Subscribe would log the error and loop forever.
+func TestSubscribe_CallbackError_PropagatesImmediately(t *testing.T) {
+	base := time.Now().UTC().Add(-30 * time.Minute).Truncate(time.Second)
+	fake := &fakeMalysisClient{queue: []fakeResp{{resp: makePage(base, "",
+		recordSpec{id: "a", name: "pkg-a", version: "1.0"},
+	)}}}
+
+	// Long pollInterval so a buggy implementation that retries instead of
+	// surfacing would obviously hang the test (caught by deadline).
+	src := &pollSource{
+		poller:       newMaliciousPackagePoller(fake, newCursorStore(newTestKV(t))),
+		pollInterval: time.Hour,
+	}
+
+	stop := errors.New("handler said stop")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := src.Subscribe(ctx, func(*malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) error {
+		return stop
+	})
+
+	require.ErrorIs(t, err, stop, "callback error must surface from Subscribe, not be retried")
+	require.NoError(t, ctx.Err(), "Subscribe must return immediately, not wait for ctx timeout")
+	// Subscribe must unwrap before returning: callers see the original
+	// error, not the source-internal callbackError wrapper.
+	var cb *callbackError
+	require.False(t, errors.As(err, &cb),
+		"surfaced error must not be the callbackError wrapper")
+}
+
+// TestSubscribe_InfraError_LoggedAndRetried is the inverse contract:
+// transient infrastructure errors are NOT surfaced; they are logged and
+// the loop continues until ctx is cancelled.
+func TestSubscribe_InfraError_LoggedAndRetried(t *testing.T) {
+	// First call returns a gRPC error, second returns an empty page so the
+	// loop has something to do on the retry. ctx cancels the third cycle.
+	fake := &fakeMalysisClient{queue: []fakeResp{
+		{err: errors.New("grpc unavailable")},
+		{resp: makePage(time.Now().UTC(), "")},
+	}}
+
+	src := &pollSource{
+		poller:       newMaliciousPackagePoller(fake, newCursorStore(newTestKV(t))),
+		pollInterval: 10 * time.Millisecond,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	handler, _ := drainHandler(t)
+	err := src.Subscribe(ctx, handler)
+
+	require.NoError(t, err, "infra errors must NOT surface; they are logged and retried")
+	assert.GreaterOrEqual(t, len(fake.captured), 2,
+		"loop must continue after the first cycle's infra error")
+}

@@ -129,6 +129,97 @@ Get this wrong and either: (a) the user can't see what's happening (silent
 `log.Warnf` in production where logs aren't surfaced) or (b) the terminal
 fills with noise.
 
+## Issue ID format
+
+Every Custom Issue we push to JFrog is keyed by an `id` field. Ours is:
+
+```
+"SD-" + record.GetAnalysisId()
+```
+
+`AnalysisId` on `ListPackageAnalysisRecordsResponse_AnalysisRecord` is a
+ULID (Crockford Base32, 26 chars) issued by the SafeDep backend, e.g.
+`01KR0EKN6PMW0ZRFRN992H1PKX`. The full ID looks like:
+
+```
+SD-01KR0EKN6PMW0ZRFRN992H1PKX
+```
+
+29 chars total, well within JFrog's 32-char `id` limit.
+
+### Why ULID, not name+version
+
+An earlier version of this code built the ID from the package name and
+version with truncation budgets, hyphen trimming, and a `-ALL` suffix
+for the wildcard version. That had three problems:
+
+1. **Long or scoped names** (`@company/very-long-pkg`) collided with the
+   32-char limit, forcing truncation logic that could produce ambiguous
+   IDs across versions.
+2. **No backend traceability**: the JFrog issue ID gave no way back to
+   the SafeDep analysis record that produced it.
+3. **Trailing-hyphen surprises** (`money-badger-open-rpc` truncated to
+   `money-badger-` produced `SD-MAL-money-badger--199.99.100`).
+
+The ULID-based ID dispenses with all of that. Each analysis record has
+exactly one issue ID, regardless of name length or version shape.
+
+### Operator-visible consequence
+
+The "Pushed:" log line shows the package name and version (for human
+context); the indented "JFrog:" line shows the actual ID stored in
+XRay:
+
+```
+✓ Pushed: make-array@0.1.2 (npm)
+i   JFrog: SD-01KR0EKN6PMW0ZRFRN992H1PKX [201]
+```
+
+A JFrog admin searching for an issue can copy the ULID portion and look
+it up in SafeDep directly.
+
+# Flagging All Versions of a Package as Malicious
+
+## @0 version
+
+When a backend sends `package@0` (meaning all versions are malicious), we need to use open ended range in XRay Request.
+
+Using a specific version like `["[1.0.4]"]` only flags that exact version.
+Using `["0"]` or `["[0]"]` only flags version `0.0.0`.
+
+We will use the open-ended range notation `(,)` to match all versions:
+
+```json
+"components": [
+  {
+    "id": "veltrix",
+    "vulnerable_versions": ["(,)"]
+  }
+]
+```
+
+## Version Range Cheat Sheet
+
+| Use case                    | Format              | Handled |
+|-----------------------------|---------------------|---------|
+| Specific version            | `["[1.0.4]"]`       | Yes     |
+| All versions                | `["(,)"]`           | Yes     |
+| From version X onwards      | `["[1.0.0,)"]`      | NO      |
+| Up to version X (exclusive) | `["(,2.0.0)"]`      | NO      |
+| From X to Y (inclusive)     | `["[1.0.0,2.0.0]"]` | NO      |
+
+
+Only [1] and [2] are handled since they are the only needed, from our backend also, we will have specific version or all versions (@0, wildcard)
+
+## Malware ID in case of @0
+
+We will use SD-MAL-{pkg-name}-ALL, i.e ALL for version.
+
+## Mapping Rule
+
+When backend sends `package@0` → use `"vulnerable_versions": ["(,)"]`
+When backend sends `package@1.0.4` → use `"vulnerable_versions": ["[1.0.4]"]`
+
 ## Testing the wire format
 
 `pusher_test.go` uses `httptest.NewServer` to capture requests and assert

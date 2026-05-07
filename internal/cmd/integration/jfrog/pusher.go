@@ -96,14 +96,14 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 	pkgType := ecosystemToJFrog(pkg.GetEcosystem())
 
 	event := jfrogEvent{
-		ID:          issueID(name, version),
+		ID:          issueID(record.GetAnalysisId()),
 		Type:        "Security",
 		Provider:    "SafeDep",
 		PackageType: pkgType,
 		Severity:    "Critical",
 		IssueKind:   1,
 		Summary:     fmt.Sprintf("MALICIOUS PACKAGE: %s contains malicious code", name),
-		Description: fmt.Sprintf("%s %s has been identified as a malicious package by SafeDep threat intelligence.", name, displayVersion(version)),
+		Description: fmt.Sprintf("%s %s has been identified as a malicious package by SafeDep threat intelligence.", name, version),
 		Properties:  map[string]any{},
 		Components: []jfrogComponent{{
 			ID:                 name,
@@ -152,46 +152,21 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 	return resp.StatusCode, nil
 }
 
-// issueID builds a JFrog XRay custom issue ID from package name and version.
+// issueID builds the JFrog XRay custom issue ID from the SafeDep
+// analysis record's external (ULID) identifier.
 //
-// JFrog constraints: max 32 chars, must not start with "Xray", must not be "JFrog".
+// SafeDep ULIDs are 26 chars (Crockford Base32). With the "SD-" prefix,
+// the resulting ID is 29 chars, comfortably under JFrog's 32-char limit.
+// Using the backend ULID gives a stable, traceable identity per analysis
+// record, no truncation games, and uniqueness across versions of the
+// same package without encoding name+version into the ID ourselves.
 //
-// Budget: "SD-MAL-" (7) + name (13) + "-" (1) + version (11) = 32.
-// Both name and version are independently truncated so the version is never
-// silently dropped. This matters for scoped packages like @company/pkg where
-// the name alone can exhaust the budget, making multiple versions
-// indistinguishable in XRay.
-//
-// Trailing hyphens left by truncation (e.g. "money-badger-open-rpc"[:13]
-// -> "money-badger-") are trimmed so the ID does not contain "--".
-//
-// When version is "0" (SafeDep wildcard for all versions), the version segment
-// is "ALL" so the ID is visibly distinct from any real version.
-func issueID(name, version string) string {
-	const prefix = "SD-MAL-"
-	const nameBudget = 13
-	const verBudget = 11
-	if len(name) > nameBudget {
-		name = name[:nameBudget]
-	}
-
-	version = displayVersion(version)
-
-	if len(version) > verBudget {
-		version = version[:verBudget]
-	}
-	name = strings.TrimRight(name, "-")
-	version = strings.TrimLeft(version, "-")
-	return prefix + name + "-" + version
-}
-
-// displayVersion returns the version string to be displayed in the UI
-// When version is "0" (SafeDep wildcard for all versions), it returns "ALL"
-func displayVersion(version string) string {
-	if version == "0" {
-		return "ALL"
-	}
-	return version
+// JFrog constraints satisfied:
+//   - len("SD-" + ULID) = 29 (limit is 32)
+//   - does not start with "Xray"
+//   - is not "JFrog"
+func issueID(analysisID string) string {
+	return "SD-" + analysisID
 }
 
 // vulnerableVersions maps a SafeDep version string to the JFrog XRay range notation.

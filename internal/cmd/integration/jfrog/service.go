@@ -64,6 +64,6 @@ func (s *feedService) handleRecord(ctx context.Context, record *malysisv1.ListPa
 	name := pv.GetPackage().GetName()
 	version := pv.GetVersion()
 	drytui.Success("Pushed: %s@%s (%s)", name, version, ecosystemToJFrog(pv.GetPackage().GetEcosystem()))
-	drytui.Info("  JFrog: %s [%d]", issueID(name, version), status)
+	drytui.Info("  JFrog: %s [%d]", issueID(record.GetAnalysisId()), status)
 	return nil
 }

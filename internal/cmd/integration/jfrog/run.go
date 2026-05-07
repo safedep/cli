@@ -20,6 +20,10 @@ const (
 	// envJFrogToken is the variable NAME, not a credential. The actual token
 	// is read at runtime via config.EnvVar.
 	envJFrogToken = "SAFEDEP_INTEGRATION_JFROG_ARTIFACTORY_ACCESS_TOKEN" // #nosec G101
+
+	// kvNamespace is the profile-scoped KV namespace for this integration.
+	// Must match ^[a-z][a-z0-9_-]{0,63}$.
+	kvNamespace = "integration-jfrog"
 )
 
 // runInput is the raw, unresolved CLI input. Defaults and env-var fallbacks
@@ -51,7 +55,7 @@ func runCmd(a *app.App) *cobra.Command {
 			// Cursor is stored in the profile-scoped KV store so each
 			// SafeDep credential profile has an independent cursor.
 			// Switching --profile automatically switches the cursor.
-			kv, err := app.ProfileKV[time.Time](a, "integration-jfrog")
+			kv, err := app.ProfileKV[time.Time](a, kvNamespace)
 			if err != nil {
 				return fmt.Errorf("run: open cursor store: %w", err)
 			}

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/safedep/cli/internal/storage"
+	"github.com/safedep/dry/log"
 )
 
 // cursorKey is the single KV key used to store the poll cursor.
@@ -33,13 +34,18 @@ func newCursorStore(kv *storage.KV[time.Time]) *cursorStore {
 }
 
 // Load returns the persisted cursor, or zero time on first run.
+// An incompatible stored value (e.g. leftover from a previous schema) is
+// deleted and treated as "start fresh" so a one-time format migration never
+// blocks the daemon.
 func (s *cursorStore) Load(ctx context.Context) (time.Time, error) {
 	t, err := s.kv.Get(ctx, cursorKey)
 	if errors.Is(err, storage.ErrNotFound) {
 		return time.Time{}, nil
 	}
 	if err != nil {
-		return time.Time{}, fmt.Errorf("cursor: get: %w", err)
+		log.Warnf("cursor: incompatible value, resetting: %v", err)
+		_ = s.kv.Delete(ctx, cursorKey)
+		return time.Time{}, nil
 	}
 	return t, nil
 }

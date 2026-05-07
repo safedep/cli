@@ -3,43 +3,34 @@ package jfrog
 
 import (
 	"context"
-	"time"
 
-	malysisv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
 	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
-	"github.com/safedep/cli/internal/storage"
-	"github.com/safedep/dry/log"
 	drytui "github.com/safedep/dry/tui"
 )
 
-// feedService orchestrates the poll-and-push loop: it pulls verified malware
-// records from SafeDep via the poller and forwards each record to JFrog via
-// the pusher. It owns no transport state of its own.
+// feedService bridges a packageSource to the JFrog pusher. The source
+// owns delivery cadence and resume state; feedService is concerned only
+// with pre-flight validation, the per-record push, and result logging.
 type feedService struct {
-	poller   *maliciousPackagePoller
+	source   packageSource
 	pusher   *jfrogPusher
 	jfrogCfg JFrogConfig
-	poll     time.Duration
 }
 
-func newFeedService(svc malysisv1grpc.MalwareAnalysisServiceClient, cfg Config, kv *storage.KV[time.Time]) *feedService {
+func newFeedService(source packageSource, pusher *jfrogPusher, jfrogCfg JFrogConfig) *feedService {
 	return &feedService{
-		poller:   newMaliciousPackagePoller(svc, newCursorStore(kv)),
-		pusher:   newJFrogPusher(cfg.JFrog),
-		jfrogCfg: cfg.JFrog,
-		poll:     cfg.Source.PollInterval,
+		source:   source,
+		pusher:   pusher,
+		jfrogCfg: jfrogCfg,
 	}
 }
 
-// Run executes poll cycles until ctx is cancelled (SIGINT / SIGTERM).
+// Run validates JFrog connectivity once, then hands off to the source.
+// Run blocks until ctx is cancelled or the source returns a fatal error.
 //
-// A pre-flight connectivity check runs once before the loop starts so
-// misconfigured URL or token fail fast at startup with a clear message,
-// rather than after the first poll cycle deep inside the push path.
-//
-// A cycle that fails mid-flight (poller error) is logged and the loop
-// continues — transient gRPC failures must not bring down the daemon.
-// Cancellation between cycles is honoured immediately.
+// Pre-flight validation lives here (not in the source) because it is a
+// destination-side concern — every source pushes to the same JFrog
+// instance, so the check belongs with the pusher's owner.
 func (s *feedService) Run(ctx context.Context) error {
 	drytui.Info("Validating JFrog connectivity at %s", s.jfrogCfg.URL)
 	if err := validateJFrog(ctx, s.jfrogCfg); err != nil {
@@ -47,56 +38,32 @@ func (s *feedService) Run(ctx context.Context) error {
 	}
 	drytui.Success("JFrog connectivity OK (URL + token verified)")
 
-	drytui.Info("Starting JFrog integration feed (poll interval: %s)", s.poll)
-
-	for {
-		if err := s.runOnce(ctx); err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			drytui.Warning("Poll cycle error: %v", err)
-		}
-
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-time.After(s.poll):
-		}
-	}
+	return s.source.Subscribe(ctx, func(record *malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) error {
+		return s.handleRecord(ctx, record)
+	})
 }
 
-// runOnce performs a single poll-and-push cycle.
+// handleRecord pushes a single record to JFrog and emits user-visible
+// logs. Push errors are logged and swallowed (best-effort delivery) —
+// returning nil keeps the source running for the next record.
 //
-// Push failures are logged and swallowed (best-effort delivery). The cursor
-// still advances after the page so a single bad record cannot block the
-// whole stream forever. JFrog issue IDs are deterministic, so a record that
-// later succeeds to push will overwrite the partial state safely.
-func (s *feedService) runOnce(ctx context.Context) error {
-	var pushed int
-	err := s.poller.Poll(ctx, func(record *malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) error {
-		status, err := s.pusher.Push(ctx, record)
-		if err != nil {
-			log.Warnf("feed: push %s: %v", record.GetAnalysisId(), err)
-			return nil
-		}
-		// Push contract: status == 0 with nil error means the record was
-		// skipped before the HTTP call (nil PackageVersion, empty name, or
-		// empty version). The pusher already logged the reason; we must not
-		// count it as pushed or emit a misleading "Pushed:" line.
-		if status == 0 {
-			return nil
-		}
-		pushed++
-		pv := record.GetTarget().GetPackageVersion()
-		name := pv.GetPackage().GetName()
-		version := pv.GetVersion()
-		drytui.Success("Pushed: %s@%s (%s)", name, version, ecosystemToJFrog(pv.GetPackage().GetEcosystem()))
-		drytui.Info("  JFrog: %s [%d]", issueID(name, version), status)
-		return nil
-	})
+// The pusher's contract: (status == 0, nil err) means the record was
+// skipped before the HTTP call (nil PackageVersion, empty name, or
+// empty version). The pusher already logged the reason; we must not
+// emit a misleading "Pushed:" line.
+func (s *feedService) handleRecord(ctx context.Context, record *malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) error {
+	status, err := s.pusher.Push(ctx, record)
 	if err != nil {
-		return err
+		drytui.Warning("Push failed for %s: %v", record.GetAnalysisId(), err)
+		return nil
 	}
-	drytui.Info("Feed cycle complete: pushed %d records", pushed)
+	if status == 0 {
+		return nil
+	}
+	pv := record.GetTarget().GetPackageVersion()
+	name := pv.GetPackage().GetName()
+	version := pv.GetVersion()
+	drytui.Success("Pushed: %s@%s (%s)", name, version, ecosystemToJFrog(pv.GetPackage().GetEcosystem()))
+	drytui.Info("  JFrog: %s [%d]", issueID(name, version), status)
 	return nil
 }

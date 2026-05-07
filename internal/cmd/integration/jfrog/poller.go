@@ -8,7 +8,7 @@ import (
 	malysisv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
-	"github.com/safedep/dry/log"
+	drytui "github.com/safedep/dry/tui"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -63,7 +63,7 @@ func (p *maliciousPackagePoller) Poll(ctx context.Context, onRecord func(*malysi
 	// poll interval. Reset to safeStartFromAge so we recover automatically,
 	// accepting that records from the gap period are unrecoverable.
 	if !lastSeenAt.IsZero() && lastSeenAt.Before(time.Now().UTC().Add(-apiCutoffAge)) {
-		log.Warnf("poller: cursor %s exceeds 7-day API cutoff; resetting to %s ago",
+		drytui.Warning("Cursor %s exceeds 7-day API cutoff; resetting to %s ago",
 			lastSeenAt.UTC().Format(time.RFC3339), safeStartFromAge)
 		lastSeenAt = time.Now().UTC().Add(-safeStartFromAge)
 		if err := p.cursor.Save(ctx, lastSeenAt); err != nil {

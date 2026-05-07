@@ -13,7 +13,7 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
-	"github.com/safedep/dry/log"
+	drytui "github.com/safedep/dry/tui"
 )
 
 const (
@@ -75,7 +75,7 @@ func newJFrogPusher(cfg JFrogConfig) *jfrogPusher {
 func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) (int, error) {
 	pv := record.GetTarget().GetPackageVersion()
 	if pv == nil {
-		log.Warnf("jfrog pusher: skipping record %s: nil package version", record.GetAnalysisId())
+		drytui.Warning("Skipping record %s: nil package version", record.GetAnalysisId())
 		return 0, nil
 	}
 
@@ -83,13 +83,13 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 	name := pkg.GetName()
 	version := pv.GetVersion()
 	if name == "" {
-		log.Warnf("jfrog pusher: skipping record %s: empty package name", record.GetAnalysisId())
+		drytui.Warning("Skipping record %s: empty package name", record.GetAnalysisId())
 		return 0, nil
 	}
 	// Empty version would render as "[]" in XRay's range notation, which the
 	// API silently drops. Refuse rather than push a record that will not flag.
 	if version == "" {
-		log.Warnf("jfrog pusher: skipping record %s: empty version", record.GetAnalysisId())
+		drytui.Warning("Skipping record %s: empty version", record.GetAnalysisId())
 		return 0, nil
 	}
 	pkgType := ecosystemToJFrog(pkg.GetEcosystem())
@@ -131,14 +131,14 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			log.Warnf("jfrog pusher: close response body: %v", err)
+			drytui.Warning("JFrog response body close failed: %v", err)
 		}
 	}()
 
 	// Bounded read: the body is only used for diagnostics, never trusted.
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxRespBody))
 	if err != nil {
-		log.Warnf("jfrog pusher: read response body: %v", err)
+		drytui.Warning("JFrog response body read failed: %v", err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

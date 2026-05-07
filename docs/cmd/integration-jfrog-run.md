@@ -34,7 +34,6 @@ safedep integration jfrog run
 | `--instance-url` | yes* | — | JFrog instance base URL. Must be `https://`. |
 | `--instance-access-token` | yes* | — | JFrog access token scoped to XRay. |
 | `--poll-interval` | no | `60s` | Sleep duration between poll cycles (`30s`, `5m`, `1h`). |
-| `--cursor-file` | no | `~/.safedep/integration-jfrog-cursor.json` | Path to the cursor file. |
 | `--profile` | no | `"default"` | SafeDep credential profile (inherited from root). |
 
 *Required unless the corresponding environment variable is set.

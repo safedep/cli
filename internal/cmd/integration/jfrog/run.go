@@ -60,13 +60,14 @@ func runCmd(a *app.App) *cobra.Command {
 				return fmt.Errorf("run: open cursor store: %w", err)
 			}
 
-			svc := newFeedService(
+			source := newPollSource(
 				malysisv1grpc.NewMalwareAnalysisServiceClient(client.Connection()),
-				cfg,
 				kv,
+				cfg.Source.PollInterval,
 			)
+			pusher := newJFrogPusher(cfg.JFrog)
 
-			return svc.Run(cmd.Context())
+			return newFeedService(source, pusher, cfg.JFrog).Run(cmd.Context())
 		},
 	}
 

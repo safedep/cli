@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/safedep/dry/log"
+	drytui "github.com/safedep/dry/tui"
 )
 
 // validateJFrog performs a pre-flight check that proves three things in a
@@ -44,13 +44,13 @@ func validateJFrog(ctx context.Context, cfg JFrogConfig) error {
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			log.Warnf("jfrog validate: close response body: %v", err)
+			drytui.Warning("JFrog validate response body close failed: %v", err)
 		}
 	}()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxRespBody))
 	if err != nil {
-		log.Warnf("jfrog validate: read response body: %v", err)
+		drytui.Warning("JFrog validate response body read failed: %v", err)
 	}
 
 	switch resp.StatusCode {

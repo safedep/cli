@@ -83,7 +83,7 @@ func (kv *KV[T]) GetEntry(ctx context.Context, key string) (Entry[T], error) {
 
 	var v T
 	if err := json.Unmarshal(raw, &v); err != nil {
-		return Entry[T]{}, fmt.Errorf("storage: kv decode: %w", err)
+		return Entry[T]{}, fmt.Errorf("%w: %w", ErrKVDecode, err)
 	}
 
 	e := Entry[T]{

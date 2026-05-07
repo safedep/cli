@@ -34,18 +34,24 @@ func newCursorStore(kv *storage.KV[time.Time]) *cursorStore {
 }
 
 // Load returns the persisted cursor, or zero time on first run.
-// An incompatible stored value (e.g. leftover from a previous schema) is
-// deleted and treated as "start fresh" so a one-time format migration never
-// blocks the daemon.
+//
+// Only JSON decode failures (storage.ErrKVDecode) are treated as an
+// incompatible format — the stale key is deleted so the next write starts
+// clean. DB-level errors (locked file, permission denied, etc.) are
+// propagated so the caller can retry on the next poll cycle rather than
+// silently destroying a cursor that may still be valid.
 func (s *cursorStore) Load(ctx context.Context) (time.Time, error) {
 	t, err := s.kv.Get(ctx, cursorKey)
 	if errors.Is(err, storage.ErrNotFound) {
 		return time.Time{}, nil
 	}
-	if err != nil {
+	if errors.Is(err, storage.ErrKVDecode) {
 		drytui.Warning("Cursor value incompatible, resetting to beginning: %v", err)
 		_ = s.kv.Delete(ctx, cursorKey)
 		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("cursor: get: %w", err)
 	}
 	return t, nil
 }

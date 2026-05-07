@@ -90,7 +90,7 @@ func (s *feedService) runOnce(ctx context.Context) error {
 		pv := record.GetTarget().GetPackageVersion()
 		name := pv.GetPackage().GetName()
 		version := pv.GetVersion()
-		drytui.Info("Pushed: %s@%s (%s)", name, version, ecosystemToJFrog(pv.GetPackage().GetEcosystem()))
+		drytui.Success("Pushed: %s@%s (%s)", name, version, ecosystemToJFrog(pv.GetPackage().GetEcosystem()))
 		drytui.Info("  JFrog: %s [%d]", issueID(name, version), status)
 		return nil
 	})

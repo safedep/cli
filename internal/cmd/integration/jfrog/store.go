@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/safedep/cli/internal/storage"
-	"github.com/safedep/dry/log"
+	drytui "github.com/safedep/dry/tui"
 )
 
 // cursorKey is the single KV key used to store the poll cursor.
@@ -43,7 +43,7 @@ func (s *cursorStore) Load(ctx context.Context) (time.Time, error) {
 		return time.Time{}, nil
 	}
 	if err != nil {
-		log.Warnf("cursor: incompatible value, resetting: %v", err)
+		drytui.Warning("Cursor value incompatible, resetting to beginning: %v", err)
 		_ = s.kv.Delete(ctx, cursorKey)
 		return time.Time{}, nil
 	}

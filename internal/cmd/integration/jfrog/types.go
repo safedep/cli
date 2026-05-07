@@ -15,10 +15,6 @@ type Config struct {
 type SourceConfig struct {
 	// PollInterval is the sleep duration between successful poll cycles.
 	PollInterval time.Duration
-
-	// CursorFile is the absolute path to the JSON cursor file. Created on
-	// first run and rewritten atomically after each page of results.
-	CursorFile string
 }
 
 // JFrogConfig groups the XRay HTTP endpoint and bearer credential. The URL

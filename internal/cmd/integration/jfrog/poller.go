@@ -53,7 +53,7 @@ func newMaliciousPackagePoller(svc malysisv1grpc.MalwareAnalysisServiceClient, c
 //   - A cursor older than 7 days is rejected with an error; we detect this and
 //     reset to safeStartFromAge so the daemon recovers automatically.
 func (p *maliciousPackagePoller) Poll(ctx context.Context, onRecord func(*malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) error) error {
-	lastSeenAt, err := p.cursor.Load()
+	lastSeenAt, err := p.cursor.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("poller: load cursor: %w", err)
 	}
@@ -66,7 +66,7 @@ func (p *maliciousPackagePoller) Poll(ctx context.Context, onRecord func(*malysi
 		log.Warnf("poller: cursor %s exceeds 7-day API cutoff; resetting to %s ago",
 			lastSeenAt.UTC().Format(time.RFC3339), safeStartFromAge)
 		lastSeenAt = time.Now().UTC().Add(-safeStartFromAge)
-		if err := p.cursor.Save(lastSeenAt); err != nil {
+		if err := p.cursor.Save(ctx, lastSeenAt); err != nil {
 			return fmt.Errorf("poller: save reset cursor: %w", err)
 		}
 	}
@@ -121,7 +121,7 @@ func (p *maliciousPackagePoller) Poll(ctx context.Context, onRecord func(*malysi
 			if pageMaxAt.IsZero() {
 				pageMaxAt = time.Now().UTC()
 			}
-			if err := p.cursor.Save(pageMaxAt); err != nil {
+			if err := p.cursor.Save(ctx, pageMaxAt); err != nil {
 				return fmt.Errorf("poller: save cursor: %w", err)
 			}
 			anySaved = true
@@ -138,7 +138,7 @@ func (p *maliciousPackagePoller) Poll(ctx context.Context, onRecord func(*malysi
 	// zero records were returned. This ensures the file exists so operators
 	// can edit it to set a past timestamp and re-process history.
 	if !anySaved {
-		if err := p.cursor.Save(time.Now().UTC()); err != nil {
+		if err := p.cursor.Save(ctx, time.Now().UTC()); err != nil {
 			return fmt.Errorf("poller: save cursor: %w", err)
 		}
 	}

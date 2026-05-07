@@ -7,6 +7,7 @@ import (
 
 	malysisv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
 	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
+	"github.com/safedep/cli/internal/storage"
 	"github.com/safedep/dry/log"
 	drytui "github.com/safedep/dry/tui"
 )
@@ -21,10 +22,9 @@ type feedService struct {
 	poll     time.Duration
 }
 
-func newFeedService(svc malysisv1grpc.MalwareAnalysisServiceClient, cfg Config) *feedService {
-	cursor := newCursorStore(cfg.Source.CursorFile)
+func newFeedService(svc malysisv1grpc.MalwareAnalysisServiceClient, cfg Config, kv *storage.KV[cursorState]) *feedService {
 	return &feedService{
-		poller:   newMaliciousPackagePoller(svc, cursor),
+		poller:   newMaliciousPackagePoller(svc, newCursorStore(kv)),
 		pusher:   newJFrogPusher(cfg.JFrog),
 		jfrogCfg: cfg.JFrog,
 		poll:     cfg.Source.PollInterval,

@@ -3,8 +3,6 @@ package jfrog
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -30,7 +28,6 @@ type runInput struct {
 	InstanceURL         string
 	InstanceAccessToken string
 	PollInterval        time.Duration
-	CursorFile          string
 }
 
 func runCmd(a *app.App) *cobra.Command {
@@ -51,9 +48,18 @@ func runCmd(a *app.App) *cobra.Command {
 				return err
 			}
 
+			// Cursor is stored in the profile-scoped KV store so each
+			// SafeDep credential profile has an independent cursor.
+			// Switching --profile automatically switches the cursor.
+			kv, err := app.ProfileKV[cursorState](a, "integration-jfrog")
+			if err != nil {
+				return fmt.Errorf("run: open cursor store: %w", err)
+			}
+
 			svc := newFeedService(
 				malysisv1grpc.NewMalwareAnalysisServiceClient(client.Connection()),
 				cfg,
+				kv,
 			)
 
 			return svc.Run(cmd.Context())
@@ -63,7 +69,6 @@ func runCmd(a *app.App) *cobra.Command {
 	cmd.Flags().StringVar(&in.InstanceURL, "instance-url", "", "JFrog instance URL (or "+envJFrogURL+")")
 	cmd.Flags().StringVar(&in.InstanceAccessToken, "instance-access-token", "", "JFrog access token (or "+envJFrogToken+")")
 	cmd.Flags().DurationVar(&in.PollInterval, "poll-interval", 60*time.Second, "sleep duration between poll cycles")
-	cmd.Flags().StringVar(&in.CursorFile, "cursor-file", "", "cursor file path (default ~/.safedep/integration-jfrog-cursor.json)")
 
 	return cmd
 }
@@ -73,7 +78,7 @@ func runCmd(a *app.App) *cobra.Command {
 //
 //  1. Explicit CLI flag value
 //  2. Corresponding SAFEDEP_INTEGRATION_JFROG_ARTIFACTORY_* environment variable
-//  3. Built-in default (only for poll interval and cursor file)
+//  3. Built-in default (only for poll interval)
 //
 // Required parameters that cannot be defaulted (URL, access token) cause a
 // hard error so the daemon fails fast at startup rather than running blind.
@@ -102,40 +107,13 @@ func resolveConfig(in runInput) (Config, error) {
 		return Config{}, fmt.Errorf("run: --instance-access-token or %s is required", envJFrogToken)
 	}
 
-	cursorFile, err := resolveCursorFile(in.CursorFile)
-	if err != nil {
-		return Config{}, err
-	}
-
 	return Config{
 		Source: SourceConfig{
 			PollInterval: in.PollInterval,
-			CursorFile:   cursorFile,
 		},
 		JFrog: JFrogConfig{
 			URL:         url,
 			AccessToken: token,
 		},
 	}, nil
-}
-
-// resolveCursorFile returns the absolute cursor path. An empty input picks
-// the default under the user's home directory; a leading "~/" is expanded
-// because filepath.Join does not (it is a shell-only convention).
-func resolveCursorFile(path string) (string, error) {
-	if path == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("run: resolve cursor file home dir: %w", err)
-		}
-		return filepath.Join(home, ".safedep", "integration-jfrog-cursor.json"), nil
-	}
-	if strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("run: resolve cursor file home dir: %w", err)
-		}
-		return filepath.Join(home, path[2:]), nil
-	}
-	return path, nil
 }

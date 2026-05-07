@@ -1,83 +1,63 @@
 // Package jfrog implements the SafeDep -> JFrog XRay malicious package
 // integration. The package owns the cobra surface (cmd.go, run.go), the
 // poll-and-push orchestration (service.go, poller.go, pusher.go) and the
-// file-backed cursor that survives restarts (this file).
+// KV-backed cursor that survives restarts (this file).
 package jfrog
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"time"
 
-	"github.com/safedep/dry/log"
+	"github.com/safedep/cli/internal/storage"
 )
 
-// cursorStore persists the timestamp of the last processed analysis record so
-// the daemon can resume where it left off across restarts. Operators can edit
-// the file by hand to reprocess history.
+// cursorKey is the single KV key used to store the poll cursor. One key
+// per namespace keeps the store simple; if per-ecosystem cursors are
+// ever needed, a scheme like "cursor:<ecosystem>" can be introduced.
+const cursorKey = "cursor"
+
+// cursorStore wraps the typed KV store so the poller does not need to
+// know about KV internals. It persists the timestamp of the last
+// processed analysis record so the daemon can resume where it left off
+// across restarts.
+//
+// The underlying KV store is profile-scoped (obtained via
+// app.ProfileKV), so each SafeDep credential profile has an independent
+// cursor. Switching --profile automatically switches the cursor.
 type cursorStore struct {
-	path string
+	kv *storage.KV[cursorState]
 }
 
-// cursorState is the on-disk format. Exporting json tags keeps the file
-// editable by humans without a CLI dance.
+// cursorState is the value stored per key. A struct (rather than a bare
+// time.Time) keeps the JSON document extensible without a migration.
 type cursorState struct {
 	LastSeenAt time.Time `json:"last_seen_at"`
 }
 
-func newCursorStore(path string) *cursorStore {
-	return &cursorStore{path: path}
+func newCursorStore(kv *storage.KV[cursorState]) *cursorStore {
+	return &cursorStore{kv: kv}
 }
 
-// Load returns the persisted cursor, or the zero time if the file does not
-// exist or is empty/corrupt. A corrupt file is treated as "start fresh" with
-// a warning so a manually emptied or truncated file never blocks the daemon.
-func (s *cursorStore) Load() (time.Time, error) {
-	data, err := os.ReadFile(s.path)
-	if errors.Is(err, fs.ErrNotExist) {
+// Load returns the persisted cursor, or zero time if no cursor has been
+// saved yet (first run). A missing key is "start fresh", not an error.
+func (s *cursorStore) Load(ctx context.Context) (time.Time, error) {
+	state, err := s.kv.Get(ctx, cursorKey)
+	if errors.Is(err, storage.ErrNotFound) {
 		return time.Time{}, nil
 	}
 	if err != nil {
-		return time.Time{}, fmt.Errorf("cursor: read: %w", err)
+		return time.Time{}, fmt.Errorf("cursor: get: %w", err)
 	}
-	if len(data) == 0 {
-		log.Warnf("cursor: file %s is empty, starting from beginning", s.path)
-		return time.Time{}, nil
-	}
-
-	var state cursorState
-	if err := json.Unmarshal(data, &state); err != nil {
-		log.Warnf("cursor: file %s is corrupt (%v), starting from beginning", s.path, err)
-		return time.Time{}, nil
-	}
-
 	return state.LastSeenAt, nil
 }
 
-// Save writes the cursor atomically (write-temp, rename) so a crash mid-write
-// cannot leave a corrupted file that would block the next start.
-func (s *cursorStore) Save(t time.Time) error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
-		return fmt.Errorf("cursor: mkdir: %w", err)
+// Save persists the cursor. KV Put is an upsert, so there is no
+// separate "create on first run" path.
+func (s *cursorStore) Save(ctx context.Context, t time.Time) error {
+	if err := s.kv.Put(ctx, cursorKey, cursorState{LastSeenAt: t}); err != nil {
+		return fmt.Errorf("cursor: put: %w", err)
 	}
-
-	data, err := json.Marshal(cursorState{LastSeenAt: t})
-	if err != nil {
-		return fmt.Errorf("cursor: marshal: %w", err)
-	}
-
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return fmt.Errorf("cursor: write tmp: %w", err)
-	}
-
-	if err := os.Rename(tmp, s.path); err != nil {
-		return fmt.Errorf("cursor: rename: %w", err)
-	}
-
 	return nil
 }

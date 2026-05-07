@@ -22,7 +22,7 @@ type feedService struct {
 	poll     time.Duration
 }
 
-func newFeedService(svc malysisv1grpc.MalwareAnalysisServiceClient, cfg Config, kv *storage.KV[cursorState]) *feedService {
+func newFeedService(svc malysisv1grpc.MalwareAnalysisServiceClient, cfg Config, kv *storage.KV[time.Time]) *feedService {
 	return &feedService{
 		poller:   newMaliciousPackagePoller(svc, newCursorStore(kv)),
 		pusher:   newJFrogPusher(cfg.JFrog),

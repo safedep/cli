@@ -13,9 +13,7 @@ import (
 	"github.com/safedep/cli/internal/storage"
 )
 
-// cursorKey is the single KV key used to store the poll cursor. One key
-// per namespace keeps the store simple; if per-ecosystem cursors are
-// ever needed, a scheme like "cursor:<ecosystem>" can be introduced.
+// cursorKey is the single KV key used to store the poll cursor.
 const cursorKey = "cursor"
 
 // cursorStore wraps the typed KV store so the poller does not need to
@@ -23,40 +21,32 @@ const cursorKey = "cursor"
 // processed analysis record so the daemon can resume where it left off
 // across restarts.
 //
-// The underlying KV store is profile-scoped (obtained via
-// app.ProfileKV), so each SafeDep credential profile has an independent
-// cursor. Switching --profile automatically switches the cursor.
+// The underlying KV store is profile-scoped (obtained via app.ProfileKV),
+// so each SafeDep credential profile has an independent cursor.
+// Switching --profile automatically switches the cursor.
 type cursorStore struct {
-	kv *storage.KV[cursorState]
+	kv *storage.KV[time.Time]
 }
 
-// cursorState is the value stored per key. A struct (rather than a bare
-// time.Time) keeps the JSON document extensible without a migration.
-type cursorState struct {
-	LastSeenAt time.Time `json:"last_seen_at"`
-}
-
-func newCursorStore(kv *storage.KV[cursorState]) *cursorStore {
+func newCursorStore(kv *storage.KV[time.Time]) *cursorStore {
 	return &cursorStore{kv: kv}
 }
 
-// Load returns the persisted cursor, or zero time if no cursor has been
-// saved yet (first run). A missing key is "start fresh", not an error.
+// Load returns the persisted cursor, or zero time on first run.
 func (s *cursorStore) Load(ctx context.Context) (time.Time, error) {
-	state, err := s.kv.Get(ctx, cursorKey)
+	t, err := s.kv.Get(ctx, cursorKey)
 	if errors.Is(err, storage.ErrNotFound) {
 		return time.Time{}, nil
 	}
 	if err != nil {
 		return time.Time{}, fmt.Errorf("cursor: get: %w", err)
 	}
-	return state.LastSeenAt, nil
+	return t, nil
 }
 
-// Save persists the cursor. KV Put is an upsert, so there is no
-// separate "create on first run" path.
+// Save persists the cursor. KV Put is an upsert.
 func (s *cursorStore) Save(ctx context.Context, t time.Time) error {
-	if err := s.kv.Put(ctx, cursorKey, cursorState{LastSeenAt: t}); err != nil {
+	if err := s.kv.Put(ctx, cursorKey, t); err != nil {
 		return fmt.Errorf("cursor: put: %w", err)
 	}
 	return nil

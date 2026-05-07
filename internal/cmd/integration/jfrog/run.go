@@ -51,7 +51,7 @@ func runCmd(a *app.App) *cobra.Command {
 			// Cursor is stored in the profile-scoped KV store so each
 			// SafeDep credential profile has an independent cursor.
 			// Switching --profile automatically switches the cursor.
-			kv, err := app.ProfileKV[cursorState](a, "integration-jfrog")
+			kv, err := app.ProfileKV[time.Time](a, "integration-jfrog")
 			if err != nil {
 				return fmt.Errorf("run: open cursor store: %w", err)
 			}

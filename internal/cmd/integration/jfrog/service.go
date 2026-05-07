@@ -54,7 +54,7 @@ func (s *feedService) Run(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return nil
 			}
-			log.Warnf("feed: poll cycle error: %v", err)
+			drytui.Warning("Poll cycle error: %v", err)
 		}
 
 		select {

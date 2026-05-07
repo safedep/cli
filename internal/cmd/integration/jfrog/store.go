@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/safedep/dry/log"
 )
 
 // cursorStore persists the timestamp of the last processed analysis record so
@@ -32,8 +34,8 @@ func newCursorStore(path string) *cursorStore {
 }
 
 // Load returns the persisted cursor, or the zero time if the file does not
-// exist (treated as "first run, scan from the beginning"). Any other read
-// error is fatal so silent data corruption cannot mask a misconfiguration.
+// exist or is empty/corrupt. A corrupt file is treated as "start fresh" with
+// a warning so a manually emptied or truncated file never blocks the daemon.
 func (s *cursorStore) Load() (time.Time, error) {
 	data, err := os.ReadFile(s.path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -42,10 +44,15 @@ func (s *cursorStore) Load() (time.Time, error) {
 	if err != nil {
 		return time.Time{}, fmt.Errorf("cursor: read: %w", err)
 	}
+	if len(data) == 0 {
+		log.Warnf("cursor: file %s is empty, starting from beginning", s.path)
+		return time.Time{}, nil
+	}
 
 	var state cursorState
 	if err := json.Unmarshal(data, &state); err != nil {
-		return time.Time{}, fmt.Errorf("cursor: parse: %w", err)
+		log.Warnf("cursor: file %s is corrupt (%v), starting from beginning", s.path, err)
+		return time.Time{}, nil
 	}
 
 	return state.LastSeenAt, nil

@@ -80,6 +80,26 @@ func TestResolveConfig(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			// time.After(0) fires immediately — would turn the poll loop
+			// into a tight hammer on the SafeDep API. Must reject.
+			name: "zero poll interval rejected",
+			in: runInput{
+				InstanceURL:         "https://example.jfrog.io",
+				InstanceAccessToken: "tok",
+				PollInterval:        0,
+			},
+			wantErr: true,
+		},
+		{
+			name: "negative poll interval rejected",
+			in: runInput{
+				InstanceURL:         "https://example.jfrog.io",
+				InstanceAccessToken: "tok",
+				PollInterval:        -1 * time.Second,
+			},
+			wantErr: true,
+		},
+		{
 			name: "http url upgraded to https",
 			in: runInput{
 				InstanceURL:         "http://example.jfrog.io",

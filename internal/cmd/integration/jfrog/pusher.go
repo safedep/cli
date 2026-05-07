@@ -13,6 +13,7 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
+	"github.com/safedep/dry/log"
 	drytui "github.com/safedep/dry/tui"
 )
 
@@ -131,14 +132,17 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			drytui.Warning("JFrog response body close failed: %v", err)
+			// Internal diagnostic: deferred cleanup failure is not actionable
+			// by the operator. dry/log per AGENTS.md convention.
+			log.Warnf("jfrog pusher: close response body: %v", err)
 		}
 	}()
 
 	// Bounded read: the body is only used for diagnostics, never trusted.
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxRespBody))
 	if err != nil {
-		drytui.Warning("JFrog response body read failed: %v", err)
+		// Internal diagnostic: read failure on the diagnostic body itself.
+		log.Warnf("jfrog pusher: read response body: %v", err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -209,16 +213,20 @@ func ecosystemToJFrog(e packagev1.Ecosystem) string {
 	switch e {
 	case packagev1.Ecosystem_ECOSYSTEM_NPM:
 		return "npm"
-	case packagev1.Ecosystem_ECOSYSTEM_PYPI:
-		return "pypi"
 	case packagev1.Ecosystem_ECOSYSTEM_MAVEN:
 		return "maven"
+	case packagev1.Ecosystem_ECOSYSTEM_PYPI:
+		return "pypi"
 	case packagev1.Ecosystem_ECOSYSTEM_GO:
 		return "go"
 	case packagev1.Ecosystem_ECOSYSTEM_NUGET:
 		return "nuget"
 	case packagev1.Ecosystem_ECOSYSTEM_RUBYGEMS:
 		return "gem"
+	case packagev1.Ecosystem_ECOSYSTEM_PACKAGIST:
+		return "composer"
+	case packagev1.Ecosystem_ECOSYSTEM_CARGO:
+		return "cargo"
 	default:
 		return "generic"
 	}

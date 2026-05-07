@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	drytui "github.com/safedep/dry/tui"
+	"github.com/safedep/dry/log"
 )
 
 // validateJFrog performs a pre-flight check that proves three things in a
@@ -44,13 +44,16 @@ func validateJFrog(ctx context.Context, cfg JFrogConfig) error {
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			drytui.Warning("JFrog validate response body close failed: %v", err)
+			// Internal diagnostic: deferred cleanup failure is not actionable
+			// by the operator. dry/log per AGENTS.md convention.
+			log.Warnf("jfrog validate: close response body: %v", err)
 		}
 	}()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxRespBody))
 	if err != nil {
-		drytui.Warning("JFrog validate response body read failed: %v", err)
+		// Internal diagnostic: read failure on the diagnostic body itself.
+		log.Warnf("jfrog validate: read response body: %v", err)
 	}
 
 	switch resp.StatusCode {

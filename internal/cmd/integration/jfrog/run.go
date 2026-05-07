@@ -112,6 +112,13 @@ func resolveConfig(in runInput) (Config, error) {
 		return Config{}, fmt.Errorf("run: --instance-access-token or %s is required", envJFrogToken)
 	}
 
+	// time.After(<= 0) fires immediately. A zero or negative interval would
+	// turn the poll loop into a tight infinite hammer on the SafeDep API
+	// with no backoff — refuse rather than silently DoS the upstream.
+	if in.PollInterval <= 0 {
+		return Config{}, fmt.Errorf("run: --poll-interval must be positive, got %s", in.PollInterval)
+	}
+
 	return Config{
 		Source: SourceConfig{
 			PollInterval: in.PollInterval,

@@ -8,6 +8,7 @@ import (
 	malysisv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
+	"github.com/safedep/dry/log"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -19,10 +20,23 @@ type maliciousPackagePoller struct {
 	cursor *cursorStore
 }
 
-// pollPageSize is the number of records requested per page. Tuned for a
-// balance between API roundtrips and memory: at 100 a single page is small
-// enough to keep memory bounded and large enough to make pagination cheap.
-const pollPageSize = 100
+const (
+	// pollPageSize is the number of records requested per page. Tuned for a
+	// balance between API roundtrips and memory: at 100 a single page is small
+	// enough to keep memory bounded and large enough to make pagination cheap.
+	pollPageSize = 100
+
+	// apiCutoffAge is the maximum age the SafeDep API accepts for start_from.
+	// Requests with start_from older than this are rejected with an error
+	// ("startFrom is before cutoff date") rather than silently clamped.
+	apiCutoffAge = 7 * 24 * time.Hour
+
+	// safeStartFromAge is the age we reset to when the stored cursor has
+	// fallen outside the cutoff window (e.g. daemon was down >7 days).
+	// Using 6 days keeps us just inside the cutoff and recovers as much
+	// history as the API allows.
+	safeStartFromAge = 6 * 24 * time.Hour
+)
 
 func newMaliciousPackagePoller(svc malysisv1grpc.MalwareAnalysisServiceClient, cursor *cursorStore) *maliciousPackagePoller {
 	return &maliciousPackagePoller{svc: svc, cursor: cursor}
@@ -30,11 +44,38 @@ func newMaliciousPackagePoller(svc malysisv1grpc.MalwareAnalysisServiceClient, c
 
 // Poll fetches all verified malware records newer than the cursor and calls
 // onRecord for each one. The cursor is advanced after each page.
+//
+// start_from semantics (SafeDep API):
+//   - Omitting start_from → server defaults to now-1h (first-run behaviour).
+//   - Providing start_from → WHERE created_at > start_from; must be within 7 days.
+//   - start_from must stay constant across all pages of one session; only the
+//     next_page_token moves forward within the window.
+//   - A cursor older than 7 days is rejected with an error; we detect this and
+//     reset to safeStartFromAge so the daemon recovers automatically.
 func (p *maliciousPackagePoller) Poll(ctx context.Context, onRecord func(*malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) error) error {
 	lastSeenAt, err := p.cursor.Load()
 	if err != nil {
 		return fmt.Errorf("poller: load cursor: %w", err)
 	}
+
+	// Guard against a stale cursor. If the daemon was offline for >7 days the
+	// API rejects start_from and the daemon would loop on the same error every
+	// poll interval. Reset to safeStartFromAge so we recover automatically,
+	// accepting that records from the gap period are unrecoverable.
+	if !lastSeenAt.IsZero() && lastSeenAt.Before(time.Now().UTC().Add(-apiCutoffAge)) {
+		log.Warnf("poller: cursor %s exceeds 7-day API cutoff; resetting to %s ago",
+			lastSeenAt.UTC().Format(time.RFC3339), safeStartFromAge)
+		lastSeenAt = time.Now().UTC().Add(-safeStartFromAge)
+		if err := p.cursor.Save(lastSeenAt); err != nil {
+			return fmt.Errorf("poller: save reset cursor: %w", err)
+		}
+	}
+
+	// Fix start_from for the entire session. The backend uses it as a time
+	// filter (WHERE created_at > start_from) and expects it to be constant
+	// while next_page_token pages through results within that window.
+	// Changing start_from between pages could invalidate the page token.
+	sessionStartFrom := lastSeenAt
 
 	filter := &malysisv1.ListPackageAnalysisRecordsRequest_FilterOption{}
 	filter.SetOnlyMalware(true)
@@ -44,8 +85,8 @@ func (p *maliciousPackagePoller) Poll(ctx context.Context, onRecord func(*malysi
 	var anySaved bool
 	for {
 		req := &malysisv1.ListPackageAnalysisRecordsRequest{}
-		if !lastSeenAt.IsZero() {
-			req.SetStartFrom(timestamppb.New(lastSeenAt))
+		if !sessionStartFrom.IsZero() {
+			req.SetStartFrom(timestamppb.New(sessionStartFrom))
 		}
 		req.SetFilter(filter)
 
@@ -83,7 +124,6 @@ func (p *maliciousPackagePoller) Poll(ctx context.Context, onRecord func(*malysi
 			if err := p.cursor.Save(pageMaxAt); err != nil {
 				return fmt.Errorf("poller: save cursor: %w", err)
 			}
-			lastSeenAt = pageMaxAt
 			anySaved = true
 		}
 

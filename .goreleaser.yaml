@@ -5,21 +5,12 @@ before:
     - go mod tidy
 
 builds:
-  - main: ./cmd/safedep
-    binary: safedep
-    env:
+  - env:
       - CGO_ENABLED=0
     goos:
       - linux
       - windows
       - darwin
-    ldflags:
-      - -s -w
-      - -X github.com/safedep/cli/internal/version.Version={{.Version}}
-      - -X github.com/safedep/cli/internal/version.Commit={{.Commit}}
-
-universal_binaries:
-  - replace: true
 
 archives:
   - formats: [tar.gz]
@@ -34,10 +25,6 @@ archives:
       - goos: windows
         formats: [zip]
 
-checksum:
-  name_template: "checksums.txt"
-  algorithm: sha256
-
 changelog:
   sort: asc
   filters:
@@ -45,10 +32,18 @@ changelog:
       - "^docs:"
       - "^test:"
 
-homebrew_casks:
-  - name: safedep
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+universal_binaries:
+  - replace: true
+
+brews:
+  - name: cli
     homepage: https://github.com/safedep/cli
     description: "The SafeDep Platform CLI"
+    license: "Apache-2.0"
     repository:
       owner: safedep
       name: homebrew-tap

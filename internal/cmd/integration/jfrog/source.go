@@ -23,7 +23,7 @@ type packageSource interface {
 	// Transient errors (gRPC failures, network blips) are logged
 	// internally and the source continues. Only fatal startup errors
 	// or context cancellation are returned.
-	Subscribe(ctx context.Context, onRecord recordHandler) error
+	subscribe(ctx context.Context, onRecord recordHandler) error
 }
 
 // recordHandler is the per-record callback invoked by a packageSource.

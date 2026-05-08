@@ -139,7 +139,7 @@ func TestPoll_FirstRun_NoStartFromOnRequest(t *testing.T) {
 	p := newMaliciousPackagePoller(fake, newCursorStore(newTestKV(t)))
 
 	handler, _ := drainHandler(t)
-	require.NoError(t, p.Poll(context.Background(), handler))
+	require.NoError(t, p.poll(context.Background(), handler))
 
 	require.Len(t, fake.captured, 1)
 	assert.Nil(t, fake.captured[0].GetStartFrom(),
@@ -151,13 +151,13 @@ func TestPoll_WithCursor_SetsStartFromExactly(t *testing.T) {
 	store := newCursorStore(kv)
 
 	cursor := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Microsecond)
-	require.NoError(t, store.Save(context.Background(), cursorState{LastSeenAt: cursor}))
+	require.NoError(t, store.save(context.Background(), cursorState{LastSeenAt: cursor}))
 
 	fake := &fakeMalysisClient{queue: []fakeResp{{resp: makePage(time.Now().UTC(), "")}}}
 	p := newMaliciousPackagePoller(fake, store)
 
 	handler, _ := drainHandler(t)
-	require.NoError(t, p.Poll(context.Background(), handler))
+	require.NoError(t, p.poll(context.Background(), handler))
 
 	require.Len(t, fake.captured, 1)
 	got := startFromTime(fake.captured[0])
@@ -170,7 +170,7 @@ func TestPoll_FilterAlwaysOnlyVerifiedMalware(t *testing.T) {
 	p := newMaliciousPackagePoller(fake, newCursorStore(newTestKV(t)))
 
 	handler, _ := drainHandler(t)
-	require.NoError(t, p.Poll(context.Background(), handler))
+	require.NoError(t, p.poll(context.Background(), handler))
 
 	require.Len(t, fake.captured, 1)
 	f := fake.captured[0].GetFilter()
@@ -191,11 +191,11 @@ func TestPoll_DeliversRecords_AdvancesCursorToMaxCreatedAt(t *testing.T) {
 	p := newMaliciousPackagePoller(fake, store)
 
 	handler, got := drainHandler(t)
-	require.NoError(t, p.Poll(context.Background(), handler))
+	require.NoError(t, p.poll(context.Background(), handler))
 
 	assert.Equal(t, []string{"a", "b", "c"}, *got, "all records delivered in order")
 
-	saved, err := store.Load(context.Background())
+	saved, err := store.load(context.Background())
 	require.NoError(t, err)
 	want := base.Add(2 * time.Second) // record c, the latest
 	assert.True(t, saved.LastSeenAt.Equal(want), "cursor advanced to max created_at; got %v want %v", saved.LastSeenAt, want)
@@ -205,7 +205,7 @@ func TestPoll_MultiPage_StartFromConstantAcrossPages(t *testing.T) {
 	kv := newTestKV(t)
 	cursor := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Microsecond)
 	store := newCursorStore(kv)
-	require.NoError(t, store.Save(context.Background(), cursorState{LastSeenAt: cursor}))
+	require.NoError(t, store.save(context.Background(), cursorState{LastSeenAt: cursor}))
 
 	base := time.Now().UTC().Add(-30 * time.Minute).Truncate(time.Second)
 	fake := &fakeMalysisClient{queue: []fakeResp{
@@ -217,7 +217,7 @@ func TestPoll_MultiPage_StartFromConstantAcrossPages(t *testing.T) {
 	p := newMaliciousPackagePoller(fake, store)
 
 	handler, got := drainHandler(t)
-	require.NoError(t, p.Poll(context.Background(), handler))
+	require.NoError(t, p.poll(context.Background(), handler))
 
 	assert.Equal(t, []string{"a", "b", "c"}, *got, "records delivered across all 3 pages")
 	require.Len(t, fake.captured, 3, "exactly 3 page requests were made")
@@ -239,13 +239,13 @@ func TestPoll_StaleCursor_ResetsToSafeWindow(t *testing.T) {
 
 	// 10 days ago is past the 7-day API cutoff.
 	stale := time.Now().UTC().Add(-10 * 24 * time.Hour)
-	require.NoError(t, store.Save(context.Background(), cursorState{LastSeenAt: stale}))
+	require.NoError(t, store.save(context.Background(), cursorState{LastSeenAt: stale}))
 
 	fake := &fakeMalysisClient{queue: []fakeResp{{resp: makePage(time.Now().UTC(), "")}}}
 	p := newMaliciousPackagePoller(fake, store)
 
 	handler, _ := drainHandler(t)
-	require.NoError(t, p.Poll(context.Background(), handler))
+	require.NoError(t, p.poll(context.Background(), handler))
 
 	require.Len(t, fake.captured, 1)
 	got := startFromTime(fake.captured[0])
@@ -271,10 +271,10 @@ func TestPoll_RecordsWithoutCreatedAt_FallbackToNow(t *testing.T) {
 
 	before := time.Now().UTC()
 	handler, _ := drainHandler(t)
-	require.NoError(t, p.Poll(context.Background(), handler))
+	require.NoError(t, p.poll(context.Background(), handler))
 	after := time.Now().UTC()
 
-	saved, err := store.Load(context.Background())
+	saved, err := store.load(context.Background())
 	require.NoError(t, err)
 	assert.True(t, !saved.LastSeenAt.Before(before) && !saved.LastSeenAt.After(after.Add(time.Second)),
 		"cursor falls back to time.Now() when records have no created_at; got %v", saved)
@@ -286,9 +286,9 @@ func TestPoll_ZeroRecords_StillSavesCursor(t *testing.T) {
 	p := newMaliciousPackagePoller(fake, store)
 
 	handler, _ := drainHandler(t)
-	require.NoError(t, p.Poll(context.Background(), handler))
+	require.NoError(t, p.poll(context.Background(), handler))
 
-	saved, err := store.Load(context.Background())
+	saved, err := store.load(context.Background())
 	require.NoError(t, err)
 	assert.False(t, saved.LastSeenAt.IsZero(), "even with 0 records, cursor file is created so operators can edit it")
 }
@@ -297,19 +297,19 @@ func TestPoll_GRPCFailure_PropagatesAndKeepsCursor(t *testing.T) {
 	kv := newTestKV(t)
 	store := newCursorStore(kv)
 	original := time.Now().UTC().Add(-30 * time.Minute).Truncate(time.Microsecond)
-	require.NoError(t, store.Save(context.Background(), cursorState{LastSeenAt: original}))
+	require.NoError(t, store.save(context.Background(), cursorState{LastSeenAt: original}))
 
 	fake := &fakeMalysisClient{queue: []fakeResp{{err: errors.New("grpc unavailable")}}}
 	p := newMaliciousPackagePoller(fake, store)
 
 	handler, _ := drainHandler(t)
-	err := p.Poll(context.Background(), handler)
+	err := p.poll(context.Background(), handler)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "list records")
 
 	// On failure, the cursor must NOT advance — next cycle should retry
 	// the same window.
-	saved, err := store.Load(context.Background())
+	saved, err := store.load(context.Background())
 	require.NoError(t, err)
 	assert.True(t, saved.LastSeenAt.Equal(original), "cursor must not advance after gRPC error; got %v want %v", saved.LastSeenAt, original)
 }
@@ -326,7 +326,7 @@ func TestPoll_CallbackError_StopsAndPropagates(t *testing.T) {
 
 	stop := errors.New("callback bailed")
 	delivered := 0
-	err := p.Poll(context.Background(), func(*malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) error {
+	err := p.poll(context.Background(), func(*malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) error {
 		delivered++
 		return stop
 	})
@@ -356,7 +356,7 @@ func TestSubscribe_CallbackError_PropagatesImmediately(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	err := src.Subscribe(ctx, func(*malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) error {
+	err := src.subscribe(ctx, func(*malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) error {
 		return stop
 	})
 
@@ -389,7 +389,7 @@ func TestSubscribe_InfraError_LoggedAndRetried(t *testing.T) {
 	defer cancel()
 
 	handler, _ := drainHandler(t)
-	err := src.Subscribe(ctx, handler)
+	err := src.subscribe(ctx, handler)
 
 	require.NoError(t, err, "infra errors must NOT surface; they are logged and retried")
 	assert.GreaterOrEqual(t, len(fake.captured), 2,

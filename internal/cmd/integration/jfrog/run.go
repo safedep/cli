@@ -68,9 +68,9 @@ func runCmd(a *app.App) *cobra.Command {
 				kv,
 				cfg.source.pollInterval,
 			)
-			pusher := newJFrogPusher(cfg.jfrog)
+			jc := newJFrogClient(cfg.jfrog)
 
-			return newFeedService(source, pusher, cfg.jfrog).Run(cmd.Context())
+			return newFeedService(source, jc).run(cmd.Context())
 		},
 	}
 

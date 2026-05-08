@@ -8,15 +8,14 @@ For end-user docs see [`cmd/integration-jfrog-run.md`](./cmd/integration-jfrog-r
 | File | Responsibility |
 |---|---|
 | `cmd.go` | Cobra registration. |
-| `run.go` | CLI flag/env resolution → `resolveConfig`. Constructs source + pusher and hands to `feedService`. |
+| `run.go` | CLI flag/env resolution → `resolveConfig`. Constructs source + JFrog client and hands to `feedService`. |
 | `types.go` | In-memory DTOs (`Config`, `SourceConfig`, `JFrogConfig`). No on-disk schema. |
 | `source.go` | `packageSource` interface and `recordHandler` callback type. |
 | `source_poll.go` | `pollSource`: gRPC pull implementation backed by a KV cursor. |
 | `poller.go` | Single-cycle gRPC pagination + cursor advance. Used only by `pollSource`. |
 | `store.go` | `cursorStore`: wraps `*storage.KV[time.Time]`. Used only by `pollSource`. |
-| `pusher.go` | HTTP POST to JFrog XRay `/xray/api/v1/events`. Wire format and ID rules. |
-| `validate.go` | Pre-flight URL + token check via `/xray/api/v1/policies`. |
-| `service.go` | `feedService`: validates JFrog, then delegates to the source. |
+| `client.go` | `jfrogClient`: **single source of truth for all JFrog protocol details** (endpoints, authentication, payload format, issue ID rules, version range notation, ecosystem mapping). Owns `Validate`, `PushMaliciousPackage`, `IssueID`. |
+| `service.go` | `feedService`: validates via the client, then delegates to the source. |
 
 ## Data flow
 
@@ -24,7 +23,7 @@ For end-user docs see [`cmd/integration-jfrog-run.md`](./cmd/integration-jfrog-r
 SafeDep                   feedService                JFrog XRay
 ───────                   ───────────                ──────────
                               │
-                              │ 1. validateJFrog (GET /policies)
+                              │ 1. client.Validate (GET /policies)
                               │◀──────────────────────────────►
                               │
                               │ 2. source.Subscribe(ctx, push)
@@ -39,7 +38,7 @@ SafeDep                   feedService                JFrog XRay
    └─────────┬──────────┴─────────────────────┘
              │ per record
              ▼
-       recordHandler ──── pusher.Push ────► POST /xray/api/v1/events
+       recordHandler ──── client.PushMaliciousPackage ──► POST /xray/api/v1/events
                                             (Bearer token, JSON event)
 ```
 
@@ -81,8 +80,8 @@ different state semantics:
 | Network | gRPC unary | Persistent stream |
 | Stale-state guard | 7-day API cutoff reset | (broker-defined retention) |
 
-Nothing in `feedService`, `pusher`, or `validate` needs to change when a
-new source lands.
+Nothing in `feedService` or `jfrogClient` needs to change when a new
+source lands.
 
 ## Adding a new source
 
@@ -128,6 +127,38 @@ Per [AGENTS.md](../AGENTS.md):
 Get this wrong and either: (a) the user can't see what's happening (silent
 `log.Warnf` in production where logs aren't surfaced) or (b) the terminal
 fills with noise.
+
+## The `jfrogClient` boundary
+
+All JFrog protocol knowledge lives in `client.go`. If you find yourself
+adding any of the following anywhere else in the package, stop and put
+it on `jfrogClient` instead:
+
+- A new XRay endpoint or URL path
+- HTTP headers JFrog requires (auth, content-type, user-agent)
+- A new field in `jfrogEvent` or any other JFrog wire-format struct
+- A new ecosystem mapping
+- A new vulnerable-version notation
+- A new pre-flight check or post-push verification
+
+Why this matters: when JFrog changes the API (new auth header, new
+required field, deprecated endpoint), the change is one file. Without
+this boundary, JFrog updates produce shotgun edits across the package.
+
+The exposed surface is small on purpose:
+
+```go
+type jfrogClient struct{ /* opaque */ }
+
+func newJFrogClient(cfg jfrogConfig) *jfrogClient
+func (c *jfrogClient) Validate(ctx context.Context) error
+func (c *jfrogClient) PushMaliciousPackage(ctx context.Context, record *...) (issueID string, status int, err error)
+func (c *jfrogClient) IssueID(record *...) string
+```
+
+`feedService` and `pollSource` see only these methods; they never read
+JFrog config fields, never construct URLs, never know that the wire
+format is JSON.
 
 ## Issue ID format
 
@@ -222,7 +253,7 @@ When backend sends `package@1.0.4` → use `"vulnerable_versions": ["[1.0.4]"]`
 
 ## Testing the wire format
 
-`pusher_test.go` uses `httptest.NewServer` to capture requests and assert
+`client_test.go` uses `httptest.NewServer` to capture requests and assert
 the payload byte-for-byte against the JFrog reference. **Do not skip these
 tests when changing the payload**. JFrog silently drops events that
 violate any of:

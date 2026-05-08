@@ -43,7 +43,7 @@ func newCursorStore(kv *storage.KV[cursorState]) *cursorStore {
 // clean. DB-level errors (locked file, permission denied, etc.) are
 // propagated so the caller can retry on the next poll cycle rather than
 // silently destroying a cursor that may still be valid.
-func (s *cursorStore) Load(ctx context.Context) (cursorState, error) {
+func (s *cursorStore) load(ctx context.Context) (cursorState, error) {
 	t, err := s.kv.Get(ctx, kvCursorKey)
 	if errors.Is(err, storage.ErrNotFound) {
 		return cursorState{}, nil
@@ -61,7 +61,7 @@ func (s *cursorStore) Load(ctx context.Context) (cursorState, error) {
 }
 
 // Save persists the cursor. KV Put is an upsert.
-func (s *cursorStore) Save(ctx context.Context, state cursorState) error {
+func (s *cursorStore) save(ctx context.Context, state cursorState) error {
 	if err := s.kv.Put(ctx, kvCursorKey, state); err != nil {
 		return fmt.Errorf("cursor: put: %w", err)
 	}

@@ -67,10 +67,10 @@ func newJFrogMock(t *testing.T, status int, respBody string) (*httptest.Server, 
 
 func TestPush_HappyPath_ConstructsCorrectRequest(t *testing.T) {
 	srv, cap := newJFrogMock(t, http.StatusCreated, "")
-	p := newJFrogPusher(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
 
 	rec := newTestRecord("make-array", "0.1.2", packagev1.Ecosystem_ECOSYSTEM_NPM)
-	status, err := p.Push(context.Background(), rec)
+	_, status, err := c.pushMaliciousPackage(context.Background(), rec)
 
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusCreated, status)
@@ -110,10 +110,10 @@ func TestPush_HappyPath_ConstructsCorrectRequest(t *testing.T) {
 
 func TestPush_WildcardVersion_OpenRange(t *testing.T) {
 	srv, cap := newJFrogMock(t, http.StatusCreated, "")
-	p := newJFrogPusher(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
 
 	rec := newTestRecord("evil", "0", packagev1.Ecosystem_ECOSYSTEM_PYPI)
-	_, err := p.Push(context.Background(), rec)
+	_, _, err := c.pushMaliciousPackage(context.Background(), rec)
 	require.NoError(t, err)
 
 	require.Len(t, *cap, 1)
@@ -127,10 +127,10 @@ func TestPush_WildcardVersion_OpenRange(t *testing.T) {
 
 func TestPush_TrimsTrailingSlashFromURL(t *testing.T) {
 	srv, cap := newJFrogMock(t, http.StatusCreated, "")
-	p := newJFrogPusher(jfrogConfig{url: srv.URL + "/", accessToken: "TOK"})
+	c := newJFrogClient(jfrogConfig{url: srv.URL + "/", accessToken: "TOK"})
 
 	rec := newTestRecord("foo", "1.0.0", packagev1.Ecosystem_ECOSYSTEM_NPM)
-	_, err := p.Push(context.Background(), rec)
+	_, _, err := c.pushMaliciousPackage(context.Background(), rec)
 	require.NoError(t, err)
 
 	require.Len(t, *cap, 1)
@@ -140,10 +140,10 @@ func TestPush_TrimsTrailingSlashFromURL(t *testing.T) {
 
 func TestPush_NonSuccessStatus_ReturnsErrorWithBody(t *testing.T) {
 	srv, _ := newJFrogMock(t, http.StatusUnauthorized, `{"error":"Bad Credentials"}`)
-	p := newJFrogPusher(jfrogConfig{url: srv.URL, accessToken: "bad"})
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "bad"})
 
 	rec := newTestRecord("foo", "1.0.0", packagev1.Ecosystem_ECOSYSTEM_NPM)
-	status, err := p.Push(context.Background(), rec)
+	_, status, err := c.pushMaliciousPackage(context.Background(), rec)
 
 	assert.Equal(t, http.StatusUnauthorized, status, "status must be returned even on error")
 	require.Error(t, err)
@@ -182,9 +182,9 @@ func TestPush_SkipConditions_ReturnZeroStatusNoCallNoError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv, cap := newJFrogMock(t, http.StatusCreated, "")
-			p := newJFrogPusher(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+			c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
 
-			status, err := p.Push(context.Background(), tt.makeRec())
+			_, status, err := c.pushMaliciousPackage(context.Background(), tt.makeRec())
 
 			require.NoError(t, err)
 			assert.Equal(t, 0, status, "skip returns 0 status to signal no HTTP call made")
@@ -195,14 +195,14 @@ func TestPush_SkipConditions_ReturnZeroStatusNoCallNoError(t *testing.T) {
 
 func TestPush_LongName_PreservedInComponentId(t *testing.T) {
 	srv, cap := newJFrogMock(t, http.StatusCreated, "")
-	p := newJFrogPusher(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
 
 	// The issue ID is now the backend ULID, so package name length no
 	// longer matters for the ID. components[].id still keeps the full
 	// name because XRay matches packages by component id.
 	rec := newTestRecord("money-badger-open-rpc", "199.99.100", packagev1.Ecosystem_ECOSYSTEM_NPM)
 	rec.SetAnalysisId("01KR0EKN6PMW0ZRFRN992H1PKX") // a real-shape ULID
-	_, err := p.Push(context.Background(), rec)
+	_, _, err := c.pushMaliciousPackage(context.Background(), rec)
 	require.NoError(t, err)
 
 	require.Len(t, *cap, 1)
@@ -225,10 +225,10 @@ func TestPush_EcosystemMappedToJFrogPackageType(t *testing.T) {
 	for eco, want := range cases {
 		t.Run(want, func(t *testing.T) {
 			srv, cap := newJFrogMock(t, http.StatusCreated, "")
-			p := newJFrogPusher(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+			c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
 
 			rec := newTestRecord("foo", "1.0.0", eco)
-			_, err := p.Push(context.Background(), rec)
+			_, _, err := c.pushMaliciousPackage(context.Background(), rec)
 			require.NoError(t, err)
 
 			var event jfrogEvent
@@ -238,7 +238,7 @@ func TestPush_EcosystemMappedToJFrogPackageType(t *testing.T) {
 	}
 }
 
-func TestIssueID(t *testing.T) {
+func TestClient_IssueID(t *testing.T) {
 	tests := []struct {
 		name       string
 		analysisID string
@@ -256,9 +256,14 @@ func TestIssueID(t *testing.T) {
 		},
 	}
 
+	c := newJFrogClient(jfrogConfig{url: "https://example.jfrog.io", accessToken: "tok"})
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := issueID(tt.analysisID)
+			rec := &malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord{}
+			rec.SetAnalysisId(tt.analysisID)
+
+			got := c.issueID(rec)
 
 			assert.Equal(t, tt.want, got)
 

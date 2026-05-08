@@ -36,11 +36,11 @@ func newPollSource(svc malysisv1grpc.MalwareAnalysisServiceClient, kv *storage.K
 // drytui.Warning and the loop continues — a single bad cycle must not
 // bring down the daemon. Cancellation between cycles is honoured
 // immediately.
-func (s *pollSource) Subscribe(ctx context.Context, onRecord recordHandler) error {
+func (s *pollSource) subscribe(ctx context.Context, onRecord recordHandler) error {
 	drytui.Info("Starting JFrog feed poller (interval: %s)", s.pollInterval)
 
 	for {
-		err := s.poller.Poll(ctx, onRecord)
+		err := s.poller.poll(ctx, onRecord)
 		switch {
 		case err == nil:
 			drytui.Info("Poll cycle complete, next in %s", s.pollInterval)

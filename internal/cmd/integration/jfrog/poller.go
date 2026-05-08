@@ -52,8 +52,8 @@ func newMaliciousPackagePoller(svc malysisv1grpc.MalwareAnalysisServiceClient, c
 //     next_page_token moves forward within the window.
 //   - A cursor older than 7 days is rejected with an error; we detect this and
 //     reset to safeStartFromAge so the daemon recovers automatically.
-func (p *maliciousPackagePoller) Poll(ctx context.Context, onRecord func(*malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) error) error {
-	cursorStateValue, err := p.cursor.Load(ctx)
+func (p *maliciousPackagePoller) poll(ctx context.Context, onRecord func(*malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) error) error {
+	cursorStateValue, err := p.cursor.load(ctx)
 	if err != nil {
 		return fmt.Errorf("poller: load cursor: %w", err)
 	}
@@ -68,7 +68,7 @@ func (p *maliciousPackagePoller) Poll(ctx context.Context, onRecord func(*malysi
 		drytui.Warning("Cursor %s exceeds 7-day API cutoff; resetting to %s ago",
 			lastSeenAt.UTC().Format(time.RFC3339), safeStartFromAge)
 		lastSeenAt = time.Now().UTC().Add(-safeStartFromAge)
-		if err := p.cursor.Save(ctx, cursorState{LastSeenAt: lastSeenAt}); err != nil {
+		if err := p.cursor.save(ctx, cursorState{LastSeenAt: lastSeenAt}); err != nil {
 			return fmt.Errorf("poller: save reset cursor: %w", err)
 		}
 	}
@@ -125,7 +125,7 @@ func (p *maliciousPackagePoller) Poll(ctx context.Context, onRecord func(*malysi
 			if pageMaxAt.IsZero() {
 				pageMaxAt = time.Now().UTC()
 			}
-			if err := p.cursor.Save(ctx, cursorState{LastSeenAt: pageMaxAt}); err != nil {
+			if err := p.cursor.save(ctx, cursorState{LastSeenAt: pageMaxAt}); err != nil {
 				return fmt.Errorf("poller: save cursor: %w", err)
 			}
 			anySaved = true
@@ -142,7 +142,7 @@ func (p *maliciousPackagePoller) Poll(ctx context.Context, onRecord func(*malysi
 	// zero records were returned. This ensures the file exists so operators
 	// can edit it to set a past timestamp and re-process history.
 	if !anySaved {
-		if err := p.cursor.Save(ctx, cursorState{LastSeenAt: time.Now().UTC()}); err != nil {
+		if err := p.cursor.save(ctx, cursorState{LastSeenAt: time.Now().UTC()}); err != nil {
 			return fmt.Errorf("poller: save cursor: %w", err)
 		}
 	}

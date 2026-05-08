@@ -66,11 +66,11 @@ func runCmd(a *app.App) *cobra.Command {
 			source := newPollSource(
 				malysisv1grpc.NewMalwareAnalysisServiceClient(client.Connection()),
 				kv,
-				cfg.Source.PollInterval,
+				cfg.source.pollInterval,
 			)
-			pusher := newJFrogPusher(cfg.JFrog)
+			pusher := newJFrogPusher(cfg.jfrog)
 
-			return newFeedService(source, pusher, cfg.JFrog).Run(cmd.Context())
+			return newFeedService(source, pusher, cfg.jfrog).Run(cmd.Context())
 		},
 	}
 
@@ -90,13 +90,13 @@ func runCmd(a *app.App) *cobra.Command {
 //
 // Required parameters that cannot be defaulted (URL, access token) cause a
 // hard error so the daemon fails fast at startup rather than running blind.
-func resolveConfig(in runInput) (Config, error) {
+func resolveConfig(in runInput) (cmdConfig, error) {
 	url := in.InstanceURL
 	if url == "" {
 		url = config.EnvVar(envJFrogURL)
 	}
 	if url == "" {
-		return Config{}, fmt.Errorf("run: --instance-url or %s is required", envJFrogURL)
+		return cmdConfig{}, fmt.Errorf("run: --instance-url or %s is required", envJFrogURL)
 	}
 	// Force https. JFrog XRay will accept tokens over plain HTTP, but doing
 	// so leaks the bearer token over the wire. Better to silently upgrade
@@ -112,23 +112,23 @@ func resolveConfig(in runInput) (Config, error) {
 		token = config.EnvVar(envJFrogToken)
 	}
 	if token == "" {
-		return Config{}, fmt.Errorf("run: --instance-access-token or %s is required", envJFrogToken)
+		return cmdConfig{}, fmt.Errorf("run: --instance-access-token or %s is required", envJFrogToken)
 	}
 
 	// time.After(<= 0) fires immediately. A zero or negative interval would
 	// turn the poll loop into a tight infinite hammer on the SafeDep API
 	// with no backoff — refuse rather than silently DoS the upstream.
 	if in.PollInterval <= 0 {
-		return Config{}, fmt.Errorf("run: --poll-interval must be positive, got %s", in.PollInterval)
+		return cmdConfig{}, fmt.Errorf("run: --poll-interval must be positive, got %s", in.PollInterval)
 	}
 
-	return Config{
-		Source: SourceConfig{
-			PollInterval: in.PollInterval,
+	return cmdConfig{
+		source: sourceConfig{
+			pollInterval: in.PollInterval,
 		},
-		JFrog: JFrogConfig{
-			URL:         url,
-			AccessToken: token,
+		jfrog: jfrogConfig{
+			url:         url,
+			accessToken: token,
 		},
 	}, nil
 }

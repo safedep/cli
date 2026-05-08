@@ -172,9 +172,9 @@ func TestResolveConfig(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantURL, cfg.JFrog.URL)
-			assert.Equal(t, tt.wantToken, cfg.JFrog.AccessToken)
-			assert.Equal(t, tt.wantPoll, cfg.Source.PollInterval)
+			assert.Equal(t, tt.wantURL, cfg.jfrog.url)
+			assert.Equal(t, tt.wantToken, cfg.jfrog.accessToken)
+			assert.Equal(t, tt.wantPoll, cfg.source.pollInterval)
 		})
 	}
 }

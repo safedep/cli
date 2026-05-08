@@ -37,7 +37,7 @@ const (
 // jfrogPusher converts a SafeDep malware analysis record into a JFrog XRay
 // custom issue and POSTs it to the configured XRay instance.
 type jfrogPusher struct {
-	cfg    JFrogConfig
+	cfg    jfrogConfig
 	client *http.Client
 }
 
@@ -64,7 +64,7 @@ type jfrogSource struct {
 	SourceID string `json:"source_id"`
 }
 
-func newJFrogPusher(cfg JFrogConfig) *jfrogPusher {
+func newJFrogPusher(cfg jfrogConfig) *jfrogPusher {
 	return &jfrogPusher{
 		cfg:    cfg,
 		client: &http.Client{Timeout: httpTimeout},
@@ -117,12 +117,12 @@ func (p *jfrogPusher) Push(ctx context.Context, record *malysisv1.ListPackageAna
 		return 0, fmt.Errorf("jfrog pusher: marshal: %w", err)
 	}
 
-	url := strings.TrimRight(p.cfg.URL, "/") + "/xray/api/v1/events"
+	url := strings.TrimRight(p.cfg.url, "/") + "/xray/api/v1/events"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return 0, fmt.Errorf("jfrog pusher: build request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+p.cfg.AccessToken)
+	req.Header.Set("Authorization", "Bearer "+p.cfg.accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", userAgent)
 

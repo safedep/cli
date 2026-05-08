@@ -14,10 +14,10 @@ import (
 type feedService struct {
 	source   packageSource
 	pusher   *jfrogPusher
-	jfrogCfg JFrogConfig
+	jfrogCfg jfrogConfig
 }
 
-func newFeedService(source packageSource, pusher *jfrogPusher, jfrogCfg JFrogConfig) *feedService {
+func newFeedService(source packageSource, pusher *jfrogPusher, jfrogCfg jfrogConfig) *feedService {
 	return &feedService{
 		source:   source,
 		pusher:   pusher,
@@ -32,7 +32,7 @@ func newFeedService(source packageSource, pusher *jfrogPusher, jfrogCfg JFrogCon
 // destination-side concern — every source pushes to the same JFrog
 // instance, so the check belongs with the pusher's owner.
 func (s *feedService) Run(ctx context.Context) error {
-	drytui.Info("Validating JFrog connectivity at %s", s.jfrogCfg.URL)
+	drytui.Info("Validating JFrog connectivity at %s", s.jfrogCfg.url)
 	if err := validateJFrog(ctx, s.jfrogCfg); err != nil {
 		return err
 	}

@@ -67,7 +67,7 @@ func newJFrogMock(t *testing.T, status int, respBody string) (*httptest.Server, 
 
 func TestPush_HappyPath_ConstructsCorrectRequest(t *testing.T) {
 	srv, cap := newJFrogMock(t, http.StatusCreated, "")
-	p := newJFrogPusher(JFrogConfig{URL: srv.URL, AccessToken: "TOK"})
+	p := newJFrogPusher(jfrogConfig{url: srv.URL, accessToken: "TOK"})
 
 	rec := newTestRecord("make-array", "0.1.2", packagev1.Ecosystem_ECOSYSTEM_NPM)
 	status, err := p.Push(context.Background(), rec)
@@ -110,7 +110,7 @@ func TestPush_HappyPath_ConstructsCorrectRequest(t *testing.T) {
 
 func TestPush_WildcardVersion_OpenRange(t *testing.T) {
 	srv, cap := newJFrogMock(t, http.StatusCreated, "")
-	p := newJFrogPusher(JFrogConfig{URL: srv.URL, AccessToken: "TOK"})
+	p := newJFrogPusher(jfrogConfig{url: srv.URL, accessToken: "TOK"})
 
 	rec := newTestRecord("evil", "0", packagev1.Ecosystem_ECOSYSTEM_PYPI)
 	_, err := p.Push(context.Background(), rec)
@@ -127,7 +127,7 @@ func TestPush_WildcardVersion_OpenRange(t *testing.T) {
 
 func TestPush_TrimsTrailingSlashFromURL(t *testing.T) {
 	srv, cap := newJFrogMock(t, http.StatusCreated, "")
-	p := newJFrogPusher(JFrogConfig{URL: srv.URL + "/", AccessToken: "TOK"})
+	p := newJFrogPusher(jfrogConfig{url: srv.URL + "/", accessToken: "TOK"})
 
 	rec := newTestRecord("foo", "1.0.0", packagev1.Ecosystem_ECOSYSTEM_NPM)
 	_, err := p.Push(context.Background(), rec)
@@ -140,7 +140,7 @@ func TestPush_TrimsTrailingSlashFromURL(t *testing.T) {
 
 func TestPush_NonSuccessStatus_ReturnsErrorWithBody(t *testing.T) {
 	srv, _ := newJFrogMock(t, http.StatusUnauthorized, `{"error":"Bad Credentials"}`)
-	p := newJFrogPusher(JFrogConfig{URL: srv.URL, AccessToken: "bad"})
+	p := newJFrogPusher(jfrogConfig{url: srv.URL, accessToken: "bad"})
 
 	rec := newTestRecord("foo", "1.0.0", packagev1.Ecosystem_ECOSYSTEM_NPM)
 	status, err := p.Push(context.Background(), rec)
@@ -182,7 +182,7 @@ func TestPush_SkipConditions_ReturnZeroStatusNoCallNoError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv, cap := newJFrogMock(t, http.StatusCreated, "")
-			p := newJFrogPusher(JFrogConfig{URL: srv.URL, AccessToken: "TOK"})
+			p := newJFrogPusher(jfrogConfig{url: srv.URL, accessToken: "TOK"})
 
 			status, err := p.Push(context.Background(), tt.makeRec())
 
@@ -195,7 +195,7 @@ func TestPush_SkipConditions_ReturnZeroStatusNoCallNoError(t *testing.T) {
 
 func TestPush_LongName_PreservedInComponentId(t *testing.T) {
 	srv, cap := newJFrogMock(t, http.StatusCreated, "")
-	p := newJFrogPusher(JFrogConfig{URL: srv.URL, AccessToken: "TOK"})
+	p := newJFrogPusher(jfrogConfig{url: srv.URL, accessToken: "TOK"})
 
 	// The issue ID is now the backend ULID, so package name length no
 	// longer matters for the ID. components[].id still keeps the full
@@ -225,7 +225,7 @@ func TestPush_EcosystemMappedToJFrogPackageType(t *testing.T) {
 	for eco, want := range cases {
 		t.Run(want, func(t *testing.T) {
 			srv, cap := newJFrogMock(t, http.StatusCreated, "")
-			p := newJFrogPusher(JFrogConfig{URL: srv.URL, AccessToken: "TOK"})
+			p := newJFrogPusher(jfrogConfig{url: srv.URL, accessToken: "TOK"})
 
 			rec := newTestRecord("foo", "1.0.0", eco)
 			_, err := p.Push(context.Background(), rec)

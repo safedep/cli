@@ -1,0 +1,71 @@
+name: Release Automation
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+concurrency: ci-release-automation
+
+permissions:
+  contents: read
+
+jobs:
+  goreleaser:
+    timeout-minutes: 60
+    environment: binary-release
+    outputs:
+      hashes: ${{ steps.hash.outputs.hashes }}
+    permissions:
+      contents: write # for goreleaser/goreleaser-action to create a GitHub release
+      packages: write # for goreleaser/goreleaser-action to publish docker images
+    runs-on: ubuntu-latest
+    env:
+      # Required for buildx on docker 19.x
+      DOCKER_CLI_EXPERIMENTAL: "enabled"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+
+      - name: Run GoReleaser
+        id: run-goreleaser
+        uses: goreleaser/goreleaser-action@1a80836c5c9d9e5755a25cb59ec6f45a3b5f41a8 # v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
+
+      - name: Upload dist Folder
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: dist-artifacts
+          path: dist/
+
+  provenance:
+    needs: [goreleaser]
+    permissions:
+      actions: read # To read the workflow path.
+      id-token: write # To sign the provenance.
+      attestations: write # To write attestations
+      artifact-metadata: write # To write artifact metadata
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download dist folder
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: dist-artifacts
+          path: dist/
+
+      - name: Attest build provenance (checksums)
+        uses: actions/attest-build-provenance@b3e506e8c389afc651c5bacf2b8f2a1ea0557215 # v4
+        with:
+          subject-checksums: dist/checksums.txt

@@ -67,30 +67,12 @@ safedep --profile customer-a integration jfrog run \
   --instance-access-token $TOKEN
 ```
 
-## Cursor file
-
-Tracks the timestamp of the last processed record so polling resumes from the correct
-point after a restart. Created automatically on first run.
-
-To go back in history, edit the file directly:
-
-```bash
-# Reprocess from a specific date
-echo '{"last_seen_at":"2026-04-01T00:00:00Z"}' > ~/.safedep/integration-jfrog-cursor.json
-
-# Reprocess everything from the beginning
-rm ~/.safedep/integration-jfrog-cursor.json
-```
-
 ## JFrog XRay setup
 
 Ensure your JFrog XRay instance has a **Malware** security policy with a block action.
 SafeDep pushes findings as Custom Issues with `issue_kind: 1` (malicious package).
 Without a policy, issues are recorded but packages are not blocked.
 
-## Exit codes
+## Subscription
 
-| Code | Meaning |
-|---|---|
-| 0 | Stopped cleanly (SIGINT / SIGTERM) |
-| 1 | Fatal error: missing required config, auth failed, or unrecoverable error |
+JFrog Feed command requires SafeDep Pro+ subscription.

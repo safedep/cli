@@ -21,7 +21,7 @@ import (
 // newTestKV opens a temp SQLite-backed KV used by cursorStore. Each call
 // returns an isolated KV in its own DB so tests cannot interfere with
 // each other or with the user's real state.
-func newTestKV(t *testing.T) *storage.KV[time.Time] {
+func newTestKV(t *testing.T) *storage.KV[cursorState] {
 	t.Helper()
 	s, err := storage.Open(context.Background(), storage.Options{
 		Backend: storage.BackendSqlite,
@@ -30,7 +30,7 @@ func newTestKV(t *testing.T) *storage.KV[time.Time] {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 
-	kv, err := storage.NewProfileKV[time.Time](s, "default", "test-cursor")
+	kv, err := storage.NewProfileKV[cursorState](s, "default", "test-cursor")
 	require.NoError(t, err)
 	return kv
 }
@@ -151,7 +151,7 @@ func TestPoll_WithCursor_SetsStartFromExactly(t *testing.T) {
 	store := newCursorStore(kv)
 
 	cursor := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Microsecond)
-	require.NoError(t, store.Save(context.Background(), cursor))
+	require.NoError(t, store.Save(context.Background(), cursorState{LastSeenAt: cursor}))
 
 	fake := &fakeMalysisClient{queue: []fakeResp{{resp: makePage(time.Now().UTC(), "")}}}
 	p := newMaliciousPackagePoller(fake, store)
@@ -198,14 +198,14 @@ func TestPoll_DeliversRecords_AdvancesCursorToMaxCreatedAt(t *testing.T) {
 	saved, err := store.Load(context.Background())
 	require.NoError(t, err)
 	want := base.Add(2 * time.Second) // record c, the latest
-	assert.True(t, saved.Equal(want), "cursor advanced to max created_at; got %v want %v", saved, want)
+	assert.True(t, saved.LastSeenAt.Equal(want), "cursor advanced to max created_at; got %v want %v", saved.LastSeenAt, want)
 }
 
 func TestPoll_MultiPage_StartFromConstantAcrossPages(t *testing.T) {
 	kv := newTestKV(t)
 	cursor := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Microsecond)
 	store := newCursorStore(kv)
-	require.NoError(t, store.Save(context.Background(), cursor))
+	require.NoError(t, store.Save(context.Background(), cursorState{LastSeenAt: cursor}))
 
 	base := time.Now().UTC().Add(-30 * time.Minute).Truncate(time.Second)
 	fake := &fakeMalysisClient{queue: []fakeResp{
@@ -239,7 +239,7 @@ func TestPoll_StaleCursor_ResetsToSafeWindow(t *testing.T) {
 
 	// 10 days ago is past the 7-day API cutoff.
 	stale := time.Now().UTC().Add(-10 * 24 * time.Hour)
-	require.NoError(t, store.Save(context.Background(), stale))
+	require.NoError(t, store.Save(context.Background(), cursorState{LastSeenAt: stale}))
 
 	fake := &fakeMalysisClient{queue: []fakeResp{{resp: makePage(time.Now().UTC(), "")}}}
 	p := newMaliciousPackagePoller(fake, store)
@@ -276,7 +276,7 @@ func TestPoll_RecordsWithoutCreatedAt_FallbackToNow(t *testing.T) {
 
 	saved, err := store.Load(context.Background())
 	require.NoError(t, err)
-	assert.True(t, !saved.Before(before) && !saved.After(after.Add(time.Second)),
+	assert.True(t, !saved.LastSeenAt.Before(before) && !saved.LastSeenAt.After(after.Add(time.Second)),
 		"cursor falls back to time.Now() when records have no created_at; got %v", saved)
 }
 
@@ -290,14 +290,14 @@ func TestPoll_ZeroRecords_StillSavesCursor(t *testing.T) {
 
 	saved, err := store.Load(context.Background())
 	require.NoError(t, err)
-	assert.False(t, saved.IsZero(), "even with 0 records, cursor file is created so operators can edit it")
+	assert.False(t, saved.LastSeenAt.IsZero(), "even with 0 records, cursor file is created so operators can edit it")
 }
 
 func TestPoll_GRPCFailure_PropagatesAndKeepsCursor(t *testing.T) {
 	kv := newTestKV(t)
 	store := newCursorStore(kv)
 	original := time.Now().UTC().Add(-30 * time.Minute).Truncate(time.Microsecond)
-	require.NoError(t, store.Save(context.Background(), original))
+	require.NoError(t, store.Save(context.Background(), cursorState{LastSeenAt: original}))
 
 	fake := &fakeMalysisClient{queue: []fakeResp{{err: errors.New("grpc unavailable")}}}
 	p := newMaliciousPackagePoller(fake, store)
@@ -311,7 +311,7 @@ func TestPoll_GRPCFailure_PropagatesAndKeepsCursor(t *testing.T) {
 	// the same window.
 	saved, err := store.Load(context.Background())
 	require.NoError(t, err)
-	assert.True(t, saved.Equal(original), "cursor must not advance after gRPC error; got %v want %v", saved, original)
+	assert.True(t, saved.LastSeenAt.Equal(original), "cursor must not advance after gRPC error; got %v want %v", saved.LastSeenAt, original)
 }
 
 func TestPoll_CallbackError_StopsAndPropagates(t *testing.T) {

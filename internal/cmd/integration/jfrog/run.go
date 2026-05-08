@@ -24,6 +24,9 @@ const (
 	// kvNamespace is the profile-scoped KV namespace for this integration.
 	// Must match ^[a-z][a-z0-9_-]{0,63}$.
 	kvNamespace = "integration-jfrog"
+
+	// cursorKey is the single KV key used to store the poll cursor.
+	kvCursorKey = "cursor"
 )
 
 // runInput is the raw, unresolved CLI input. Defaults and env-var fallbacks
@@ -55,7 +58,7 @@ func runCmd(a *app.App) *cobra.Command {
 			// Cursor is stored in the profile-scoped KV store so each
 			// SafeDep credential profile has an independent cursor.
 			// Switching --profile automatically switches the cursor.
-			kv, err := app.ProfileKV[time.Time](a, kvNamespace)
+			kv, err := app.ProfileKV[cursorState](a, kvNamespace)
 			if err != nil {
 				return fmt.Errorf("run: open cursor store: %w", err)
 			}

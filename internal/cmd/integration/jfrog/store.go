@@ -14,9 +14,6 @@ import (
 	drytui "github.com/safedep/dry/tui"
 )
 
-// cursorKey is the single KV key used to store the poll cursor.
-const cursorKey = "cursor"
-
 // cursorStore wraps the typed KV store so the poller does not need to
 // know about KV internals. It persists the timestamp of the last
 // processed analysis record so the daemon can resume where it left off
@@ -26,10 +23,16 @@ const cursorKey = "cursor"
 // so each SafeDep credential profile has an independent cursor.
 // Switching --profile automatically switches the cursor.
 type cursorStore struct {
-	kv *storage.KV[time.Time]
+	kv *storage.KV[cursorState]
 }
 
-func newCursorStore(kv *storage.KV[time.Time]) *cursorStore {
+// cursorState is the value stored per key. A struct (rather than a bare
+// time.Time) keeps the JSON document extensible without a migration.
+type cursorState struct {
+	LastSeenAt time.Time `json:"last_seen_at"`
+}
+
+func newCursorStore(kv *storage.KV[cursorState]) *cursorStore {
 	return &cursorStore{kv: kv}
 }
 
@@ -40,25 +43,26 @@ func newCursorStore(kv *storage.KV[time.Time]) *cursorStore {
 // clean. DB-level errors (locked file, permission denied, etc.) are
 // propagated so the caller can retry on the next poll cycle rather than
 // silently destroying a cursor that may still be valid.
-func (s *cursorStore) Load(ctx context.Context) (time.Time, error) {
-	t, err := s.kv.Get(ctx, cursorKey)
+func (s *cursorStore) Load(ctx context.Context) (cursorState, error) {
+	t, err := s.kv.Get(ctx, kvCursorKey)
 	if errors.Is(err, storage.ErrNotFound) {
-		return time.Time{}, nil
+		return cursorState{}, nil
 	}
 	if errors.Is(err, storage.ErrKVDecode) {
 		drytui.Warning("Cursor value incompatible, resetting to beginning: %v", err)
-		_ = s.kv.Delete(ctx, cursorKey)
-		return time.Time{}, nil
+		_ = s.kv.Delete(ctx, kvCursorKey)
+		return cursorState{}, nil
 	}
 	if err != nil {
-		return time.Time{}, fmt.Errorf("cursor: get: %w", err)
+		return cursorState{}, fmt.Errorf("cursor: get: %w", err)
 	}
+
 	return t, nil
 }
 
 // Save persists the cursor. KV Put is an upsert.
-func (s *cursorStore) Save(ctx context.Context, t time.Time) error {
-	if err := s.kv.Put(ctx, cursorKey, t); err != nil {
+func (s *cursorStore) Save(ctx context.Context, state cursorState) error {
+	if err := s.kv.Put(ctx, kvCursorKey, state); err != nil {
 		return fmt.Errorf("cursor: put: %w", err)
 	}
 	return nil

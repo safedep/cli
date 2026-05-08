@@ -23,7 +23,7 @@ type pollSource struct {
 	pollInterval time.Duration
 }
 
-func newPollSource(svc malysisv1grpc.MalwareAnalysisServiceClient, kv *storage.KV[time.Time], pollInterval time.Duration) *pollSource {
+func newPollSource(svc malysisv1grpc.MalwareAnalysisServiceClient, kv *storage.KV[cursorState], pollInterval time.Duration) *pollSource {
 	return &pollSource{
 		poller:       newMaliciousPackagePoller(svc, newCursorStore(kv)),
 		pollInterval: pollInterval,

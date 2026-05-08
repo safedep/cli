@@ -5,8 +5,12 @@ before:
     - go mod tidy
 
 builds:
-  - env:
+  - main: ./cmd/safedep
+    binary: safedep
+    env:
       - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X github.com/safedep/cli/internal/version.Version={{ .Version }} -X github.com/safedep/cli/internal/version.Commit={{ .FullCommit }}
     goos:
       - linux
       - windows

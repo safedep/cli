@@ -19,7 +19,8 @@ builds:
       - -X github.com/safedep/cli/internal/version.Commit={{.Commit}}
 
 universal_binaries:
-  - replace: true
+  - name_template: safedep
+    replace: true
 
 archives:
   - formats: [tar.gz]
@@ -45,11 +46,21 @@ changelog:
       - "^docs:"
       - "^test:"
 
-brews:
-  - name: safedep
+homebrew_casks:
+  - name: cli
+    directory: Casks
     homepage: https://github.com/safedep/cli
     description: "The SafeDep Platform CLI"
-    license: "Apache-2.0"
+    binaries:
+      - safedep
+    url:
+      verified: github.com/safedep/cli
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/safedep"]
+          end
     repository:
       owner: safedep
       name: homebrew-tap

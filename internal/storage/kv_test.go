@@ -261,3 +261,37 @@ func TestKV_ProfileValidation_RejectsEmpty(t *testing.T) {
 	_, err := NewProfileKV[string](s, "", "ns")
 	require.Error(t, err)
 }
+
+// Reading a string-shaped row through an int-typed KV is the simplest way
+// to drive a JSON unmarshal failure deterministically. The two KVs share
+// scope and namespace so they alias the same underlying row.
+
+func TestKV_Get_DecodeFailureReturnsErrKVDecode(t *testing.T) {
+	s := newTestStorage(t)
+	ctx := context.Background()
+	sKV, err := NewProfileKV[string](s, "default", "decode")
+	require.NoError(t, err)
+	iKV, err := NewProfileKV[int](s, "default", "decode")
+	require.NoError(t, err)
+
+	require.NoError(t, sKV.Put(ctx, "k", "hello"))
+	_, err = iKV.Get(ctx, "k")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrKVDecode),
+		"Get must wrap unmarshal failures with ErrKVDecode so callers can distinguish from DB errors; got %v", err)
+}
+
+func TestKV_List_DecodeFailureReturnsErrKVDecode(t *testing.T) {
+	s := newTestStorage(t)
+	ctx := context.Background()
+	sKV, err := NewProfileKV[string](s, "default", "decode-list")
+	require.NoError(t, err)
+	iKV, err := NewProfileKV[int](s, "default", "decode-list")
+	require.NoError(t, err)
+
+	require.NoError(t, sKV.Put(ctx, "k", "hello"))
+	_, err = iKV.List(ctx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrKVDecode),
+		"List must wrap unmarshal failures with ErrKVDecode (matches the documented contract on the sentinel); got %v", err)
+}

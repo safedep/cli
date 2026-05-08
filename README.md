@@ -15,3 +15,4 @@ Cloud](https://docs.safedep.io/cloud/overview).
 | [`safedep query exec`](./docs/cmd/query-exec.md) | Execute a SQL query against SafeDep Cloud |
 | [`safedep query schema get`](./docs/cmd/query-schema-get.md) | Inspect the SafeDep Cloud query schema |
 | [`safedep version`](./docs/cmd/version.md) | Print CLI version |
+| [`safedep integration jfrog run`](./docs/cmd/integration-jfrog-run.md) | Push SafeDep malware findings to JFrog XRay |

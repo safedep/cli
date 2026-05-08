@@ -9,12 +9,17 @@ builds:
     binary: safedep
     env:
       - CGO_ENABLED=0
-    ldflags:
-      - -s -w -X github.com/safedep/cli/internal/version.Version={{ .Version }} -X github.com/safedep/cli/internal/version.Commit={{ .FullCommit }}
     goos:
       - linux
       - windows
       - darwin
+    ldflags:
+      - -s -w
+      - -X github.com/safedep/cli/internal/version.Version={{.Version}}
+      - -X github.com/safedep/cli/internal/version.Commit={{.Commit}}
+
+universal_binaries:
+  - replace: true
 
 archives:
   - formats: [tar.gz]
@@ -29,6 +34,10 @@ archives:
       - goos: windows
         formats: [zip]
 
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
 changelog:
   sort: asc
   filters:
@@ -36,15 +45,8 @@ changelog:
       - "^docs:"
       - "^test:"
 
-checksum:
-  name_template: "checksums.txt"
-  algorithm: sha256
-
-universal_binaries:
-  - replace: true
-
 brews:
-  - name: cli
+  - name: safedep
     homepage: https://github.com/safedep/cli
     description: "The SafeDep Platform CLI"
     license: "Apache-2.0"

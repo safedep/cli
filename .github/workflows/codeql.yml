@@ -62,7 +62,7 @@ jobs:
 
       - run: |
           go mod tidy
-          make
+          go build ./cmd/safedep
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@b25d0ebf40e5b63ee81e1bd6e5d2a12b7c2aeb61 # v4

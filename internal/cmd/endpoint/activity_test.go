@@ -75,7 +75,7 @@ func TestRunActivity_emptyTypeDefaultsToGuard(t *testing.T) {
 func TestRunActivity_unknownTypeReturnsError(t *testing.T) {
 	svc := &fakeActivitySvc{guard: &GuardEventsResult{}, inv: &InventoryEventsResult{}}
 
-	_, err := runActivity(context.Background(), svc, nil, activityInput{Type: "gaurd"})
+	_, err := runActivity(context.Background(), svc, nil, activityInput{Type: "invalid-type"})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown activity type")

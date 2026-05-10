@@ -120,6 +120,9 @@ func runActivity(ctx context.Context, svc activitySvc, dir *Directory, in activi
 	if typ == "" {
 		typ = ActivityTypeGuard
 	}
+	if err := validateActivityType(typ); err != nil {
+		return nil, err
+	}
 
 	actions := in.Actions
 	if (typ == ActivityTypeGuard || typ == ActivityTypeAll) && len(actions) == 0 {
@@ -217,6 +220,15 @@ func runActivity(ctx context.Context, svc activitySvc, dir *Directory, in activi
 		nextPage:       next,
 		endpointLabels: resolveEndpointLabels(ctx, dir, ids),
 	}, nil
+}
+
+func validateActivityType(typ string) error {
+	switch typ {
+	case ActivityTypeAll, ActivityTypeGuard, ActivityTypeInventory:
+		return nil
+	default:
+		return fmt.Errorf("unknown activity type %q (use all|guard|inventory)", typ)
+	}
 }
 
 func pageTokenFor(token, source, typ string) string {

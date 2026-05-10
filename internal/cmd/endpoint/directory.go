@@ -177,7 +177,7 @@ func (d *Directory) Lookup(ctx context.Context, id string) (DirectoryEntry, bool
 
 func (d *Directory) expired(e DirectoryEntry) bool {
 	if e.CachedAt.IsZero() {
-		return false
+		return true
 	}
 	return d.now().Sub(e.CachedAt) > directoryTTL
 }

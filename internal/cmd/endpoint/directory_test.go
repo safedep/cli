@@ -85,6 +85,22 @@ func TestDirectory_expiredEntriesIgnored(t *testing.T) {
 	require.ErrorIs(t, err, ErrEndpointNotInDirectory)
 }
 
+func TestDirectory_zeroCachedAtEntriesExpire(t *testing.T) {
+	store := &fakeStore{data: map[string]DirectoryEntry{
+		"01KR0EKN6PMW0ZRFRN992H1PKX": {
+			ID:       "01KR0EKN6PMW0ZRFRN992H1PKX",
+			Hostname: "legacy-host",
+		},
+	}}
+	d := NewDirectory(store, func() time.Time { return time.Unix(2_000_000_000, 0) })
+
+	_, err := d.Resolve(context.Background(), "legacy-host")
+	require.ErrorIs(t, err, ErrEndpointNotInDirectory)
+
+	_, ok := d.Lookup(context.Background(), "01KR0EKN6PMW0ZRFRN992H1PKX")
+	assert.False(t, ok)
+}
+
 type fakeStore struct{ data map[string]DirectoryEntry }
 
 func newFakeStore() *fakeStore { return &fakeStore{data: map[string]DirectoryEntry{}} }

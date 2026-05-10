@@ -50,7 +50,7 @@ func showCmd(a *app.App) *cobra.Command {
 		Use:   "show <endpoint>",
 		Short: "Show endpoint detail",
 		Long:  "Show identity, last sync, per-tool event volumes, last invocation, recent guard events, and inventory for one endpoint. Accepts a ULID or a cached hostname/identifier.",
-		Args:  cobra.ExactArgs(1),
+		Args:  showArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := a.ControlPlane()
 			if err != nil {
@@ -90,6 +90,16 @@ func showCmd(a *app.App) *cobra.Command {
 	f.StringSliceVar(&invKinds, "inventory-kind", nil, "filter inventory list by kind (mcp-server|coding-agent|ai-extension|cli-tool|project-config|browser-extension|ide-extension|agent-plugin|agent-skill); repeatable")
 	f.Uint32Var(&invLimit, "inventory-limit", defaultInventoryPageSize, "max inventory events to fetch in the window")
 	return cmd
+}
+
+func showArgs(_ *cobra.Command, args []string) error {
+	if len(args) == 1 {
+		return nil
+	}
+	if len(args) == 0 {
+		return fmt.Errorf("missing endpoint: pass a ULID or cached hostname: example: safedep endpoint show <ENDPOINT-ID>. Discover IDs with: safedep endpoint list")
+	}
+	return fmt.Errorf("accepts exactly 1 endpoint argument: received %d", len(args))
 }
 
 // parseShowActions translates the --actions flag into the GuardAction

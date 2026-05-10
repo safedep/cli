@@ -13,7 +13,7 @@ Displays a unified feed of recent activity across endpoints reporting to SafeDep
 - **Guard events** - package install decisions made by the Package Management Guard (PMG), such as blocked or confirmed installs.
 - **Inventory events** - new tool or configuration items detected by the inventory scanner.
 
-By default the command shows blocked guard events from the last 24 hours (`--type all --action blocked --since 24h`).
+By default the command shows guard events from the last 7 days (`--type guard --since 168h`) with the security-focused default action filter `blocked,cooldown-blocked`.
 
 ### Type semantics
 
@@ -38,10 +38,10 @@ Guard events carry one of the following actions:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--type` | `all` | Activity type: `all`, `guard`, or `inventory` |
-| `--since` | `24h` | Trailing time window length, e.g. `24h`, `168h`, `30m` |
+| `--type` | `guard` | Activity type: `all`, `guard`, or `inventory` |
+| `--since` | `168h` | Trailing time window length, e.g. `24h`, `168h`, `30m` |
 | `--endpoint` | _(none)_ | Filter by endpoint ULID or cached hostname; repeatable |
-| `--action` | `blocked` (when type includes guard) | Package action filter for guard events: `blocked`, `confirmed`, `trusted`, `cooldown-blocked`; repeatable |
+| `--action` | `blocked,cooldown-blocked` (when type includes guard) | Package action filter for guard events: `blocked`, `confirmed`, `trusted`, `cooldown-blocked`; repeatable |
 | `--tool` | _(none)_ | Client-side filter by tool name (e.g. `claude-code`) |
 | `--invocation` | _(none)_ | Scope results to a single invocation ID |
 | `--limit` | `0` (server default) | Maximum number of rows to return |
@@ -72,7 +72,7 @@ JSON output wraps rows under a `rows` key with an optional `next_page_token` fie
 
 ## Examples
 
-Show blocked package installs from the last 24 hours (default):
+Show recent guard activity from the last 7 days (default):
 
 ```
 safedep endpoint activity list

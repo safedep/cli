@@ -61,3 +61,13 @@ func TestRunActivity_typeGuardSkipsInventory(t *testing.T) {
 	// inv handler not called -> invIn zero value
 	assert.Empty(t, svc.invIn.EndpointIDs)
 }
+
+func TestRunActivity_emptyTypeDefaultsToGuard(t *testing.T) {
+	svc := &fakeActivitySvc{guard: &GuardEventsResult{}, inv: nil}
+
+	_, err := runActivity(context.Background(), svc, nil, activityInput{})
+
+	require.NoError(t, err)
+	assert.Equal(t, []GuardAction{"blocked", "cooldown-blocked"}, svc.guardIn.Actions)
+	assert.Empty(t, svc.invIn.EndpointIDs)
+}

@@ -16,18 +16,19 @@ This command is distinct from `endpoint activity list --type inventory`, which r
 
 Inventory events are deduplicated client-side by the `item_identity` field. When multiple events share the same identity the one with the latest timestamp is kept. Results are sorted alphabetically by name.
 
-### Multi-endpoint warning
+### Pagination and completeness
 
-When `--endpoint` is not specified and the result page is full (i.e. the number of events returned equals `--limit`), the command prints a warning that the snapshot may be incomplete across the fleet. Use `--endpoint` to narrow scope or `--page-token` to continue paging.
+By default, dedupe is performed over the fetched page only. For a complete snapshot across all pages, pass `--all`. This auto-paginates until completion, then dedupes over the full event set. Without `--all`, use `--page-token` to continue manually.
 
 ## Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--since` | `24h` | Trailing time window length, e.g. `24h`, `168h`, `30m` |
+| `--since` | `168h` | Trailing time window length, e.g. `24h`, `168h`, `30m` |
 | `--endpoint` | _(none)_ | Filter by endpoint ULID or cached hostname; repeatable |
 | `--kind` | _(none)_ | Filter by inventory kind (see Kind vocabulary below); repeatable |
 | `--scope` | _(none)_ | Filter by scope: `system` or `project` |
+| `--all` | `false` | Auto-fetch all pages before dedupe for a complete snapshot |
 | `--limit` | `0` (server default) | Maximum number of raw events to fetch before deduplication |
 | `--page-token` | _(none)_ | Continuation token from a prior response |
 

@@ -48,7 +48,7 @@ func activityListCmd(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List recent endpoint activity",
-		Long:  "List recent activity across endpoints (blocked installs and inventory detections), filterable by type, action, kind, tool, endpoint, and time window.",
+		Long:  "List recent activity across endpoints (blocked installs and inventory detections), filterable by type, action, tool, endpoint, and time window.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, err := a.ControlPlane()
 			if err != nil {
@@ -88,8 +88,8 @@ func activityListCmd(a *app.App) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&typeFlag, "type", "all", "activity type: all|guard|inventory")
-	f.DurationVar(&since, "since", 24*time.Hour, "trailing window length, e.g. 24h, 168h, 30m")
+	f.StringVar(&typeFlag, "type", ActivityTypeGuard, "activity type: all|guard|inventory")
+	f.DurationVar(&since, "since", 7*24*time.Hour, "trailing window length, e.g. 24h, 168h, 30m")
 	f.StringSliceVar(&endpoints, "endpoint", nil, "filter by endpoint (ULID or cached hostname); repeatable")
 	f.StringSliceVar(&actionsRaw, "action", nil, "guard-only action filter: blocked|confirmed|trusted|cooldown-blocked. Setting this implies --type=guard unless --type is set explicitly.")
 	f.StringVar(&toolFlag, "tool", "", "client-side filter by tool_name")
@@ -118,7 +118,7 @@ type activityResult struct {
 func runActivity(ctx context.Context, svc activitySvc, dir *Directory, in activityInput) (*activityResult, error) {
 	typ := strings.ToLower(strings.TrimSpace(in.Type))
 	if typ == "" {
-		typ = ActivityTypeAll
+		typ = ActivityTypeGuard
 	}
 
 	actions := in.Actions

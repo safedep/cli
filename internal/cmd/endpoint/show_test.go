@@ -64,3 +64,24 @@ func TestRunShow_secondaryFailuresDoNotBlock(t *testing.T) {
 	assert.Empty(t, res.guardEvents)
 	assert.Equal(t, 0, res.inventoryCount)
 }
+
+func TestShowArgs(t *testing.T) {
+	t.Run("accepts one endpoint arg", func(t *testing.T) {
+		err := showArgs(nil, []string{"01KR0EKN6PMW0ZRFRN992H1PKX"})
+		require.NoError(t, err)
+	})
+
+	t.Run("errors with explicit guidance when missing arg", func(t *testing.T) {
+		err := showArgs(nil, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing endpoint")
+		assert.Contains(t, err.Error(), "safedep endpoint list")
+		assert.Contains(t, err.Error(), "safedep endpoint show <ENDPOINT-ID>")
+	})
+
+	t.Run("errors for too many args", func(t *testing.T) {
+		err := showArgs(nil, []string{"a", "b"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "accepts exactly 1 endpoint argument")
+	})
+}

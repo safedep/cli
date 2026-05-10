@@ -22,6 +22,7 @@ type inventoryInput struct {
 	Scope       *messagescontroltowerv1.InventoryScope
 	PageSize    uint32
 	PageToken   string
+	AllPages    bool
 }
 
 // inventoryKindVocab maps kebab-case CLI flag values to proto enum values.
@@ -76,11 +77,12 @@ func inventoryListCmd(a *app.App) *cobra.Command {
 		since                    time.Duration
 		endpoints, kindsRaw      []string
 		pageSize                 uint32
+		allPagesFlag             bool
 	)
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List current endpoint inventory",
-		Long:  "List the current inventory snapshot for one or more endpoints. Inventory events are deduped client-side by item identity, keeping the most recent event per identity.",
+		Long:  "List the current inventory snapshot for one or more endpoints. Inventory events are deduped by item identity, keeping the most recent event per identity.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, err := a.ControlPlane()
 			if err != nil {
@@ -114,6 +116,7 @@ func inventoryListCmd(a *app.App) *cobra.Command {
 				Scope:       scope,
 				PageSize:    pageSize,
 				PageToken:   pageTokenFlag,
+				AllPages:    allPagesFlag,
 			}
 			res, err := runInventory(cmd.Context(), NewService(client.Connection()), dir, in)
 			if err != nil {
@@ -127,6 +130,7 @@ func inventoryListCmd(a *app.App) *cobra.Command {
 	f.StringSliceVar(&endpoints, "endpoint", nil, "filter by endpoint (ULID or cached hostname); repeatable")
 	f.StringSliceVar(&kindsRaw, "kind", nil, "filter by inventory kind (mcp-server|coding-agent|ai-extension|cli-tool|project-config|browser-extension|ide-extension|agent-plugin|agent-skill); repeatable")
 	f.StringVar(&scopeFlag, "scope", "", "filter by scope: system|project")
+	f.BoolVar(&allPagesFlag, "all", false, "fetch all pages before dedupe for a complete snapshot")
 	f.Uint32Var(&pageSize, "limit", 0, "page size; server default when 0")
 	f.StringVar(&pageTokenFlag, "page-token", "", "continuation token from a prior response")
 	return cmd
@@ -144,17 +148,52 @@ func runInventory(ctx context.Context, svc InventoryEventLister, dir *Directory,
 	if err != nil {
 		return nil, err
 	}
-	items := dedupeByItemIdentity(res.Events)
-	if in.PageSize > 0 && len(res.Events) >= int(in.PageSize) {
-		tui.Warning("inventory list page is full; dedupe is best-effort within this page. Pass --endpoint to narrow or --page-token to continue.")
+
+	events := append([]InventoryEvent(nil), res.Events...)
+	nextPage := res.NextPage
+
+	if in.AllPages {
+		seenTokens := map[string]struct{}{}
+		if in.PageToken != "" {
+			seenTokens[in.PageToken] = struct{}{}
+		}
+
+		for nextPage != "" {
+			if _, seen := seenTokens[nextPage]; seen {
+				return nil, fmt.Errorf("inventory list: pagination loop detected at token %q", nextPage)
+			}
+			seenTokens[nextPage] = struct{}{}
+
+			page, err := svc.ListInventoryEvents(ctx, InventoryEventsInput{
+				Window:      in.Window,
+				EndpointIDs: in.EndpointIDs,
+				ItemKinds:   in.Kinds,
+				Scope:       in.Scope,
+				PageSize:    in.PageSize,
+				PageToken:   nextPage,
+			})
+			if err != nil {
+				return nil, err
+			}
+			events = append(events, page.Events...)
+			nextPage = page.NextPage
+		}
+	} else if in.PageSize > 0 && len(res.Events) >= int(in.PageSize) {
+		tui.Warning("inventory list page is full; dedupe is best-effort within this page. Pass --all to fetch all pages, --endpoint to narrow, or --page-token to continue.")
 	}
+
+	items := dedupeByItemIdentity(events)
+	if in.AllPages {
+		nextPage = ""
+	}
+
 	ids := make([]string, 0, len(items))
 	for _, e := range items {
 		ids = append(ids, e.EndpointID)
 	}
 	return &inventoryResult{
 		items:          items,
-		nextPage:       res.NextPage,
+		nextPage:       nextPage,
 		window:         in.Window,
 		endpointLabels: resolveEndpointLabels(ctx, dir, ids),
 	}, nil

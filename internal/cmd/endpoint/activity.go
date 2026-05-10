@@ -12,6 +12,14 @@ import (
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/dry/tui/table"
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
+)
+
+// CLI-facing activity-source vocabulary.
+const (
+	ActivityTypeAll       = "all"
+	ActivityTypeGuard     = "guard"
+	ActivityTypeInventory = "inventory"
 )
 
 type activityInput struct {
@@ -65,7 +73,7 @@ func activityListCmd(a *app.App) *cobra.Command {
 			}
 			resolvedType := typeFlag
 			if !cmd.Flags().Changed("type") && len(actions) > 0 {
-				resolvedType = "guard"
+				resolvedType = ActivityTypeGuard
 			}
 			in := activityInput{
 				Type: resolvedType, Window: window, EndpointIDs: ids,
@@ -110,65 +118,86 @@ type activityResult struct {
 func runActivity(ctx context.Context, svc activitySvc, dir *Directory, in activityInput) (*activityResult, error) {
 	typ := strings.ToLower(strings.TrimSpace(in.Type))
 	if typ == "" {
-		typ = "all"
+		typ = ActivityTypeAll
 	}
 
 	actions := in.Actions
-	if (typ == "guard" || typ == "all") && len(actions) == 0 {
+	if (typ == ActivityTypeGuard || typ == ActivityTypeAll) && len(actions) == 0 {
 		actions = []GuardAction{ActionBlocked, ActionCooldownBlocked}
+	}
+
+	var (
+		gr *GuardEventsResult
+		ir *InventoryEventsResult
+	)
+	g, gctx := errgroup.WithContext(ctx)
+	if typ == ActivityTypeGuard || typ == ActivityTypeAll {
+		g.Go(func() error {
+			res, err := svc.ListGuardEvents(gctx, GuardEventsInput{
+				Window: in.Window, EndpointIDs: in.EndpointIDs,
+				Actions: actions, InvocationID: in.InvocationID,
+				PageSize: in.PageSize, PageToken: pageTokenFor(in.PageToken, ActivityTypeGuard, typ),
+			})
+			if err != nil {
+				return err
+			}
+			gr = res
+			return nil
+		})
+	}
+	if typ == ActivityTypeInventory || typ == ActivityTypeAll {
+		g.Go(func() error {
+			res, err := svc.ListInventoryEvents(gctx, InventoryEventsInput{
+				Window: in.Window, EndpointIDs: in.EndpointIDs,
+				InvocationID: in.InvocationID,
+				PageSize: in.PageSize, PageToken: pageTokenFor(in.PageToken, ActivityTypeInventory, typ),
+			})
+			if err != nil {
+				return err
+			}
+			ir = res
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
 	}
 
 	var rows []activityRow
 	var next string
 
-	if typ == "guard" || typ == "all" {
-		gr, err := svc.ListGuardEvents(ctx, GuardEventsInput{
-			Window: in.Window, EndpointIDs: in.EndpointIDs,
-			Actions: actions, InvocationID: in.InvocationID,
-			PageSize: in.PageSize, PageToken: pageTokenFor(in.PageToken, "guard", typ),
-		})
-		if err != nil {
-			return nil, err
-		}
-		for _, e := range gr.Events {
+	if gr != nil {
+		for _, e := range filterPackageDecisions(gr.Events) {
 			if in.Tool != "" && !strings.EqualFold(in.Tool, e.Tool) {
 				continue
 			}
 			rows = append(rows, activityRow{
-				Timestamp: e.Timestamp, EndpointID: e.EndpointID, Type: "guard",
+				Timestamp: e.Timestamp, EndpointID: e.EndpointID, Type: ActivityTypeGuard,
 				Tool:         e.Tool,
 				Summary:      guardSummary(e),
 				InvocationID: e.InvocationID,
 				Raw:          e.Raw,
 			})
 		}
-		if typ == "guard" {
+		if typ == ActivityTypeGuard {
 			next = gr.NextPage
 		}
 	}
 
-	if typ == "inventory" || typ == "all" {
-		ir, err := svc.ListInventoryEvents(ctx, InventoryEventsInput{
-			Window: in.Window, EndpointIDs: in.EndpointIDs,
-			InvocationID: in.InvocationID,
-			PageSize: in.PageSize, PageToken: pageTokenFor(in.PageToken, "inventory", typ),
-		})
-		if err != nil {
-			return nil, err
-		}
+	if ir != nil {
 		for _, e := range ir.Events {
 			if in.Tool != "" && !strings.EqualFold(in.Tool, e.Tool) {
 				continue
 			}
 			rows = append(rows, activityRow{
-				Timestamp: e.Timestamp, EndpointID: e.EndpointID, Type: "inventory",
+				Timestamp: e.Timestamp, EndpointID: e.EndpointID, Type: ActivityTypeInventory,
 				Tool:         e.Tool,
 				Summary:      fmt.Sprintf("detected: %s (%s)", inventoryDisplayName(e), inventoryKindLabel(e.Kind)),
 				InvocationID: e.InvocationID,
 				Raw:          e.Raw,
 			})
 		}
-		if typ == "inventory" {
+		if typ == ActivityTypeInventory {
 			next = ir.NextPage
 		}
 	}
@@ -213,11 +242,7 @@ func inventoryDisplayName(e InventoryEvent) string {
 }
 
 func inventoryKindLabel(k messagescontroltowerv1.InventoryItemKind) string {
-	s := strings.TrimPrefix(k.String(), "INVENTORY_ITEM_KIND_")
-	if s == "" || s == "UNSPECIFIED" {
-		return "unknown"
-	}
-	return strings.ReplaceAll(strings.ToLower(s), "_", "-")
+	return strings.ReplaceAll(prettyEnum(k.String(), "INVENTORY_ITEM_KIND_"), "_", "-")
 }
 
 func (r *activityResult) RenderJSON() ([]byte, error) {

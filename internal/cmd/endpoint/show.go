@@ -12,6 +12,12 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/tui/table"
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
+)
+
+const (
+	defaultGuardPageSize     uint32 = 50
+	defaultInventoryPageSize uint32 = 100
 )
 
 type showInput struct {
@@ -78,17 +84,17 @@ func showCmd(a *app.App) *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.DurationVar(&since, "since", 7*24*time.Hour, "trailing window length for per-tool counts and guard events, e.g. 168h, 24h")
-	f.Uint32Var(&blocks, "blocks", 50, "max guard events to fetch in the window (server caps page size)")
+	f.Uint32Var(&blocks, "blocks", defaultGuardPageSize, "max guard events to fetch in the window (server caps page size)")
 	f.StringSliceVar(&actionsRaw, "actions", nil, "guard event actions to render: blocked|cooldown-blocked|confirmed|trusted|all (default: blocked,cooldown-blocked)")
 	f.BoolVar(&inventoryFlag, "inventory", false, "render the inventory item list, not just the count")
 	f.StringSliceVar(&invKinds, "inventory-kind", nil, "filter inventory list by kind (mcp-server|coding-agent|ai-extension|cli-tool|project-config|browser-extension|ide-extension|agent-plugin|agent-skill); repeatable")
-	f.Uint32Var(&invLimit, "inventory-limit", 100, "max inventory events to fetch in the window")
+	f.Uint32Var(&invLimit, "inventory-limit", defaultInventoryPageSize, "max inventory events to fetch in the window")
 	return cmd
 }
 
 // parseShowActions translates the --actions flag into the GuardAction
 // slice passed to ListGuardEvents. Empty input falls back to the
-// security-relevant defaults; "all" returns nil so the server returns
+// security-relevant defaults. "all" returns nil so the server returns
 // every action type.
 func parseShowActions(raw []string) ([]GuardAction, error) {
 	if len(raw) == 0 {
@@ -124,38 +130,58 @@ func runShow(ctx context.Context, svc showSvc, dir *Directory, in showInput) (*s
 	if err != nil {
 		return nil, err
 	}
-	ep, err := svc.Get(ctx, GetInput{EndpointID: id, Window: in.Window})
-	if err != nil {
+
+	blockPage := in.Blocks
+	if blockPage == 0 {
+		blockPage = defaultGuardPageSize
+	}
+	invLimit := in.InventoryLimit
+	if invLimit == 0 {
+		invLimit = defaultInventoryPageSize
+	}
+
+	var (
+		ep       *GetResult
+		guard    *GuardEventsResult
+		guardErr error
+		inv      *InventoryEventsResult
+		invErr   error
+	)
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		var err error
+		ep, err = svc.Get(gctx, GetInput{EndpointID: id, Window: in.Window})
+		return err
+	})
+	g.Go(func() error {
+		guard, guardErr = svc.ListGuardEvents(gctx, GuardEventsInput{
+			Window: in.Window, EndpointIDs: []string{id},
+			Actions: in.Actions, PageSize: blockPage,
+		})
+		return nil
+	})
+	g.Go(func() error {
+		inv, invErr = svc.ListInventoryEvents(gctx, InventoryEventsInput{
+			Window: in.Window, EndpointIDs: []string{id},
+			ItemKinds: in.InventoryKinds, PageSize: invLimit,
+		})
+		return nil
+	})
+	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 
 	res := &showResult{endpoint: ep, window: in.Window, guardActions: in.Actions}
 
-	blockPage := in.Blocks
-	if blockPage == 0 {
-		blockPage = 50
-	}
-	guard, err := svc.ListGuardEvents(ctx, GuardEventsInput{
-		Window: in.Window, EndpointIDs: []string{id},
-		Actions: in.Actions, PageSize: blockPage,
-	})
-	if err != nil {
-		log.Warnf("endpoint show: guard events unavailable: %v", err)
-	} else {
-		res.guardEvents = guard.Events
+	if guardErr != nil {
+		log.Warnf("endpoint show: guard events unavailable: %v", guardErr)
+	} else if guard != nil {
+		res.guardEvents = filterPackageDecisions(guard.Events)
 	}
 
-	invLimit := in.InventoryLimit
-	if invLimit == 0 {
-		invLimit = 100
-	}
-	inv, err := svc.ListInventoryEvents(ctx, InventoryEventsInput{
-		Window: in.Window, EndpointIDs: []string{id},
-		ItemKinds: in.InventoryKinds, PageSize: invLimit,
-	})
-	if err != nil {
-		log.Warnf("endpoint show: inventory peek unavailable: %v", err)
-	} else {
+	if invErr != nil {
+		log.Warnf("endpoint show: inventory peek unavailable: %v", invErr)
+	} else if inv != nil {
 		items := dedupeByItemIdentity(inv.Events)
 		res.inventoryCount = len(items)
 		if in.ShowInventory {
@@ -286,8 +312,8 @@ func (r *showResult) RenderTable() string {
 		sections = append(sections, "Last invocation:\n"+table.New().Headers("Field", "Value").Rows(
 			[]string{"Command", inv.Command},
 			[]string{"Working dir", inv.WorkingDir},
-			[]string{"CI context", boolYes(inv.HasCI)},
-			[]string{"Agent context", boolYes(inv.HasAgent)},
+			[]string{"CI context", yesNo(inv.HasCI)},
+			[]string{"Agent context", yesNo(inv.HasAgent)},
 		).Render())
 	}
 
@@ -324,20 +350,11 @@ func (r *showResult) RenderTable() string {
 	return strings.Join(sections, "\n\n")
 }
 
-func boolYes(b bool) string {
+func yesNo(b bool) string {
 	if b {
 		return "yes"
 	}
 	return "no"
 }
 
-// windowLabel renders the active TimeWindow as a short human label like
-// "last 168h" so render output makes the applied --since explicit and
-// users don't have to guess why a tighter window returns fewer rows.
-func (r *showResult) windowLabel() string {
-	if r.window.Start.IsZero() || r.window.End.IsZero() {
-		return "server default"
-	}
-	d := r.window.End.Sub(r.window.Start).Round(time.Minute)
-	return "last " + d.String()
-}
+func (r *showResult) windowLabel() string { return r.window.Label() }

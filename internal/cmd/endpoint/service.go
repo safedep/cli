@@ -79,6 +79,15 @@ func WindowFromDuration(now time.Time, since time.Duration) TimeWindow {
 	return TimeWindow{Start: now.Add(-since), End: now}
 }
 
+// Label renders the window as a short human label like "last 168h" so
+// renders can show users which window produced the rows.
+func (w TimeWindow) Label() string {
+	if w.Start.IsZero() || w.End.IsZero() {
+		return "server default"
+	}
+	return "last " + w.End.Sub(w.Start).Round(time.Minute).String()
+}
+
 type StatsInput struct{ Window TimeWindow }
 type StatsResult struct {
 	TotalEndpoints   uint64
@@ -440,7 +449,6 @@ func toTimeRangePtr(w TimeWindow) *controltowerv1.EndpointManagementTimeRange {
 	return tr
 }
 
-// newPagination builds a PaginationRequest.
 func newPagination(size uint32, token string) *messagescontroltowerv1.PaginationRequest {
 	p := &messagescontroltowerv1.PaginationRequest{}
 	p.SetPageSize(size)
@@ -541,10 +549,6 @@ func applyVetPayload(ie *InventoryEvent, v *messagescontroltowerv1.VetInventoryE
 	ie.ConfigPath = item.GetConfigPath()
 	ie.Metadata = item.GetMetadata()
 }
-
-// displayOS / displayArch / displayEcosystem turn a proto enum value
-// into a short, human-friendly CLI string by stripping the long enum
-// prefix and lower-casing the remainder. UNSPECIFIED returns "unknown".
 
 func displayOS(v messagescontroltowerv1.EndpointOS) string {
 	return prettyEnum(v.String(), "ENDPOINT_OS_")

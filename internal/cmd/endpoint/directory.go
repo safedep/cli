@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/safedep/cli/internal/app"
@@ -38,8 +39,8 @@ type DirectoryEntry struct {
 }
 
 // Store is the small persistence surface the Directory needs. The
-// production implementation wraps app.ProfileKV[map[string]DirectoryEntry];
-// tests pass an in-memory fake.
+// production implementation wraps app.ProfileKV. Tests pass an
+// in-memory fake.
 type Store interface {
 	Get(ctx context.Context) (map[string]DirectoryEntry, error)
 	Put(ctx context.Context, v map[string]DirectoryEntry) error
@@ -48,6 +49,35 @@ type Store interface {
 type Directory struct {
 	store Store
 	now   func() time.Time
+
+	mu     sync.Mutex
+	cache  map[string]DirectoryEntry
+	loaded bool
+}
+
+// loadCache memoises the underlying store fetch for the lifetime of
+// this Directory. The CLI builds one Directory per command invocation
+// so a single sqlite read covers every Resolve/Lookup call.
+func (d *Directory) loadCache(ctx context.Context) (map[string]DirectoryEntry, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.loaded {
+		return d.cache, nil
+	}
+	c, err := d.store.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	d.cache = c
+	d.loaded = true
+	return c, nil
+}
+
+func (d *Directory) setCache(c map[string]DirectoryEntry) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.cache = c
+	d.loaded = true
 }
 
 func NewDirectory(store Store, now func() time.Time) *Directory {
@@ -74,46 +104,35 @@ func (d *Directory) Resolve(ctx context.Context, ref string) (string, error) {
 	if isULID(ref) {
 		return ref, nil
 	}
-	cache, err := d.store.Get(ctx)
+	cache, err := d.loadCache(ctx)
 	if err != nil {
 		return "", err
 	}
-	refLower := strings.ToLower(ref)
-	var byName []DirectoryEntry
+	tryPrefix := len(ref) >= minULIDPrefix
+	var byName, byPrefix []DirectoryEntry
 	for _, e := range cache {
 		if d.expired(e) {
 			continue
 		}
-		if strings.EqualFold(e.Hostname, refLower) || strings.EqualFold(e.Name, refLower) {
+		if strings.EqualFold(e.Hostname, ref) || strings.EqualFold(e.Name, ref) {
 			byName = append(byName, e)
 		}
+		if tryPrefix && strings.HasPrefix(e.ID, ref) {
+			byPrefix = append(byPrefix, e)
+		}
 	}
-	if len(byName) == 1 {
+	switch {
+	case len(byName) == 1:
 		return byName[0].ID, nil
-	}
-	if len(byName) > 1 {
+	case len(byName) > 1:
 		return "", &AmbiguousRefError{Ref: ref, Candidates: byName}
+	case len(byPrefix) == 1:
+		return byPrefix[0].ID, nil
+	case len(byPrefix) > 1:
+		return "", &AmbiguousRefError{Ref: ref, Candidates: byPrefix}
+	default:
+		return "", ErrEndpointNotInDirectory
 	}
-
-	if len(ref) >= minULIDPrefix {
-		var byPrefix []DirectoryEntry
-		for _, e := range cache {
-			if d.expired(e) {
-				continue
-			}
-			if strings.HasPrefix(e.ID, ref) {
-				byPrefix = append(byPrefix, e)
-			}
-		}
-		if len(byPrefix) == 1 {
-			return byPrefix[0].ID, nil
-		}
-		if len(byPrefix) > 1 {
-			return "", &AmbiguousRefError{Ref: ref, Candidates: byPrefix}
-		}
-	}
-
-	return "", ErrEndpointNotInDirectory
 }
 
 // Upsert merges entries into the cached directory, stamping CachedAt
@@ -122,7 +141,7 @@ func (d *Directory) Upsert(ctx context.Context, entries []DirectoryEntry) error 
 	if len(entries) == 0 {
 		return nil
 	}
-	cache, err := d.store.Get(ctx)
+	cache, err := d.loadCache(ctx)
 	if err != nil {
 		return err
 	}
@@ -136,12 +155,16 @@ func (d *Directory) Upsert(ctx context.Context, entries []DirectoryEntry) error 
 		}
 		cache[e.ID] = e
 	}
-	return d.store.Put(ctx, cache)
+	if err := d.store.Put(ctx, cache); err != nil {
+		return err
+	}
+	d.setCache(cache)
+	return nil
 }
 
 // Lookup returns the cached entry for an ID, or false.
 func (d *Directory) Lookup(ctx context.Context, id string) (DirectoryEntry, bool) {
-	cache, err := d.store.Get(ctx)
+	cache, err := d.loadCache(ctx)
 	if err != nil || cache == nil {
 		return DirectoryEntry{}, false
 	}
@@ -159,8 +182,9 @@ func (d *Directory) expired(e DirectoryEntry) bool {
 	return d.now().Sub(e.CachedAt) > directoryTTL
 }
 
-// kvStore adapts app.ProfileKV[map[string]DirectoryEntry] to the
-// Store interface. Each Get loads the single "all" key.
+// kvStore adapts app.ProfileKV to the Store interface. The whole
+// directory lives under a single "all" key. Per-entry TTL would not
+// help here. Expiry is enforced in memory by Directory.expired.
 type kvStore struct{ kv *storage.KV[map[string]DirectoryEntry] }
 
 func (k *kvStore) Get(ctx context.Context) (map[string]DirectoryEntry, error) {

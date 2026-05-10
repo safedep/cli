@@ -112,7 +112,7 @@ func runList(ctx context.Context, lister EndpointLister, dir *Directory, in list
 func filterSilent(eps []ListEndpoint, d time.Duration, now time.Time) []ListEndpoint {
 	out := eps[:0]
 	for _, e := range eps {
-		// Zero LastSync means never synced; treat as infinitely silent.
+		// Zero LastSync means never synced. Treat as infinitely silent.
 		if e.LastSync.IsZero() || now.Sub(e.LastSync) >= d {
 			out = append(out, e)
 		}
@@ -217,6 +217,20 @@ func shortID(id string) string {
 		return id[:12]
 	}
 	return id
+}
+
+// filterPackageDecisions drops PMG events that aren't package-decision
+// events (e.g. session summaries), which arrive with empty Action and
+// Package fields and would render as blank rows.
+func filterPackageDecisions(events []GuardEvent) []GuardEvent {
+	out := events[:0]
+	for _, e := range events {
+		if e.Action == "" {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 // verdictCell returns the user-facing verdict, optionally annotated

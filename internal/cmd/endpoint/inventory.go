@@ -66,15 +66,8 @@ func mapScope(s string) (*messagescontroltowerv1.InventoryScope, error) {
 	return &v, nil
 }
 
-// inventoryScopeLabel renders the InventoryScope enum as a CLI-friendly
-// lowercase label, stripping the "INVENTORY_SCOPE_" prefix.
-// UNSPECIFIED returns "unknown".
 func inventoryScopeLabel(s messagescontroltowerv1.InventoryScope) string {
-	raw := strings.TrimPrefix(s.String(), "INVENTORY_SCOPE_")
-	if raw == "" || raw == "UNSPECIFIED" {
-		return "unknown"
-	}
-	return strings.ToLower(raw)
+	return prettyEnum(s.String(), "INVENTORY_SCOPE_")
 }
 
 func inventoryListCmd(a *app.App) *cobra.Command {
@@ -201,12 +194,7 @@ type inventoryResult struct {
 	endpointLabels map[string]string
 }
 
-func (r *inventoryResult) windowLabel() string {
-	if r.window.Start.IsZero() || r.window.End.IsZero() {
-		return "server default"
-	}
-	return "last " + r.window.End.Sub(r.window.Start).Round(time.Minute).String()
-}
+func (r *inventoryResult) windowLabel() string { return r.window.Label() }
 
 type inventoryJSONItem struct {
 	EndpointID string            `json:"endpoint_id"`
@@ -240,20 +228,24 @@ func (r *inventoryResult) RenderJSON() ([]byte, error) {
 	return json.MarshalIndent(out, "", "  ")
 }
 
+func (r *inventoryResult) itemRow(e InventoryEvent) []string {
+	return []string{
+		endpointLabel(e.EndpointID, r.endpointLabels),
+		inventoryKindLabel(e.Kind),
+		inventoryDisplayName(e),
+		e.App,
+		inventoryScopeLabel(e.Scope),
+		formatTime(e.Timestamp),
+	}
+}
+
 func (r *inventoryResult) RenderPlain() string {
 	if len(r.items) == 0 {
 		return fmt.Sprintf("no inventory in %s. Try a wider window with --since.", r.windowLabel())
 	}
 	var b strings.Builder
 	for _, e := range r.items {
-		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			endpointLabel(e.EndpointID, r.endpointLabels),
-			inventoryKindLabel(e.Kind),
-			inventoryDisplayName(e),
-			e.App,
-			inventoryScopeLabel(e.Scope),
-			formatTime(e.Timestamp),
-		)
+		fmt.Fprintf(&b, "%s\n", strings.Join(r.itemRow(e), "\t"))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -264,14 +256,7 @@ func (r *inventoryResult) RenderTable() string {
 	}
 	rows := make([][]string, 0, len(r.items))
 	for _, e := range r.items {
-		rows = append(rows, []string{
-			endpointLabel(e.EndpointID, r.endpointLabels),
-			inventoryKindLabel(e.Kind),
-			inventoryDisplayName(e),
-			e.App,
-			inventoryScopeLabel(e.Scope),
-			formatTime(e.Timestamp),
-		})
+		rows = append(rows, r.itemRow(e))
 	}
 	return table.New().Headers("Endpoint", "Kind", "Name", "App", "Scope", "Last Seen").Rows(rows...).Render()
 }

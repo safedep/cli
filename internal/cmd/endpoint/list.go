@@ -209,9 +209,12 @@ func (r *listResult) RenderTable() string {
 	return table.New().Headers("ID", "Hostname", "OS/Arch", "Capabilities", "Last Sync", "Blocked", "Inventory").Rows(rows...).Render()
 }
 
+// shortID returns a display-friendly prefix of an endpoint ULID. The
+// prefix is itself a valid filter input: pass it to `endpoint show` or
+// `--endpoint` and Resolve will match it as a ULID prefix.
 func shortID(id string) string {
 	if len(id) > 12 {
-		return id[:8] + "..."
+		return id[:12]
 	}
 	return id
 }

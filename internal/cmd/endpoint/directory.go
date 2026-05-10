@@ -57,8 +57,15 @@ func NewDirectory(store Store, now func() time.Time) *Directory {
 	return &Directory{store: store, now: now}
 }
 
-// Resolve maps a CLI-supplied reference (ULID or hostname/name) to an
-// endpoint ID. ULIDs short-circuit; names search the cache.
+// minULIDPrefix is the shortest input we treat as a ULID-prefix match.
+// Below this length the prefix is too ambiguous to be useful and we
+// prefer the not-found error.
+const minULIDPrefix = 4
+
+// Resolve maps a CLI-supplied reference to an endpoint ID. Accepts a
+// full ULID, a unique ULID prefix (like `git` short SHAs), or a cached
+// hostname/identifier. Errors with AmbiguousRefError when the reference
+// matches multiple cached endpoints.
 func (d *Directory) Resolve(ctx context.Context, ref string) (string, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
@@ -72,23 +79,41 @@ func (d *Directory) Resolve(ctx context.Context, ref string) (string, error) {
 		return "", err
 	}
 	refLower := strings.ToLower(ref)
-	var matches []DirectoryEntry
+	var byName []DirectoryEntry
 	for _, e := range cache {
 		if d.expired(e) {
 			continue
 		}
 		if strings.EqualFold(e.Hostname, refLower) || strings.EqualFold(e.Name, refLower) {
-			matches = append(matches, e)
+			byName = append(byName, e)
 		}
 	}
-	switch len(matches) {
-	case 0:
-		return "", ErrEndpointNotInDirectory
-	case 1:
-		return matches[0].ID, nil
-	default:
-		return "", &AmbiguousRefError{Ref: ref, Candidates: matches}
+	if len(byName) == 1 {
+		return byName[0].ID, nil
 	}
+	if len(byName) > 1 {
+		return "", &AmbiguousRefError{Ref: ref, Candidates: byName}
+	}
+
+	if len(ref) >= minULIDPrefix {
+		var byPrefix []DirectoryEntry
+		for _, e := range cache {
+			if d.expired(e) {
+				continue
+			}
+			if strings.HasPrefix(e.ID, ref) {
+				byPrefix = append(byPrefix, e)
+			}
+		}
+		if len(byPrefix) == 1 {
+			return byPrefix[0].ID, nil
+		}
+		if len(byPrefix) > 1 {
+			return "", &AmbiguousRefError{Ref: ref, Candidates: byPrefix}
+		}
+	}
+
+	return "", ErrEndpointNotInDirectory
 }
 
 // Upsert merges entries into the cached directory, stamping CachedAt

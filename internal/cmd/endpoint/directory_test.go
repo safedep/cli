@@ -45,6 +45,37 @@ func TestDirectory_resolveNotFound(t *testing.T) {
 	require.ErrorIs(t, err, ErrEndpointNotInDirectory)
 }
 
+func TestDirectory_resolveByULIDPrefix(t *testing.T) {
+	d := newTestDirectory(t)
+	require.NoError(t, d.Upsert(context.Background(), []DirectoryEntry{{
+		ID: "01KR0EKN6PMW0ZRFRN992H1PKX", Hostname: "lap",
+	}}))
+	id, err := d.Resolve(context.Background(), "01KR0EKN6PMW0")
+	require.NoError(t, err)
+	assert.Equal(t, "01KR0EKN6PMW0ZRFRN992H1PKX", id)
+}
+
+func TestDirectory_resolveAmbiguousPrefix(t *testing.T) {
+	d := newTestDirectory(t)
+	require.NoError(t, d.Upsert(context.Background(), []DirectoryEntry{
+		{ID: "01KR0EKN6PMW0ZRFRN992H1PKX", Hostname: "a"},
+		{ID: "01KR0EKN6PMW0ZRFRN992H1PKY", Hostname: "b"},
+	}))
+	_, err := d.Resolve(context.Background(), "01KR0EKN6PMW0")
+	var amb *AmbiguousRefError
+	require.ErrorAs(t, err, &amb)
+	assert.Len(t, amb.Candidates, 2)
+}
+
+func TestDirectory_resolveShortPrefixSkipped(t *testing.T) {
+	d := newTestDirectory(t)
+	require.NoError(t, d.Upsert(context.Background(), []DirectoryEntry{{
+		ID: "01KR0EKN6PMW0ZRFRN992H1PKX", Hostname: "lap",
+	}}))
+	_, err := d.Resolve(context.Background(), "01K")
+	require.ErrorIs(t, err, ErrEndpointNotInDirectory)
+}
+
 func TestDirectory_expiredEntriesIgnored(t *testing.T) {
 	d := newTestDirectoryWithClock(t, func() time.Time { return time.Unix(2_000_000_000, 0) })
 	require.NoError(t, d.Upsert(context.Background(), []DirectoryEntry{{

@@ -1,9 +1,9 @@
 buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20240508200655-46a4cf4ba109.1 h1:NXwdBG3BiC6xWH4iG3csbT+JHF9u1jl5ThDhumCnKnk=
 buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20240508200655-46a4cf4ba109.1/go.mod h1:tvtbpgaVXZX4g6Pn+AnzFycuRK3MOz5HJfEGeEllXYM=
-buf.build/gen/go/safedep/api/grpc/go v1.6.1-20260501141526-5b8baefa4488.1 h1:GjUVoXwZwPj5b3Dyrs50btOQjqeNwLT31oJ0s+bozwc=
-buf.build/gen/go/safedep/api/grpc/go v1.6.1-20260501141526-5b8baefa4488.1/go.mod h1:gjDZDZpdpeol0iCL/GR/G1MAPcd0MtYsSGl93QjHPr0=
-buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260501141526-5b8baefa4488.1 h1:X6IPLELSQrjffVfDaOl4KEpG0014kcsz5c5dVquNBCI=
-buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260501141526-5b8baefa4488.1/go.mod h1:I8E+sZXJNqzWBtSlRGCoiEorLSRiix50h2R/66aBzME=
+buf.build/gen/go/safedep/api/grpc/go v1.6.1-20260508124855-e1531157cf93.1 h1:DVMMxVAnV/9j1c2rsi7oxLoL+T5dTUchAxIfLp9j23s=
+buf.build/gen/go/safedep/api/grpc/go v1.6.1-20260508124855-e1531157cf93.1/go.mod h1:Yn8ss+krS/Tffe/91HlF+6Pm+8lmJ+/TvJKEXiaou/0=
+buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260508124855-e1531157cf93.1 h1:MnPOBxBTsMSwPU7rB/axKh/gl/cbTlqRVuW/rl+/Kj8=
+buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260508124855-e1531157cf93.1/go.mod h1:I8E+sZXJNqzWBtSlRGCoiEorLSRiix50h2R/66aBzME=
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/MakeNowJust/heredoc v1.0.0 h1:cXCdzVdstXyiTqTvfqk9SDHpKNjxuom+DOlyEeQ4pzQ=
@@ -148,7 +148,10 @@ github.com/muesli/termenv v0.16.0 h1:S5AlUN9dENB57rsbnkPyfdGuWIlkmzJjbFf0Tf5FWUc
 github.com/muesli/termenv v0.16.0/go.mod h1:ZRfOIKPFDYQoDFF4Olj7/QJbW60Ol/kL1pU3VfY/Cnk=
 github.com/ncruces/go-strftime v1.0.0 h1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOFAw7w=
 github.com/ncruces/go-strftime v1.0.0/go.mod h1:Fwc5htZGVVkseilnfgOVb9mKy6w1naJmn9CehxcKcls=
+github.com/oklog/ulid/v2 v2.1.1 h1:suPZ4ARWLOJLegGFiZZ1dFAkqzhMjL3J1TzI+5wHz8s=
+github.com/oklog/ulid/v2 v2.1.1/go.mod h1:rcEKHmBBKfef9DhnvX7y1HZBYxjXb0cP5ExxNsTT1QQ=
 github.com/opentracing/opentracing-go v1.1.0/go.mod h1:UkNAQd3GIcIGf0SeVgPpRdFStlNbqXla1AfSYxPUl2o=
+github.com/pborman/getopt v0.0.0-20170112200414-7148bc3a4c30/go.mod h1:85jBQOZwpVEaDAr341tbn15RS4fCAsIst0qp7i8ex1o=
 github.com/pelletier/go-toml/v2 v2.3.0 h1:k59bC/lIZREW0/iVaQR8nDHxVq8OVlIzYCOJf421CaM=
 github.com/pelletier/go-toml/v2 v2.3.0/go.mod h1:2gIqNv+qfxSVS7cM2xJQKtLSTLUE9V8t9Stt+h56mCY=
 github.com/pkg/errors v0.8.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=

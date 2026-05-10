@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/tui/table"
@@ -14,8 +15,13 @@ import (
 )
 
 type showInput struct {
-	Ref    string
-	Window TimeWindow
+	Ref             string
+	Window          TimeWindow
+	Blocks          uint32
+	Actions         []GuardAction // empty -> default blocked + cooldown-blocked
+	ShowInventory   bool
+	InventoryKinds  []messagescontroltowerv1.InventoryItemKind
+	InventoryLimit  uint32
 }
 
 // showSvc is the union of interfaces show.go needs from a Service.
@@ -26,11 +32,18 @@ type showSvc interface {
 }
 
 func showCmd(a *app.App) *cobra.Command {
-	var since time.Duration
+	var (
+		since          time.Duration
+		blocks         uint32
+		actionsRaw     []string
+		inventoryFlag  bool
+		invKinds       []string
+		invLimit       uint32
+	)
 	cmd := &cobra.Command{
 		Use:   "show <endpoint>",
 		Short: "Show endpoint detail",
-		Long:  "Show identity, last sync, per-tool event volumes, last invocation, recent blocks, and current inventory size for one endpoint. Accepts a ULID or a cached hostname/identifier.",
+		Long:  "Show identity, last sync, per-tool event volumes, last invocation, recent guard events, and inventory for one endpoint. Accepts a ULID or a cached hostname/identifier.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := a.ControlPlane()
@@ -42,21 +55,67 @@ func showCmd(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			res, err := runShow(cmd.Context(), NewService(client.Connection()), dir, showInput{Ref: args[0], Window: window})
+			actions, err := parseShowActions(actionsRaw)
+			if err != nil {
+				return err
+			}
+			kinds, err := mapKinds(invKinds)
+			if err != nil {
+				return err
+			}
+			res, err := runShow(cmd.Context(), NewService(client.Connection()), dir, showInput{
+				Ref: args[0], Window: window, Blocks: blocks,
+				Actions:        actions,
+				ShowInventory:  inventoryFlag,
+				InventoryKinds: kinds,
+				InventoryLimit: invLimit,
+			})
 			if err != nil {
 				return err
 			}
 			return a.Output.Print(res)
 		},
 	}
-	cmd.Flags().DurationVar(&since, "since", 7*24*time.Hour, "trailing window length for per-tool counts and recent blocks, e.g. 168h, 24h")
+	f := cmd.Flags()
+	f.DurationVar(&since, "since", 7*24*time.Hour, "trailing window length for per-tool counts and guard events, e.g. 168h, 24h")
+	f.Uint32Var(&blocks, "blocks", 50, "max guard events to fetch in the window (server caps page size)")
+	f.StringSliceVar(&actionsRaw, "actions", nil, "guard event actions to render: blocked|cooldown-blocked|confirmed|trusted|all (default: blocked,cooldown-blocked)")
+	f.BoolVar(&inventoryFlag, "inventory", false, "render the inventory item list, not just the count")
+	f.StringSliceVar(&invKinds, "inventory-kind", nil, "filter inventory list by kind (mcp-server|coding-agent|ai-extension|cli-tool|project-config|browser-extension|ide-extension|agent-plugin|agent-skill); repeatable")
+	f.Uint32Var(&invLimit, "inventory-limit", 100, "max inventory events to fetch in the window")
 	return cmd
+}
+
+// parseShowActions translates the --actions flag into the GuardAction
+// slice passed to ListGuardEvents. Empty input falls back to the
+// security-relevant defaults; "all" returns nil so the server returns
+// every action type.
+func parseShowActions(raw []string) ([]GuardAction, error) {
+	if len(raw) == 0 {
+		return []GuardAction{ActionBlocked, ActionCooldownBlocked}, nil
+	}
+	out := make([]GuardAction, 0, len(raw))
+	for _, v := range raw {
+		v = strings.ToLower(strings.TrimSpace(v))
+		if v == "all" {
+			return nil, nil
+		}
+		switch GuardAction(v) {
+		case ActionBlocked, ActionCooldownBlocked, ActionConfirmed, ActionTrusted:
+			out = append(out, GuardAction(v))
+		default:
+			return nil, fmt.Errorf("unknown action %q (use blocked|cooldown-blocked|confirmed|trusted|all)", v)
+		}
+	}
+	return out, nil
 }
 
 type showResult struct {
 	endpoint       *GetResult
-	recentBlocks   []GuardEvent
+	guardEvents    []GuardEvent
+	guardActions   []GuardAction // nil means "all"
 	inventoryCount int
+	inventoryItems []InventoryEvent // populated only when --inventory was passed
 	window         TimeWindow
 }
 
@@ -70,26 +129,38 @@ func runShow(ctx context.Context, svc showSvc, dir *Directory, in showInput) (*s
 		return nil, err
 	}
 
-	res := &showResult{endpoint: ep, window: in.Window}
+	res := &showResult{endpoint: ep, window: in.Window, guardActions: in.Actions}
 
-	blocks, err := svc.ListGuardEvents(ctx, GuardEventsInput{
+	blockPage := in.Blocks
+	if blockPage == 0 {
+		blockPage = 50
+	}
+	guard, err := svc.ListGuardEvents(ctx, GuardEventsInput{
 		Window: in.Window, EndpointIDs: []string{id},
-		Actions: []GuardAction{"blocked", "cooldown-blocked"}, PageSize: 5,
+		Actions: in.Actions, PageSize: blockPage,
 	})
 	if err != nil {
-		log.Warnf("endpoint show: recent blocks unavailable: %v", err)
+		log.Warnf("endpoint show: guard events unavailable: %v", err)
 	} else {
-		res.recentBlocks = blocks.Events
+		res.guardEvents = guard.Events
 	}
 
-	invWindow := TimeWindow{Start: time.Now().Add(-24 * time.Hour), End: time.Now()}
+	invLimit := in.InventoryLimit
+	if invLimit == 0 {
+		invLimit = 100
+	}
 	inv, err := svc.ListInventoryEvents(ctx, InventoryEventsInput{
-		Window: invWindow, EndpointIDs: []string{id}, PageSize: 100,
+		Window: in.Window, EndpointIDs: []string{id},
+		ItemKinds: in.InventoryKinds, PageSize: invLimit,
 	})
 	if err != nil {
 		log.Warnf("endpoint show: inventory peek unavailable: %v", err)
 	} else {
-		res.inventoryCount = countDistinctIdentities(inv.Events)
+		items := dedupeByItemIdentity(inv.Events)
+		res.inventoryCount = len(items)
+		if in.ShowInventory {
+			res.inventoryItems = items
+		}
 	}
 
 	_ = dir.Upsert(ctx, []DirectoryEntry{{
@@ -99,30 +170,58 @@ func runShow(ctx context.Context, svc showSvc, dir *Directory, in showInput) (*s
 	return res, nil
 }
 
-func countDistinctIdentities(events []InventoryEvent) int {
-	seen := make(map[string]struct{}, len(events))
-	for _, e := range events {
-		seen[e.ItemIdentity] = struct{}{}
+// guardSectionTitle labels the guard-events table based on the active
+// action filter so users see what filter produced the rows.
+func (r *showResult) guardSectionTitle() string {
+	if len(r.guardActions) == 0 {
+		return fmt.Sprintf("Recent guard events (all actions, %s)", r.windowLabel())
 	}
-	return len(seen)
+	parts := make([]string, len(r.guardActions))
+	for i, a := range r.guardActions {
+		parts[i] = string(a)
+	}
+	return fmt.Sprintf("Recent guard events (%s, %s)", strings.Join(parts, ","), r.windowLabel())
 }
 
 func (r *showResult) RenderJSON() ([]byte, error) {
-	type block struct {
-		Time         time.Time `json:"time"`
-		Verdict      string    `json:"verdict"`
-		Package      string    `json:"package"`
-		Version      string    `json:"version"`
-		Ecosystem    string    `json:"ecosystem,omitempty"`
-		InvocationID string    `json:"invocation_id,omitempty"`
+	type guardOut struct {
+		Time         time.Time      `json:"time"`
+		Verdict      string         `json:"verdict"`
+		Action       string         `json:"action"`
+		Package      string         `json:"package"`
+		Version      string         `json:"version"`
+		Ecosystem    string         `json:"ecosystem,omitempty"`
+		InvocationID string         `json:"invocation_id,omitempty"`
+		Cooldown     *GuardCooldown `json:"cooldown,omitempty"`
 	}
-	blocks := make([]block, 0, len(r.recentBlocks))
-	for _, b := range r.recentBlocks {
-		blocks = append(blocks, block{
-			Time: b.Timestamp, Verdict: b.Verdict,
+	guardEvents := make([]guardOut, 0, len(r.guardEvents))
+	for _, b := range r.guardEvents {
+		guardEvents = append(guardEvents, guardOut{
+			Time: b.Timestamp, Verdict: b.Verdict, Action: string(b.Action),
 			Package: b.PackageName, Version: b.PackageVersion, Ecosystem: b.Ecosystem,
 			InvocationID: b.InvocationID,
+			Cooldown:     b.Cooldown,
 		})
+	}
+	type invOut struct {
+		Kind       string            `json:"kind"`
+		Name       string            `json:"name"`
+		App        string            `json:"app,omitempty"`
+		Scope      string            `json:"scope,omitempty"`
+		ConfigPath string            `json:"config_path,omitempty"`
+		Metadata   map[string]string `json:"metadata,omitempty"`
+		LastSeen   time.Time         `json:"last_seen"`
+	}
+	var invItems []invOut
+	if r.inventoryItems != nil {
+		invItems = make([]invOut, 0, len(r.inventoryItems))
+		for _, e := range r.inventoryItems {
+			invItems = append(invItems, invOut{
+				Kind: inventoryKindLabel(e.Kind), Name: inventoryDisplayName(e),
+				App: e.App, Scope: inventoryScopeLabel(e.Scope), ConfigPath: e.ConfigPath,
+				Metadata: e.Metadata, LastSeen: e.Timestamp,
+			})
+		}
 	}
 	out := struct {
 		Endpoint       *GetResult `json:"endpoint"`
@@ -130,12 +229,12 @@ func (r *showResult) RenderJSON() ([]byte, error) {
 			Start time.Time `json:"start,omitempty"`
 			End   time.Time `json:"end,omitempty"`
 		} `json:"window"`
-		RecentBlocks   []block `json:"recent_blocks"`
-		InventoryCount int     `json:"inventory_count"`
+		GuardEvents    []guardOut `json:"guard_events"`
+		InventoryCount int        `json:"inventory_count"`
+		Inventory      []invOut   `json:"inventory,omitempty"`
 	}{
-		Endpoint:       r.endpoint,
-		RecentBlocks:   blocks,
-		InventoryCount: r.inventoryCount,
+		Endpoint: r.endpoint, GuardEvents: guardEvents,
+		InventoryCount: r.inventoryCount, Inventory: invItems,
 	}
 	out.Window.Start = r.window.Start
 	out.Window.End = r.window.End
@@ -150,9 +249,13 @@ func (r *showResult) RenderPlain() string {
 	for _, v := range r.endpoint.PerToolVolumes {
 		fmt.Fprintf(&b, "tool\t%s\t%d\n", v.Tool, v.Count)
 	}
-	for _, blk := range r.recentBlocks {
-		fmt.Fprintf(&b, "block\t%s\t%s\t%s\t%s\n",
-			formatTime(blk.Timestamp), blk.Verdict, blk.PackageName, blk.PackageVersion)
+	for _, blk := range r.guardEvents {
+		fmt.Fprintf(&b, "guard\t%s\t%s\t%s\t%s\t%s\n",
+			formatTime(blk.Timestamp), verdictCell(blk), string(blk.Action), blk.PackageName, blk.PackageVersion)
+	}
+	for _, it := range r.inventoryItems {
+		fmt.Fprintf(&b, "inv\t%s\t%s\t%s\t%s\t%s\n",
+			inventoryKindLabel(it.Kind), inventoryDisplayName(it), it.App, inventoryScopeLabel(it.Scope), formatTime(it.Timestamp))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -166,7 +269,7 @@ func (r *showResult) RenderTable() string {
 		[]string{"Identifier", r.endpoint.Identifier},
 		[]string{"OS/Arch", r.endpoint.OS + "/" + r.endpoint.Arch},
 		[]string{"Last Sync", formatTime(r.endpoint.LastSync)},
-		[]string{"Inventory items (24h)", fmt.Sprint(r.inventoryCount)},
+		[]string{fmt.Sprintf("Inventory items (%s)", r.windowLabel()), fmt.Sprint(r.inventoryCount)},
 	).Render()
 	sections = append(sections, header)
 
@@ -188,19 +291,33 @@ func (r *showResult) RenderTable() string {
 		).Render())
 	}
 
-	if len(r.recentBlocks) > 0 {
-		rows := make([][]string, 0, len(r.recentBlocks))
-		ids := make([]string, 0, len(r.recentBlocks))
-		for _, b := range r.recentBlocks {
-			rows = append(rows, []string{formatTime(b.Timestamp), b.Verdict, b.PackageName, b.PackageVersion, b.Ecosystem})
+	if len(r.guardEvents) > 0 {
+		rows := make([][]string, 0, len(r.guardEvents))
+		ids := make([]string, 0, len(r.guardEvents))
+		for _, b := range r.guardEvents {
+			rows = append(rows, []string{formatTime(b.Timestamp), verdictCell(b), string(b.Action), b.PackageName, b.PackageVersion, b.Ecosystem})
 			ids = append(ids, b.InvocationID)
 		}
 		runs := distinctInvocations(ids)
-		section := fmt.Sprintf("Recent blocks (%s):\n", r.windowLabel()) +
-			table.New().Headers("Time", "Verdict", "Package", "Version", "Ecosystem").Rows(rows...).Render() +
+		section := r.guardSectionTitle() + ":\n" +
+			table.New().Headers("Time", "Verdict", "Action", "Package", "Version", "Ecosystem").Rows(rows...).Render() +
 			fmt.Sprintf("\n%d %s across %d tool %s. Use --output json for invocation_id then drill in with `safedep endpoint activity list --invocation <id>`.",
-				len(rows), plural(len(rows), "block", "blocks"),
+				len(rows), plural(len(rows), "event", "events"),
 				runs, plural(runs, "run", "runs"))
+		sections = append(sections, section)
+	}
+
+	if len(r.inventoryItems) > 0 {
+		rows := make([][]string, 0, len(r.inventoryItems))
+		for _, e := range r.inventoryItems {
+			rows = append(rows, []string{
+				inventoryKindLabel(e.Kind), inventoryDisplayName(e),
+				e.App, inventoryScopeLabel(e.Scope), formatTime(e.Timestamp),
+			})
+		}
+		section := fmt.Sprintf("Inventory (%s):\n", r.windowLabel()) +
+			table.New().Headers("Kind", "Name", "App", "Scope", "Last Seen").Rows(rows...).Render() +
+			fmt.Sprintf("\n%d distinct inventory %s.", len(rows), plural(len(rows), "item", "items"))
 		sections = append(sections, section)
 	}
 

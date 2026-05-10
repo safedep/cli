@@ -61,6 +61,6 @@ func TestRunShow_secondaryFailuresDoNotBlock(t *testing.T) {
 	}
 	res, err := runShow(context.Background(), svc, newNopDirectory(t), showInput{Ref: "01KR0EKN6PMW0ZRFRN992H1PKX"})
 	require.NoError(t, err)
-	assert.Empty(t, res.recentBlocks)
+	assert.Empty(t, res.guardEvents)
 	assert.Equal(t, 0, res.inventoryCount)
 }

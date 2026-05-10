@@ -170,6 +170,9 @@ func runInventory(ctx context.Context, svc InventoryEventLister, dir *Directory,
 func dedupeByItemIdentity(events []InventoryEvent) []InventoryEvent {
 	latest := map[string]InventoryEvent{}
 	for _, e := range events {
+		if isNoiseInventoryEvent(e) {
+			continue
+		}
 		cur, ok := latest[e.ItemIdentity]
 		if !ok || e.Timestamp.After(cur.Timestamp) {
 			latest[e.ItemIdentity] = e
@@ -181,6 +184,14 @@ func dedupeByItemIdentity(events []InventoryEvent) []InventoryEvent {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+func isNoiseInventoryEvent(e InventoryEvent) bool {
+	if e.Kind == messagescontroltowerv1.InventoryItemKind_INVENTORY_ITEM_KIND_UNSPECIFIED &&
+		e.Name == "" && e.App == "" && e.ItemIdentity == "" {
+		return true
+	}
+	return false
 }
 
 type inventoryResult struct {

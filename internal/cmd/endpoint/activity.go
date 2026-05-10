@@ -115,7 +115,7 @@ func runActivity(ctx context.Context, svc activitySvc, dir *Directory, in activi
 
 	actions := in.Actions
 	if (typ == "guard" || typ == "all") && len(actions) == 0 {
-		actions = []GuardAction{"blocked", "cooldown-blocked"}
+		actions = []GuardAction{ActionBlocked, ActionCooldownBlocked}
 	}
 
 	var rows []activityRow
@@ -200,7 +200,7 @@ func pageTokenFor(token, source, typ string) string {
 func guardSummary(e GuardEvent) string {
 	label := string(e.Action)
 	if e.Verdict != "" {
-		label = e.Verdict
+		label = verdictCell(e)
 	}
 	return fmt.Sprintf("%s: %s@%s (%s)", label, e.PackageName, e.PackageVersion, e.Ecosystem)
 }

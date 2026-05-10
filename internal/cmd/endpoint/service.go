@@ -141,7 +141,26 @@ type InvocationContext struct {
 	HasAgent   bool
 }
 
-type GuardAction string // CLI vocab: "blocked", "confirmed", "trusted", "cooldown-blocked"
+type GuardAction string // CLI vocab; see Action* constants below.
+
+// CLI-facing action names. These are the only valid GuardAction values
+// the rest of the CLI should produce. Mapping to/from proto enums lives
+// in mapPmgActions and pmgActionToCLI.
+const (
+	ActionBlocked         GuardAction = "blocked"
+	ActionCooldownBlocked GuardAction = "cooldown-blocked"
+	ActionConfirmed       GuardAction = "confirmed"
+	ActionTrusted         GuardAction = "trusted"
+)
+
+// CLI-facing verdict names assigned to GuardEvent.Verdict. Untyped so
+// they assign cleanly into the existing string field.
+const (
+	VerdictMalicious  = "malicious"
+	VerdictSuspicious = "suspicious"
+	VerdictCooldown   = "cooldown"
+	VerdictBlocked    = "blocked"
+)
 
 type GuardEventsInput struct {
 	Window       TimeWindow
@@ -152,11 +171,11 @@ type GuardEventsInput struct {
 	PageToken    string
 }
 type GuardEvent struct {
-	Timestamp      time.Time
-	EndpointID     string
-	Tool           string      // outer header ToolName
-	ToolVersion    string      // outer header ToolVersion
-	Action         GuardAction
+	Timestamp   time.Time
+	EndpointID  string
+	Tool        string      // outer header ToolName
+	ToolVersion string      // outer header ToolVersion
+	Action      GuardAction
 	// Verdict is the user-facing reason for a block: "malicious",
 	// "suspicious", "cooldown", or "blocked". Empty for non-block actions.
 	Verdict        string
@@ -164,7 +183,18 @@ type GuardEvent struct {
 	PackageVersion string
 	Ecosystem      string
 	InvocationID   string
-	Raw            *controltowerv1.ListEndpointPackageGuardEventsResponse_PackageGuardEvent
+	// Cooldown carries publish-date / days-remaining context for
+	// COOLDOWN_BLOCKED events. Nil for any other verdict.
+	Cooldown *GuardCooldown
+	Raw      *controltowerv1.ListEndpointPackageGuardEventsResponse_PackageGuardEvent
+}
+
+// GuardCooldown is the CLI-side projection of PmgDependencyCooldown.
+type GuardCooldown struct {
+	PublishDate      time.Time `json:"publish_date,omitempty"`
+	CooldownDays     uint32    `json:"cooldown_days"`
+	DaysSincePublish uint32    `json:"days_since_publish"`
+	DaysRemaining    uint32    `json:"days_remaining"`
 }
 type GuardEventsResult struct {
 	Events   []GuardEvent
@@ -424,13 +454,13 @@ func mapPmgActions(actions []GuardAction) ([]messagescontroltowerv1.PmgPackageAc
 	out := make([]messagescontroltowerv1.PmgPackageAction, 0, len(actions))
 	for _, a := range actions {
 		switch a {
-		case "blocked":
+		case ActionBlocked:
 			out = append(out, messagescontroltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_BLOCKED)
-		case "confirmed":
+		case ActionConfirmed:
 			out = append(out, messagescontroltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_CONFIRMED)
-		case "trusted":
+		case ActionTrusted:
 			out = append(out, messagescontroltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_TRUSTED)
-		case "cooldown-blocked":
+		case ActionCooldownBlocked:
 			out = append(out, messagescontroltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_COOLDOWN_BLOCKED)
 		default:
 			return nil, fmt.Errorf("unknown action %q (use blocked|confirmed|trusted|cooldown-blocked)", a)
@@ -446,6 +476,14 @@ func applyPmgPayload(ge *GuardEvent, pmg *messagescontroltowerv1.PmgEvent) {
 	}
 	ge.Action = pmgActionToCLI(d.GetAction())
 	ge.Verdict = verdictFor(d.GetAction(), d.GetIsMalware(), d.GetIsVerified())
+	if cd := d.GetCooldown(); cd != nil {
+		ge.Cooldown = &GuardCooldown{
+			PublishDate:      cd.GetPublishDate().AsTime(),
+			CooldownDays:     cd.GetCooldownDays(),
+			DaysSincePublish: cd.GetDaysSincePublish(),
+			DaysRemaining:    cd.GetDaysRemaining(),
+		}
+	}
 	pv := d.GetPackageVersion()
 	if pv == nil {
 		return
@@ -460,15 +498,15 @@ func applyPmgPayload(ge *GuardEvent, pmg *messagescontroltowerv1.PmgEvent) {
 func verdictFor(a messagescontroltowerv1.PmgPackageAction, isMalware, isVerified bool) string {
 	switch a {
 	case messagescontroltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_COOLDOWN_BLOCKED:
-		return "cooldown"
+		return VerdictCooldown
 	case messagescontroltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_BLOCKED:
 		switch {
 		case isMalware && isVerified:
-			return "malicious"
+			return VerdictMalicious
 		case isMalware:
-			return "suspicious"
+			return VerdictSuspicious
 		default:
-			return "blocked"
+			return VerdictBlocked
 		}
 	default:
 		return ""
@@ -478,13 +516,13 @@ func verdictFor(a messagescontroltowerv1.PmgPackageAction, isMalware, isVerified
 func pmgActionToCLI(a messagescontroltowerv1.PmgPackageAction) GuardAction {
 	switch a {
 	case messagescontroltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_BLOCKED:
-		return "blocked"
+		return ActionBlocked
 	case messagescontroltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_CONFIRMED:
-		return "confirmed"
+		return ActionConfirmed
 	case messagescontroltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_TRUSTED:
-		return "trusted"
+		return ActionTrusted
 	case messagescontroltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_COOLDOWN_BLOCKED:
-		return "cooldown-blocked"
+		return ActionCooldownBlocked
 	default:
 		return GuardAction(a.String())
 	}

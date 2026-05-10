@@ -219,6 +219,20 @@ func shortID(id string) string {
 	return id
 }
 
+// verdictCell returns the user-facing verdict, optionally annotated
+// with cooldown remaining when present. The annotation is suppressed
+// when DaysRemaining looks unreasonable (e.g. uint32 wrap for packages
+// already past their cooldown window) so the cell never shows nonsense.
+func verdictCell(e GuardEvent) string {
+	if e.Cooldown != nil && e.Verdict == VerdictCooldown {
+		if r := e.Cooldown.DaysRemaining; r > 0 && r <= 365 {
+			return fmt.Sprintf("cooldown (%dd remaining)", r)
+		}
+		return VerdictCooldown
+	}
+	return e.Verdict
+}
+
 // distinctInvocations counts non-empty distinct invocation IDs in the
 // rows. Used to summarise how many tool runs produced a given set of
 // events (e.g. "5 blocks across 3 tool runs").

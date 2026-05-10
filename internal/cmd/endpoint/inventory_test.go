@@ -27,7 +27,7 @@ func TestRunInventory_dedupesByItemIdentityKeepingLatest(t *testing.T) {
 		{Timestamp: newer, ItemIdentity: "lodash-id", Name: "lodash", App: "npm-newer"},
 		{Timestamp: older, ItemIdentity: "claude-code-id", Name: "claude-code"},
 	}}}
-	res, err := runInventory(context.Background(), f, inventoryInput{})
+	res, err := runInventory(context.Background(), f, nil, inventoryInput{})
 	require.NoError(t, err)
 	require.Len(t, res.items, 2)
 	var lodash *InventoryEvent

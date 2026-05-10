@@ -156,15 +156,14 @@ type GuardEvent struct {
 	EndpointID     string
 	Tool           string      // outer header ToolName
 	ToolVersion    string      // outer header ToolVersion
-	Action         GuardAction // mapped from PmgPackageDecision.Action
-	PackageName    string      // PmgPackageDecision.PackageVersion.Package.Name
-	PackageVersion string      // PmgPackageDecision.PackageVersion.Version
-	Ecosystem      string      // displayEcosystem(PackageVersion.Package.Ecosystem)
-	IsMalware      bool
-	IsVerified     bool
+	Action         GuardAction
+	// Verdict is the user-facing reason for a block: "malicious",
+	// "suspicious", "cooldown", or "blocked". Empty for non-block actions.
+	Verdict        string
+	PackageName    string
+	PackageVersion string
+	Ecosystem      string
 	InvocationID   string
-	// Raw exposes the original proto event so JSON output preserves
-	// every field. Intentional v1 trade-off for the activity feed.
 	Raw            *controltowerv1.ListEndpointPackageGuardEventsResponse_PackageGuardEvent
 }
 type GuardEventsResult struct {
@@ -446,8 +445,7 @@ func applyPmgPayload(ge *GuardEvent, pmg *messagescontroltowerv1.PmgEvent) {
 		return
 	}
 	ge.Action = pmgActionToCLI(d.GetAction())
-	ge.IsMalware = d.GetIsMalware()
-	ge.IsVerified = d.GetIsVerified()
+	ge.Verdict = verdictFor(d.GetAction(), d.GetIsMalware(), d.GetIsVerified())
 	pv := d.GetPackageVersion()
 	if pv == nil {
 		return
@@ -456,6 +454,24 @@ func applyPmgPayload(ge *GuardEvent, pmg *messagescontroltowerv1.PmgEvent) {
 	if pkg := pv.GetPackage(); pkg != nil {
 		ge.PackageName = pkg.GetName()
 		ge.Ecosystem = displayEcosystem(pkg.GetEcosystem())
+	}
+}
+
+func verdictFor(a messagescontroltowerv1.PmgPackageAction, isMalware, isVerified bool) string {
+	switch a {
+	case messagescontroltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_COOLDOWN_BLOCKED:
+		return "cooldown"
+	case messagescontroltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_BLOCKED:
+		switch {
+		case isMalware && isVerified:
+			return "malicious"
+		case isMalware:
+			return "suspicious"
+		default:
+			return "blocked"
+		}
+	default:
+		return ""
 	}
 }
 

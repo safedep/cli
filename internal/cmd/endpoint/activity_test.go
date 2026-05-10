@@ -39,7 +39,7 @@ func TestRunActivity_typeAllMergesByTime(t *testing.T) {
 			{Timestamp: t3, ItemIdentity: "claude-code", Name: "claude-code"},
 		}},
 	}
-	res, err := runActivity(context.Background(), svc, activityInput{Type: "all", PageSize: 10})
+	res, err := runActivity(context.Background(), svc, nil, activityInput{Type: "all", PageSize: 10})
 	require.NoError(t, err)
 	require.Len(t, res.rows, 3)
 	assert.Equal(t, t2, res.rows[0].Timestamp)
@@ -47,16 +47,16 @@ func TestRunActivity_typeAllMergesByTime(t *testing.T) {
 	assert.Equal(t, t1, res.rows[2].Timestamp)
 }
 
-func TestRunActivity_defaultActionBlocked(t *testing.T) {
+func TestRunActivity_defaultActionsIncludeCooldown(t *testing.T) {
 	svc := &fakeActivitySvc{guard: &GuardEventsResult{}, inv: &InventoryEventsResult{}}
-	_, err := runActivity(context.Background(), svc, activityInput{Type: "guard", PageSize: 10})
+	_, err := runActivity(context.Background(), svc, nil, activityInput{Type: "guard", PageSize: 10})
 	require.NoError(t, err)
-	assert.Equal(t, []GuardAction{"blocked"}, svc.guardIn.Actions)
+	assert.Equal(t, []GuardAction{"blocked", "cooldown-blocked"}, svc.guardIn.Actions)
 }
 
 func TestRunActivity_typeGuardSkipsInventory(t *testing.T) {
 	svc := &fakeActivitySvc{guard: &GuardEventsResult{}, inv: nil}
-	_, err := runActivity(context.Background(), svc, activityInput{Type: "guard"})
+	_, err := runActivity(context.Background(), svc, nil, activityInput{Type: "guard"})
 	require.NoError(t, err)
 	// inv handler not called -> invIn zero value
 	assert.Empty(t, svc.invIn.EndpointIDs)

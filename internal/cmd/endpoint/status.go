@@ -34,7 +34,7 @@ func statusCmd(a *app.App) *cobra.Command {
 			return a.Output.Print(res)
 		},
 	}
-	cmd.Flags().DurationVar(&since, "since", 24*time.Hour, "trailing window length, e.g. 24h, 168h, 30m")
+	cmd.Flags().DurationVar(&since, "since", 7*24*time.Hour, "trailing window length, e.g. 168h, 24h, 30m")
 	return cmd
 }
 

@@ -74,7 +74,7 @@ func runShow(ctx context.Context, svc showSvc, dir *Directory, in showInput) (*s
 
 	blocks, err := svc.ListGuardEvents(ctx, GuardEventsInput{
 		Window: in.Window, EndpointIDs: []string{id},
-		Actions: []GuardAction{"blocked"}, PageSize: 5,
+		Actions: []GuardAction{"blocked", "cooldown-blocked"}, PageSize: 5,
 	})
 	if err != nil {
 		log.Warnf("endpoint show: recent blocks unavailable: %v", err)
@@ -109,17 +109,19 @@ func countDistinctIdentities(events []InventoryEvent) int {
 
 func (r *showResult) RenderJSON() ([]byte, error) {
 	type block struct {
-		Time      time.Time `json:"time"`
-		Action    string    `json:"action"`
-		Package   string    `json:"package"`
-		Version   string    `json:"version"`
-		Ecosystem string    `json:"ecosystem,omitempty"`
+		Time         time.Time `json:"time"`
+		Verdict      string    `json:"verdict"`
+		Package      string    `json:"package"`
+		Version      string    `json:"version"`
+		Ecosystem    string    `json:"ecosystem,omitempty"`
+		InvocationID string    `json:"invocation_id,omitempty"`
 	}
 	blocks := make([]block, 0, len(r.recentBlocks))
 	for _, b := range r.recentBlocks {
 		blocks = append(blocks, block{
-			Time: b.Timestamp, Action: string(b.Action),
+			Time: b.Timestamp, Verdict: b.Verdict,
 			Package: b.PackageName, Version: b.PackageVersion, Ecosystem: b.Ecosystem,
+			InvocationID: b.InvocationID,
 		})
 	}
 	out := struct {
@@ -149,7 +151,8 @@ func (r *showResult) RenderPlain() string {
 		fmt.Fprintf(&b, "tool\t%s\t%d\n", v.Tool, v.Count)
 	}
 	for _, blk := range r.recentBlocks {
-		fmt.Fprintf(&b, "block\t%s\t%s\t%s\n", formatTime(blk.Timestamp), blk.PackageName, blk.PackageVersion)
+		fmt.Fprintf(&b, "block\t%s\t%s\t%s\t%s\n",
+			formatTime(blk.Timestamp), blk.Verdict, blk.PackageName, blk.PackageVersion)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -187,10 +190,18 @@ func (r *showResult) RenderTable() string {
 
 	if len(r.recentBlocks) > 0 {
 		rows := make([][]string, 0, len(r.recentBlocks))
+		ids := make([]string, 0, len(r.recentBlocks))
 		for _, b := range r.recentBlocks {
-			rows = append(rows, []string{formatTime(b.Timestamp), b.PackageName, b.PackageVersion, b.Ecosystem})
+			rows = append(rows, []string{formatTime(b.Timestamp), b.Verdict, b.PackageName, b.PackageVersion, b.Ecosystem})
+			ids = append(ids, b.InvocationID)
 		}
-		sections = append(sections, fmt.Sprintf("Recent blocks (%s):\n", r.windowLabel())+table.New().Headers("Time", "Package", "Version", "Ecosystem").Rows(rows...).Render())
+		runs := distinctInvocations(ids)
+		section := fmt.Sprintf("Recent blocks (%s):\n", r.windowLabel()) +
+			table.New().Headers("Time", "Verdict", "Package", "Version", "Ecosystem").Rows(rows...).Render() +
+			fmt.Sprintf("\n%d %s across %d tool %s. Use --output json for invocation_id then drill in with `safedep endpoint activity list --invocation <id>`.",
+				len(rows), plural(len(rows), "block", "blocks"),
+				runs, plural(runs, "run", "runs"))
+		sections = append(sections, section)
 	}
 
 	return strings.Join(sections, "\n\n")

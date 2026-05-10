@@ -73,6 +73,29 @@ func TestPmgActionToCLI(t *testing.T) {
 	})
 }
 
+func TestVerdictFor(t *testing.T) {
+	cases := []struct {
+		name      string
+		action    messagescontroltowerv1.PmgPackageAction
+		isMalware bool
+		isVerified bool
+		want      string
+	}{
+		{"verified malware is malicious", messagescontroltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_BLOCKED, true, true, "malicious"},
+		{"unverified malware is suspicious", messagescontroltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_BLOCKED, true, false, "suspicious"},
+		{"plain blocked falls back", messagescontroltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_BLOCKED, false, false, "blocked"},
+		{"cooldown is cooldown", messagescontroltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_COOLDOWN_BLOCKED, false, false, "cooldown"},
+		{"cooldown ignores malware flag", messagescontroltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_COOLDOWN_BLOCKED, true, true, "cooldown"},
+		{"confirmed has no verdict", messagescontroltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_CONFIRMED, false, false, ""},
+		{"trusted has no verdict", messagescontroltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_TRUSTED, false, false, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, verdictFor(tc.action, tc.isMalware, tc.isVerified))
+		})
+	}
+}
+
 func TestWindowFromDuration(t *testing.T) {
 	now := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC)
 	t.Run("positive duration produces trailing window", func(t *testing.T) {

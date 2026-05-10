@@ -122,7 +122,7 @@ func inventoryListCmd(a *app.App) *cobra.Command {
 				PageSize:    pageSize,
 				PageToken:   pageTokenFlag,
 			}
-			res, err := runInventory(cmd.Context(), NewService(client.Connection()), in)
+			res, err := runInventory(cmd.Context(), NewService(client.Connection()), dir, in)
 			if err != nil {
 				return err
 			}
@@ -130,7 +130,7 @@ func inventoryListCmd(a *app.App) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.DurationVar(&since, "since", 24*time.Hour, "trailing window length, e.g. 24h, 168h, 30m")
+	f.DurationVar(&since, "since", 7*24*time.Hour, "trailing window length, e.g. 168h, 24h, 30m")
 	f.StringSliceVar(&endpoints, "endpoint", nil, "filter by endpoint (ULID or cached hostname); repeatable")
 	f.StringSliceVar(&kindsRaw, "kind", nil, "filter by inventory kind (mcp-server|coding-agent|ai-extension|cli-tool|project-config|browser-extension|ide-extension|agent-plugin|agent-skill); repeatable")
 	f.StringVar(&scopeFlag, "scope", "", "filter by scope: system|project")
@@ -139,7 +139,7 @@ func inventoryListCmd(a *app.App) *cobra.Command {
 	return cmd
 }
 
-func runInventory(ctx context.Context, svc InventoryEventLister, in inventoryInput) (*inventoryResult, error) {
+func runInventory(ctx context.Context, svc InventoryEventLister, dir *Directory, in inventoryInput) (*inventoryResult, error) {
 	res, err := svc.ListInventoryEvents(ctx, InventoryEventsInput{
 		Window:      in.Window,
 		EndpointIDs: in.EndpointIDs,
@@ -152,10 +152,19 @@ func runInventory(ctx context.Context, svc InventoryEventLister, in inventoryInp
 		return nil, err
 	}
 	items := dedupeByItemIdentity(res.Events)
-	if len(in.EndpointIDs) == 0 && in.PageSize > 0 && len(res.Events) >= int(in.PageSize) {
-		tui.Warning("inventory list returned a full page across all endpoints; pass --endpoint or page with --page-token for completeness")
+	if in.PageSize > 0 && len(res.Events) >= int(in.PageSize) {
+		tui.Warning("inventory list page is full; dedupe is best-effort within this page. Pass --endpoint to narrow or --page-token to continue.")
 	}
-	return &inventoryResult{items: items, nextPage: res.NextPage}, nil
+	ids := make([]string, 0, len(items))
+	for _, e := range items {
+		ids = append(ids, e.EndpointID)
+	}
+	return &inventoryResult{
+		items:          items,
+		nextPage:       res.NextPage,
+		window:         in.Window,
+		endpointLabels: resolveEndpointLabels(ctx, dir, ids),
+	}, nil
 }
 
 func dedupeByItemIdentity(events []InventoryEvent) []InventoryEvent {
@@ -175,8 +184,17 @@ func dedupeByItemIdentity(events []InventoryEvent) []InventoryEvent {
 }
 
 type inventoryResult struct {
-	items    []InventoryEvent
-	nextPage string
+	items          []InventoryEvent
+	nextPage       string
+	window         TimeWindow
+	endpointLabels map[string]string
+}
+
+func (r *inventoryResult) windowLabel() string {
+	if r.window.Start.IsZero() || r.window.End.IsZero() {
+		return "server default"
+	}
+	return "last " + r.window.End.Sub(r.window.Start).Round(time.Minute).String()
 }
 
 type inventoryJSONItem struct {
@@ -213,12 +231,12 @@ func (r *inventoryResult) RenderJSON() ([]byte, error) {
 
 func (r *inventoryResult) RenderPlain() string {
 	if len(r.items) == 0 {
-		return "no inventory"
+		return fmt.Sprintf("no inventory in %s. Try a wider window with --since.", r.windowLabel())
 	}
 	var b strings.Builder
 	for _, e := range r.items {
 		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			shortID(e.EndpointID),
+			endpointLabel(e.EndpointID, r.endpointLabels),
 			inventoryKindLabel(e.Kind),
 			inventoryDisplayName(e),
 			e.App,
@@ -231,12 +249,12 @@ func (r *inventoryResult) RenderPlain() string {
 
 func (r *inventoryResult) RenderTable() string {
 	if len(r.items) == 0 {
-		return "no inventory"
+		return fmt.Sprintf("no inventory in %s. Try a wider window with --since.", r.windowLabel())
 	}
 	rows := make([][]string, 0, len(r.items))
 	for _, e := range r.items {
 		rows = append(rows, []string{
-			shortID(e.EndpointID),
+			endpointLabel(e.EndpointID, r.endpointLabels),
 			inventoryKindLabel(e.Kind),
 			inventoryDisplayName(e),
 			e.App,

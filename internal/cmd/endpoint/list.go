@@ -60,7 +60,7 @@ func listCmd(a *app.App) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.DurationVar(&since, "since", 24*time.Hour, "trailing window length, e.g. 24h, 168h, 30m")
+	f.DurationVar(&since, "since", 7*24*time.Hour, "trailing window length, e.g. 168h, 24h, 30m")
 	f.StringSliceVar(&capabilities, "capability", nil, "filter by capability (guard|tracer|advisor|inventory); repeatable")
 	f.BoolVar(&onlyBlocked, "blocked", false, "only endpoints with at least one blocked install in the window")
 	f.DurationVar(&silentFor, "silent-for", 0, "only endpoints not seen for at least this duration (client-side; best-effort within --limit)")
@@ -214,6 +214,68 @@ func shortID(id string) string {
 		return id[:8] + "..."
 	}
 	return id
+}
+
+// distinctInvocations counts non-empty distinct invocation IDs in the
+// rows. Used to summarise how many tool runs produced a given set of
+// events (e.g. "5 blocks across 3 tool runs").
+func distinctInvocations(ids []string) int {
+	seen := map[string]struct{}{}
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		seen[id] = struct{}{}
+	}
+	return len(seen)
+}
+
+func plural(n int, singular, plural string) string {
+	if n == 1 {
+		return singular
+	}
+	return plural
+}
+
+// endpointLabel returns a human-friendly cell for an endpoint ID,
+// preferring the cached hostname/identifier and falling back to a
+// shortened ID when nothing is cached.
+func endpointLabel(id string, labels map[string]string) string {
+	if l, ok := labels[id]; ok && l != "" {
+		return l
+	}
+	return shortID(id)
+}
+
+// resolveEndpointLabels walks unique endpoint IDs and asks the
+// directory for a human label (hostname preferred, identifier
+// fallback). Endpoints missing from the cache are simply omitted.
+func resolveEndpointLabels(ctx context.Context, dir *Directory, ids []string) map[string]string {
+	if dir == nil {
+		return nil
+	}
+	out := map[string]string{}
+	seen := map[string]struct{}{}
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		entry, ok := dir.Lookup(ctx, id)
+		if !ok {
+			continue
+		}
+		switch {
+		case entry.Hostname != "":
+			out[id] = entry.Hostname
+		case entry.Name != "":
+			out[id] = entry.Name
+		}
+	}
+	return out
 }
 
 func formatTime(t time.Time) string {

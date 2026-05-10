@@ -63,12 +63,16 @@ func activityListCmd(a *app.App) *cobra.Command {
 			for i, a := range actionsRaw {
 				actions[i] = GuardAction(strings.ToLower(a))
 			}
+			resolvedType := typeFlag
+			if !cmd.Flags().Changed("type") && len(actions) > 0 {
+				resolvedType = "guard"
+			}
 			in := activityInput{
-				Type: typeFlag, Window: window, EndpointIDs: ids,
+				Type: resolvedType, Window: window, EndpointIDs: ids,
 				Actions: actions, Tool: toolFlag, InvocationID: invFlag,
 				PageSize: pageSize, PageToken: pageTokenFlag,
 			}
-			res, err := runActivity(cmd.Context(), NewService(client.Connection()), in)
+			res, err := runActivity(cmd.Context(), NewService(client.Connection()), dir, in)
 			if err != nil {
 				return err
 			}
@@ -79,29 +83,31 @@ func activityListCmd(a *app.App) *cobra.Command {
 	f.StringVar(&typeFlag, "type", "all", "activity type: all|guard|inventory")
 	f.DurationVar(&since, "since", 24*time.Hour, "trailing window length, e.g. 24h, 168h, 30m")
 	f.StringSliceVar(&endpoints, "endpoint", nil, "filter by endpoint (ULID or cached hostname); repeatable")
-	f.StringSliceVar(&actionsRaw, "action", nil, "package action filter for guard events: blocked|confirmed|trusted|cooldown-blocked (default: blocked when type includes guard)")
+	f.StringSliceVar(&actionsRaw, "action", nil, "guard-only action filter: blocked|confirmed|trusted|cooldown-blocked. Setting this implies --type=guard unless --type is set explicitly.")
 	f.StringVar(&toolFlag, "tool", "", "client-side filter by tool_name")
-	f.StringVar(&invFlag, "invocation", "", "scope to a specific invocation id")
+	f.StringVar(&invFlag, "invocation", "", "scope to a single tool run; pass an invocation_id from JSON output")
 	f.Uint32Var(&pageSize, "limit", 0, "page size; server default when 0")
 	f.StringVar(&pageTokenFlag, "page-token", "", "continuation token from a prior response")
 	return cmd
 }
 
 type activityRow struct {
-	Timestamp  time.Time `json:"time"`
-	EndpointID string    `json:"endpoint_id"`
-	Type       string    `json:"type"`
-	Tool       string    `json:"tool"`
-	Summary    string    `json:"summary"`
-	Raw        any       `json:"raw,omitempty"`
+	Timestamp    time.Time `json:"time"`
+	EndpointID   string    `json:"endpoint_id"`
+	Type         string    `json:"type"`
+	Tool         string    `json:"tool"`
+	Summary      string    `json:"summary"`
+	InvocationID string    `json:"invocation_id,omitempty"`
+	Raw          any       `json:"raw,omitempty"`
 }
 
 type activityResult struct {
-	rows     []activityRow
-	nextPage string // single-source pagination only; empty in "all" mode
+	rows           []activityRow
+	nextPage       string // single-source pagination only; empty in "all" mode
+	endpointLabels map[string]string
 }
 
-func runActivity(ctx context.Context, svc activitySvc, in activityInput) (*activityResult, error) {
+func runActivity(ctx context.Context, svc activitySvc, dir *Directory, in activityInput) (*activityResult, error) {
 	typ := strings.ToLower(strings.TrimSpace(in.Type))
 	if typ == "" {
 		typ = "all"
@@ -109,7 +115,7 @@ func runActivity(ctx context.Context, svc activitySvc, in activityInput) (*activ
 
 	actions := in.Actions
 	if (typ == "guard" || typ == "all") && len(actions) == 0 {
-		actions = []GuardAction{"blocked"}
+		actions = []GuardAction{"blocked", "cooldown-blocked"}
 	}
 
 	var rows []activityRow
@@ -130,9 +136,10 @@ func runActivity(ctx context.Context, svc activitySvc, in activityInput) (*activ
 			}
 			rows = append(rows, activityRow{
 				Timestamp: e.Timestamp, EndpointID: e.EndpointID, Type: "guard",
-				Tool:    e.Tool,
-				Summary: fmt.Sprintf("%s: %s@%s (%s)", e.Action, e.PackageName, e.PackageVersion, e.Ecosystem),
-				Raw:     e.Raw,
+				Tool:         e.Tool,
+				Summary:      guardSummary(e),
+				InvocationID: e.InvocationID,
+				Raw:          e.Raw,
 			})
 		}
 		if typ == "guard" {
@@ -155,9 +162,10 @@ func runActivity(ctx context.Context, svc activitySvc, in activityInput) (*activ
 			}
 			rows = append(rows, activityRow{
 				Timestamp: e.Timestamp, EndpointID: e.EndpointID, Type: "inventory",
-				Tool:    e.Tool,
-				Summary: fmt.Sprintf("detected: %s (%s)", inventoryDisplayName(e), inventoryKindLabel(e.Kind)),
-				Raw:     e.Raw,
+				Tool:         e.Tool,
+				Summary:      fmt.Sprintf("detected: %s (%s)", inventoryDisplayName(e), inventoryKindLabel(e.Kind)),
+				InvocationID: e.InvocationID,
+				Raw:          e.Raw,
 			})
 		}
 		if typ == "inventory" {
@@ -171,13 +179,17 @@ func runActivity(ctx context.Context, svc activitySvc, in activityInput) (*activ
 		rows = rows[:in.PageSize]
 	}
 
-	return &activityResult{rows: rows, nextPage: next}, nil
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.EndpointID)
+	}
+	return &activityResult{
+		rows:           rows,
+		nextPage:       next,
+		endpointLabels: resolveEndpointLabels(ctx, dir, ids),
+	}, nil
 }
 
-// pageTokenFor returns the page token to forward to a single source. In
-// single-source mode the user-supplied token is forwarded as-is. In "all"
-// mode pagination is approximate and tokens are not threaded back; v2
-// will introduce compound tokens.
 func pageTokenFor(token, source, typ string) string {
 	if typ == source {
 		return token
@@ -185,8 +197,14 @@ func pageTokenFor(token, source, typ string) string {
 	return ""
 }
 
-// inventoryDisplayName returns a human-readable label for an inventory event.
-// Falls back to ItemIdentity when Name is empty.
+func guardSummary(e GuardEvent) string {
+	label := string(e.Action)
+	if e.Verdict != "" {
+		label = e.Verdict
+	}
+	return fmt.Sprintf("%s: %s@%s (%s)", label, e.PackageName, e.PackageVersion, e.Ecosystem)
+}
+
 func inventoryDisplayName(e InventoryEvent) string {
 	if e.Name != "" {
 		return e.Name
@@ -194,9 +212,6 @@ func inventoryDisplayName(e InventoryEvent) string {
 	return e.ItemIdentity
 }
 
-// inventoryKindLabel renders the InventoryItemKind enum as a CLI-friendly
-// kebab-case label, stripping the "INVENTORY_ITEM_KIND_" prefix and
-// mapping UNSPECIFIED to "unknown".
 func inventoryKindLabel(k messagescontroltowerv1.InventoryItemKind) string {
 	s := strings.TrimPrefix(k.String(), "INVENTORY_ITEM_KIND_")
 	if s == "" || s == "UNSPECIFIED" {
@@ -219,7 +234,8 @@ func (r *activityResult) RenderPlain() string {
 	}
 	var b strings.Builder
 	for _, row := range r.rows {
-		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%s\n", formatTime(row.Timestamp), shortID(row.EndpointID), row.Type, row.Tool, row.Summary)
+		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%s\n",
+			formatTime(row.Timestamp), endpointLabel(row.EndpointID, r.endpointLabels), row.Type, row.Tool, row.Summary)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -229,8 +245,14 @@ func (r *activityResult) RenderTable() string {
 		return "no activity"
 	}
 	rows := make([][]string, 0, len(r.rows))
+	ids := make([]string, 0, len(r.rows))
 	for _, row := range r.rows {
-		rows = append(rows, []string{formatTime(row.Timestamp), shortID(row.EndpointID), row.Type, row.Tool, row.Summary})
+		rows = append(rows, []string{formatTime(row.Timestamp), endpointLabel(row.EndpointID, r.endpointLabels), row.Type, row.Tool, row.Summary})
+		ids = append(ids, row.InvocationID)
 	}
-	return table.New().Headers("Time", "Endpoint", "Type", "Tool", "Summary").Rows(rows...).Render()
+	rendered := table.New().Headers("Time", "Endpoint", "Type", "Tool", "Summary").Rows(rows...).Render()
+	runs := distinctInvocations(ids)
+	return rendered + fmt.Sprintf("\n%d %s across %d tool %s. Use --output json for invocation_id, drill in with --invocation <id>.",
+		len(rows), plural(len(rows), "event", "events"),
+		runs, plural(runs, "run", "runs"))
 }

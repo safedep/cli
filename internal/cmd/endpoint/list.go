@@ -15,7 +15,7 @@ import (
 
 type listInput struct {
 	Window       TimeWindow
-	Capabilities []string
+	Capabilities []controltowerv1.EndpointCapability
 	OnlyBlocked  bool
 	SilentFor    time.Duration
 	Search       string
@@ -24,11 +24,20 @@ type listInput struct {
 	_now         func() time.Time // injectable for tests
 }
 
+type capabilityToken string
+
+const (
+	capabilityGuard     capabilityToken = "guard"
+	capabilityTracer    capabilityToken = "tracer"
+	capabilityAdvisor   capabilityToken = "advisor"
+	capabilityInventory capabilityToken = "inventory"
+)
+
 func listCmd(a *app.App) *cobra.Command {
 	var (
 		searchFlag, pageTokenFlag string
 		since                     time.Duration
-		capabilities              []string
+		capabilitiesRaw           []string
 		onlyBlocked               bool
 		silentFor                 time.Duration
 		pageSize                  uint32
@@ -42,13 +51,17 @@ func listCmd(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			caps, err := mapCapabilities(capabilitiesRaw)
+			if err != nil {
+				return err
+			}
 			window := WindowFromDuration(time.Now(), since)
 			dir, err := NewDirectoryFromApp(a)
 			if err != nil {
 				return err
 			}
 			in := listInput{
-				Window: window, Capabilities: capabilities,
+				Window: window, Capabilities: caps,
 				OnlyBlocked: onlyBlocked, SilentFor: silentFor, Search: searchFlag,
 				PageSize: pageSize, PageToken: pageTokenFlag,
 			}
@@ -61,7 +74,7 @@ func listCmd(a *app.App) *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.DurationVar(&since, "since", 7*24*time.Hour, "trailing window length, e.g. 168h, 24h, 30m")
-	f.StringSliceVar(&capabilities, "capability", nil, "filter by capability (guard|tracer|advisor|inventory); repeatable")
+	f.StringSliceVar(&capabilitiesRaw, "capability", nil, "filter by capability (guard|tracer|advisor|inventory); repeatable")
 	f.BoolVar(&onlyBlocked, "blocked", false, "only endpoints with at least one blocked install in the window")
 	f.DurationVar(&silentFor, "silent-for", 0, "only endpoints not seen for at least this duration (client-side; best-effort within --limit)")
 	f.StringVar(&searchFlag, "search", "", "case-insensitive substring match on hostname/name (client-side; best-effort within --limit)")
@@ -71,16 +84,12 @@ func listCmd(a *app.App) *cobra.Command {
 }
 
 func runList(ctx context.Context, lister EndpointLister, dir *Directory, in listInput) (*listResult, error) {
-	caps, err := mapCapabilities(in.Capabilities)
-	if err != nil {
-		return nil, err
-	}
 	var minBlocked uint64
 	if in.OnlyBlocked {
 		minBlocked = 1
 	}
 	res, err := lister.List(ctx, ListInput{
-		Window: in.Window, Capabilities: caps, MinPMGBlocked: minBlocked,
+		Window: in.Window, Capabilities: in.Capabilities, MinPMGBlocked: minBlocked,
 		PageSize: in.PageSize, PageToken: in.PageToken,
 	})
 	if err != nil {
@@ -131,23 +140,35 @@ func filterSearch(eps []ListEndpoint, q string) []ListEndpoint {
 	return out
 }
 
-var capabilityVocab = map[string]controltowerv1.EndpointCapability{
-	"guard":     controltowerv1.EndpointCapability_ENDPOINT_CAPABILITY_PACKAGE_GUARD,
-	"tracer":    controltowerv1.EndpointCapability_ENDPOINT_CAPABILITY_TRACER,
-	"advisor":   controltowerv1.EndpointCapability_ENDPOINT_CAPABILITY_ADVISOR,
-	"inventory": controltowerv1.EndpointCapability_ENDPOINT_CAPABILITY_INVENTORY,
+var capabilityVocab = map[capabilityToken]controltowerv1.EndpointCapability{
+	capabilityGuard:     controltowerv1.EndpointCapability_ENDPOINT_CAPABILITY_PACKAGE_GUARD,
+	capabilityTracer:    controltowerv1.EndpointCapability_ENDPOINT_CAPABILITY_TRACER,
+	capabilityAdvisor:   controltowerv1.EndpointCapability_ENDPOINT_CAPABILITY_ADVISOR,
+	capabilityInventory: controltowerv1.EndpointCapability_ENDPOINT_CAPABILITY_INVENTORY,
 }
 
 func mapCapabilities(values []string) ([]controltowerv1.EndpointCapability, error) {
 	out := make([]controltowerv1.EndpointCapability, 0, len(values))
 	for _, v := range values {
-		c, ok := capabilityVocab[strings.ToLower(v)]
+		tok, err := parseCapabilityToken(v)
+		if err != nil {
+			return nil, err
+		}
+		c, ok := capabilityVocab[tok]
 		if !ok {
 			return nil, fmt.Errorf("unknown capability %q (use guard|tracer|advisor|inventory)", v)
 		}
 		out = append(out, c)
 	}
 	return out, nil
+}
+
+func parseCapabilityToken(raw string) (capabilityToken, error) {
+	tok := capabilityToken(strings.ToLower(strings.TrimSpace(raw)))
+	if _, ok := capabilityVocab[tok]; !ok {
+		return "", fmt.Errorf("unknown capability %q (use guard|tracer|advisor|inventory)", raw)
+	}
+	return tok, nil
 }
 
 type listResult struct {

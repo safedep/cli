@@ -25,6 +25,13 @@ type inventoryInput struct {
 	AllPages    bool
 }
 
+type inventoryScopeToken string
+
+const (
+	inventoryScopeSystem  inventoryScopeToken = "system"
+	inventoryScopeProject inventoryScopeToken = "project"
+)
+
 // inventoryKindVocab maps kebab-case CLI flag values to proto enum values.
 // Keep in lockstep with the InventoryItemKind enum.
 var inventoryKindVocab = map[string]messagescontroltowerv1.InventoryItemKind{
@@ -51,20 +58,31 @@ func mapKinds(values []string) ([]messagescontroltowerv1.InventoryItemKind, erro
 	return out, nil
 }
 
-func mapScope(s string) (*messagescontroltowerv1.InventoryScope, error) {
-	if s == "" {
+func parseInventoryScopeToken(raw string) (*inventoryScopeToken, error) {
+	if strings.TrimSpace(raw) == "" {
 		return nil, nil
 	}
-	var v messagescontroltowerv1.InventoryScope
-	switch strings.ToLower(s) {
-	case "system":
-		v = messagescontroltowerv1.InventoryScope_INVENTORY_SCOPE_SYSTEM
-	case "project":
-		v = messagescontroltowerv1.InventoryScope_INVENTORY_SCOPE_PROJECT
+	tok := inventoryScopeToken(strings.ToLower(strings.TrimSpace(raw)))
+	switch tok {
+	case inventoryScopeSystem, inventoryScopeProject:
+		return &tok, nil
 	default:
-		return nil, fmt.Errorf("unknown scope %q (use system|project)", s)
+		return nil, fmt.Errorf("unknown scope %q (use system|project)", raw)
 	}
-	return &v, nil
+}
+
+func mapInventoryScopeToken(tok *inventoryScopeToken) *messagescontroltowerv1.InventoryScope {
+	if tok == nil {
+		return nil
+	}
+	v := messagescontroltowerv1.InventoryScope_INVENTORY_SCOPE_UNSPECIFIED
+	switch *tok {
+	case inventoryScopeSystem:
+		v = messagescontroltowerv1.InventoryScope_INVENTORY_SCOPE_SYSTEM
+	case inventoryScopeProject:
+		v = messagescontroltowerv1.InventoryScope_INVENTORY_SCOPE_PROJECT
+	}
+	return &v
 }
 
 func inventoryScopeLabel(s messagescontroltowerv1.InventoryScope) string {
@@ -105,10 +123,11 @@ func inventoryListCmd(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			scope, err := mapScope(scopeFlag)
+			scopeToken, err := parseInventoryScopeToken(scopeFlag)
 			if err != nil {
 				return err
 			}
+			scope := mapInventoryScopeToken(scopeToken)
 			in := inventoryInput{
 				Window:      window,
 				EndpointIDs: ids,

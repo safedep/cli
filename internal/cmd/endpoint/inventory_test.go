@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -109,4 +110,35 @@ func TestRunInventory_allPagesDetectsPaginationLoop(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pagination loop detected")
+}
+
+func TestParseAndMapInventoryScopeToken(t *testing.T) {
+	t.Run("empty scope is nil", func(t *testing.T) {
+		tok, err := parseInventoryScopeToken("")
+		require.NoError(t, err)
+		assert.Nil(t, tok)
+		assert.Nil(t, mapInventoryScopeToken(tok))
+	})
+
+	t.Run("system scope maps to proto enum", func(t *testing.T) {
+		tok, err := parseInventoryScopeToken(" SYSTEM ")
+		require.NoError(t, err)
+		scope := mapInventoryScopeToken(tok)
+		require.NotNil(t, scope)
+		assert.Equal(t, messagescontroltowerv1.InventoryScope_INVENTORY_SCOPE_SYSTEM, *scope)
+	})
+
+	t.Run("project scope maps to proto enum", func(t *testing.T) {
+		tok, err := parseInventoryScopeToken("project")
+		require.NoError(t, err)
+		scope := mapInventoryScopeToken(tok)
+		require.NotNil(t, scope)
+		assert.Equal(t, messagescontroltowerv1.InventoryScope_INVENTORY_SCOPE_PROJECT, *scope)
+	})
+
+	t.Run("invalid scope returns error", func(t *testing.T) {
+		_, err := parseInventoryScopeToken("workspace")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "use system|project")
+	})
 }

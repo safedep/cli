@@ -16,14 +16,16 @@ import (
 )
 
 // CLI-facing activity-source vocabulary.
+type activityType string
+
 const (
-	ActivityTypeAll       = "all"
-	ActivityTypeGuard     = "guard"
-	ActivityTypeInventory = "inventory"
+	ActivityTypeAll       activityType = "all"
+	ActivityTypeGuard     activityType = "guard"
+	ActivityTypeInventory activityType = "inventory"
 )
 
 type activityInput struct {
-	Type         string // "all", "guard", "inventory"
+	Type         activityType
 	Window       TimeWindow
 	EndpointIDs  []string
 	Actions      []GuardAction
@@ -73,10 +75,14 @@ func activityListCmd(a *app.App) *cobra.Command {
 			}
 			resolvedType := typeFlag
 			if !cmd.Flags().Changed("type") && len(actions) > 0 {
-				resolvedType = ActivityTypeGuard
+				resolvedType = string(ActivityTypeGuard)
+			}
+			typ, err := parseActivityType(resolvedType)
+			if err != nil {
+				return err
 			}
 			in := activityInput{
-				Type: resolvedType, Window: window, EndpointIDs: ids,
+				Type: typ, Window: window, EndpointIDs: ids,
 				Actions: actions, Tool: toolFlag, InvocationID: invFlag,
 				PageSize: pageSize, PageToken: pageTokenFlag,
 			}
@@ -88,7 +94,7 @@ func activityListCmd(a *app.App) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&typeFlag, "type", ActivityTypeGuard, "activity type: all|guard|inventory")
+	f.StringVar(&typeFlag, "type", string(ActivityTypeGuard), "activity type: all|guard|inventory")
 	f.DurationVar(&since, "since", 7*24*time.Hour, "trailing window length, e.g. 24h, 168h, 30m")
 	f.StringSliceVar(&endpoints, "endpoint", nil, "filter by endpoint (ULID or cached hostname); repeatable")
 	f.StringSliceVar(&actionsRaw, "action", nil, "guard-only action filter: blocked|confirmed|trusted|cooldown-blocked. Setting this implies --type=guard unless --type is set explicitly.")
@@ -116,7 +122,7 @@ type activityResult struct {
 }
 
 func runActivity(ctx context.Context, svc activitySvc, dir *Directory, in activityInput) (*activityResult, error) {
-	typ := strings.ToLower(strings.TrimSpace(in.Type))
+	typ := in.Type
 	if typ == "" {
 		typ = ActivityTypeGuard
 	}
@@ -175,7 +181,7 @@ func runActivity(ctx context.Context, svc activitySvc, dir *Directory, in activi
 				continue
 			}
 			rows = append(rows, activityRow{
-				Timestamp: e.Timestamp, EndpointID: e.EndpointID, Type: ActivityTypeGuard,
+				Timestamp: e.Timestamp, EndpointID: e.EndpointID, Type: string(ActivityTypeGuard),
 				Tool:         e.Tool,
 				Summary:      guardSummary(e),
 				InvocationID: e.InvocationID,
@@ -193,7 +199,7 @@ func runActivity(ctx context.Context, svc activitySvc, dir *Directory, in activi
 				continue
 			}
 			rows = append(rows, activityRow{
-				Timestamp: e.Timestamp, EndpointID: e.EndpointID, Type: ActivityTypeInventory,
+				Timestamp: e.Timestamp, EndpointID: e.EndpointID, Type: string(ActivityTypeInventory),
 				Tool:         e.Tool,
 				Summary:      fmt.Sprintf("detected: %s (%s)", inventoryDisplayName(e), inventoryKindLabel(e.Kind)),
 				InvocationID: e.InvocationID,
@@ -222,7 +228,18 @@ func runActivity(ctx context.Context, svc activitySvc, dir *Directory, in activi
 	}, nil
 }
 
-func validateActivityType(typ string) error {
+func parseActivityType(raw string) (activityType, error) {
+	typ := activityType(strings.ToLower(strings.TrimSpace(raw)))
+	if typ == "" {
+		return ActivityTypeGuard, nil
+	}
+	if err := validateActivityType(typ); err != nil {
+		return "", err
+	}
+	return typ, nil
+}
+
+func validateActivityType(typ activityType) error {
 	switch typ {
 	case ActivityTypeAll, ActivityTypeGuard, ActivityTypeInventory:
 		return nil
@@ -231,7 +248,7 @@ func validateActivityType(typ string) error {
 	}
 }
 
-func pageTokenFor(token, source, typ string) string {
+func pageTokenFor(token string, source, typ activityType) string {
 	if typ == source {
 		return token
 	}

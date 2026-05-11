@@ -27,5 +27,5 @@ brew install safedep/tap/cli
 | [`safedep query schema get`](./docs/cmd/query-schema-get.md) | Inspect the SafeDep Cloud query schema |
 | [`safedep version`](./docs/cmd/version.md) | Print CLI version |
 | [`safedep integration jfrog run`](./docs/cmd/integration-jfrog-run.md) | Push SafeDep malware findings to JFrog XRay |
-| [`safedep setup mcp install`](./docs/cmd/setup-mcp-install.md) | Inject SafeDep MCP server config into detected AI agents |
-| [`safedep setup mcp uninstall`](./docs/cmd/setup-mcp-uninstall.md) | Remove SafeDep MCP server config from detected AI agents |
+| [`safedep protect mcp install`](./docs/cmd/protect-mcp-install.md) | Inject SafeDep MCP server config into detected AI agents |
+| [`safedep protect mcp uninstall`](./docs/cmd/protect-mcp-uninstall.md) | Remove SafeDep MCP server config from detected AI agents |

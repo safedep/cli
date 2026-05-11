@@ -5,8 +5,8 @@ import (
 	"github.com/safedep/cli/internal/cmd/auth"
 	"github.com/safedep/cli/internal/cmd/endpoint"
 	"github.com/safedep/cli/internal/cmd/integration"
+	"github.com/safedep/cli/internal/cmd/protect"
 	"github.com/safedep/cli/internal/cmd/query"
-	"github.com/safedep/cli/internal/cmd/setup"
 	"github.com/safedep/cli/internal/cmd/version"
 	"github.com/spf13/cobra"
 )
@@ -19,7 +19,7 @@ func NewSafedep(a *app.App) *cobra.Command {
 	endpoint.Register(root, a)
 	query.Register(root, a)
 	integration.Register(root, a)
-	setup.Register(root, a)
+	protect.Register(root, a)
 	version.Register(root, a)
 	return root
 }

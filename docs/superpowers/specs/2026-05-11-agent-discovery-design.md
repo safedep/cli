@@ -109,23 +109,23 @@ type WorkspaceInjector interface {
 
 ## Agent Adapters
 
-Five adapters are defined in this chunk. Config paths for Gemini CLI, OpenCode, and Antigravity are marked TBD and must be verified against each tool's documentation before the adapter is implemented. The interface stubs must compile; the TBD adapters return `Detected() = false` and `As*Injector() = (nil, false)` until their paths are confirmed.
+Five adapters are defined in this chunk. Config paths for Gemini CLI and OpenCode were verified against upstream documentation before implementation. Antigravity's public setup references consistently document a global MCP config path, but no Google-maintained reference was found, so the adapter supports global config only.
 
 | Agent | Name constant | Global config path | Workspace config path | Detection method |
 |---|---|---|---|---|
 | Claude Code | `"claude-code"` | `~/.claude/settings.json` | `.claude/settings.json` | `os.Stat("~/.claude/")` |
 | Cursor | `"cursor"` | `~/.cursor/mcp.json` | `.cursor/mcp.json` | `os.Stat("~/.cursor/")` |
-| Gemini CLI | `"gemini-cli"` | TBD | TBD | TBD |
-| OpenCode | `"opencode"` | TBD | TBD | TBD |
-| Antigravity | `"antigravity"` | TBD | TBD | TBD |
+| Gemini CLI | `"gemini-cli"` | `~/.gemini/settings.json` | `.gemini/settings.json` | `os.Stat("~/.gemini/")` |
+| OpenCode | `"opencode"` | `~/.config/opencode/opencode.json` | `opencode.json` | `os.Stat("~/.config/opencode/")` |
+| Antigravity | `"antigravity"` | `~/.gemini/antigravity/mcp_config.json` | Unsupported | `os.Stat("~/.gemini/antigravity/")` |
 
 **Deriving config paths from vet:** The vet codebase (`vet/pkg/aitool/`) contains read-only discovery logic for Claude Code, Cursor, and Windsurf. These are the authoritative references for those agents' config paths. Per ADR, the package is not imported; the paths are transcribed and cited.
 
-**Workspace support for CLIs:** Gemini CLI, OpenCode, and Antigravity may support workspace-level config directories analogous to `.claude/` in Claude Code. This must be verified per tool before `AsWorkspaceInjector()` returns a non-nil value.
+**Workspace support for CLIs:** Gemini CLI supports `.gemini/settings.json`. OpenCode supports `opencode.json` at the project root. Antigravity remains global-only until a reliable project-scoped config path is available.
 
 ## Config File Format
 
-The SafeDep MCP server entry uses the format shared by Claude Code, Cursor, and Windsurf (confirmed from vet/pkg/aitool/mcp_config.go):
+The SafeDep MCP server entry uses the format shared by Claude Code, Cursor, Gemini CLI, and Windsurf (confirmed from vet/pkg/aitool/mcp_config.go and Gemini CLI docs):
 
 ```json
 {
@@ -143,6 +143,40 @@ The SafeDep MCP server entry uses the format shared by Claude Code, Cursor, and 
 ```
 
 Only the `safedep` key under `mcpServers` is owned by the CLI. All other keys in the config file are preserved verbatim.
+
+OpenCode uses its own documented shape under `mcp.safedep`:
+
+```json
+{
+  "mcp": {
+    "safedep": {
+      "type": "remote",
+      "url": "https://mcp.safedep.io/model-context-protocol/threats/v1",
+      "enabled": true,
+      "headers": {
+        "Authorization": "Bearer <token>",
+        "X-Tenant-ID": "<tenant-id>"
+      }
+    }
+  }
+}
+```
+
+Antigravity uses `mcpServers.safedep.serverUrl` for remote servers:
+
+```json
+{
+  "mcpServers": {
+    "safedep": {
+      "serverUrl": "https://mcp.safedep.io/model-context-protocol/threats/v1",
+      "headers": {
+        "Authorization": "Bearer <token>",
+        "X-Tenant-ID": "<tenant-id>"
+      }
+    }
+  }
+}
+```
 
 ## Injection and Removal Algorithm
 
@@ -255,8 +289,8 @@ var (
 
 | Item | Owner | Blocking |
 |---|---|---|
-| Gemini CLI global and workspace config paths | Implementer | Yes — before geminicli.go is un-stubbed |
-| OpenCode global and workspace config paths | Implementer | Yes — before opencode.go is un-stubbed |
-| Antigravity global and workspace config paths | Implementer | Yes — before antigravity.go is un-stubbed |
+| Gemini CLI global and workspace config paths | Implementer | Done |
+| OpenCode global and workspace config paths | Implementer | Done |
+| Antigravity project-scoped config path | Implementer | No — global-only adapter implemented |
 | Windsurf: include or defer? | Team | No — not in issue #788 scope; defer |
 | Codex: uses TOML config (`~/.codex/config.toml`). No Go library preserves TOML comments on round-trip. go-toml v1 Tree API (`SetPath`/`DeletePath`/`ToTomlString`) is the viable path when this is revisited. | Implementer | No — deferred |

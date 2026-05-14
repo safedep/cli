@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const defaultMCPServerURL = "https://mcp.safedep.io/model-context-protocol/threats/v1"
+const defaultMCPServerURL = "https://mcp.safedep.io/model-context-protocol/threats/v1/sse"
 
 type installFlags struct {
 	MCPURL       string

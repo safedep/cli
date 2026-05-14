@@ -11,7 +11,7 @@ import (
 
 func TestClaudeCode(t *testing.T) {
 	cfg := MCPConfig{
-		URL:     "https://mcp.safedep.io/model-context-protocol/threats/v1",
+		URL:     "https://mcp.safedep.io/model-context-protocol/threats/v1/sse",
 		Headers: map[string]string{"Authorization": "Bearer tok"},
 	}
 

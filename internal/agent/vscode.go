@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // vsCodeMCPServerEntry is the entry format for VS Code's mcp.json.
@@ -31,18 +32,31 @@ func (v *vsCode) Detected() bool {
 	if _, err := os.Stat(filepath.Join(v.homeDir, ".vscode-server")); err == nil {
 		return true
 	}
-	// Native Linux: ~/.config/Code/User/ is created by VS Code.
-	_, err := os.Stat(filepath.Join(v.homeDir, ".config", "Code", "User"))
+	_, err := os.Stat(v.userConfigDir())
 	return err == nil
 }
 
 func (v *vsCode) AsGlobalInjector() (GlobalInjector, bool)       { return v, true }
 func (v *vsCode) AsWorkspaceInjector() (WorkspaceInjector, bool) { return v, true }
 
-// GlobalConfigPath returns ~/.config/Code/User/mcp.json — the user-level MCP
-// config read by VS Code on Linux and by VS Code Remote-WSL inside WSL2.
+// GlobalConfigPath returns the user-level mcp.json path for the current OS:
+//   - Linux/WSL2: ~/.config/Code/User/mcp.json
+//   - macOS:      ~/Library/Application Support/Code/User/mcp.json
+//   - Windows:    ~\AppData\Roaming\Code\User\mcp.json
 func (v *vsCode) GlobalConfigPath() string {
-	return filepath.Join(v.homeDir, ".config", "Code", "User", "mcp.json")
+	return filepath.Join(v.userConfigDir(), "mcp.json")
+}
+
+// userConfigDir returns the VS Code user config directory for the current OS.
+func (v *vsCode) userConfigDir() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return filepath.Join(v.homeDir, "Library", "Application Support", "Code", "User")
+	case "windows":
+		return filepath.Join(v.homeDir, "AppData", "Roaming", "Code", "User")
+	default: // linux, freebsd, etc.
+		return filepath.Join(v.homeDir, ".config", "Code", "User")
+	}
 }
 
 func (v *vsCode) InjectGlobal(cfg MCPConfig) error {

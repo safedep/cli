@@ -39,9 +39,14 @@ func TestVSCode(t *testing.T) {
 		assert.NotNil(t, inj)
 	})
 
-	t.Run("GlobalConfigPath", func(t *testing.T) {
+	t.Run("GlobalConfigPath is OS-specific", func(t *testing.T) {
 		v := newVSCode("/home/user")
-		assert.Equal(t, "/home/user/.config/Code/User/mcp.json", v.GlobalConfigPath())
+		path := v.GlobalConfigPath()
+		// Linux (test host): ~/.config/Code/User/mcp.json
+		// macOS:             ~/Library/Application Support/Code/User/mcp.json
+		// Windows:           ~\AppData\Roaming\Code\User\mcp.json
+		assert.Contains(t, path, "Code")
+		assert.Contains(t, path, "mcp.json")
 	})
 
 	t.Run("InjectGlobal writes servers key with type:http", func(t *testing.T) {

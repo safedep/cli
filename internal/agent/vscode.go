@@ -36,11 +36,22 @@ func (v *vsCode) Detected() bool {
 	return err == nil
 }
 
-// AsGlobalInjector returns false: VS Code's global user mcp.json lives in a
-// platform-specific directory (Windows AppData on WSL2, XDG data dir on Linux)
-// that cannot be reliably resolved from the CLI. Workspace injection is used instead.
-func (v *vsCode) AsGlobalInjector() (GlobalInjector, bool)       { return nil, false }
+func (v *vsCode) AsGlobalInjector() (GlobalInjector, bool)       { return v, true }
 func (v *vsCode) AsWorkspaceInjector() (WorkspaceInjector, bool) { return v, true }
+
+// GlobalConfigPath returns ~/.config/Code/User/mcp.json — the user-level MCP
+// config read by VS Code on Linux and by VS Code Remote-WSL inside WSL2.
+func (v *vsCode) GlobalConfigPath() string {
+	return filepath.Join(v.homeDir, ".config", "Code", "User", "mcp.json")
+}
+
+func (v *vsCode) InjectGlobal(cfg MCPConfig) error {
+	return writeVSCodeMCPConfig(v.GlobalConfigPath(), cfg)
+}
+
+func (v *vsCode) RemoveGlobal() error {
+	return removeVSCodeMCPConfig(v.GlobalConfigPath())
+}
 
 // WorkspaceConfigPath returns .vscode/mcp.json within the workspace.
 func (v *vsCode) WorkspaceConfigPath(workspaceDir string) string {

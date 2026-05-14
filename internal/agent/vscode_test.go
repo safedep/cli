@@ -33,9 +33,43 @@ func TestVSCode(t *testing.T) {
 		assert.Equal(t, "vscode", newVSCode("").Name())
 	})
 
-	t.Run("AsGlobalInjector returns false", func(t *testing.T) {
-		_, ok := newVSCode("").AsGlobalInjector()
-		assert.False(t, ok)
+	t.Run("AsGlobalInjector returns self", func(t *testing.T) {
+		inj, ok := newVSCode("").AsGlobalInjector()
+		assert.True(t, ok)
+		assert.NotNil(t, inj)
+	})
+
+	t.Run("GlobalConfigPath", func(t *testing.T) {
+		v := newVSCode("/home/user")
+		assert.Equal(t, "/home/user/.config/Code/User/mcp.json", v.GlobalConfigPath())
+	})
+
+	t.Run("InjectGlobal writes servers key with type:http", func(t *testing.T) {
+		home := t.TempDir()
+		v := newVSCode(home)
+
+		require.NoError(t, v.InjectGlobal(testCfg))
+
+		data := readJSONAt(t, v.GlobalConfigPath())
+		servers := data["servers"].(map[string]any)
+		entry := servers["safedep"].(map[string]any)
+		assert.Equal(t, "http", entry["type"])
+		assert.Equal(t, testCfg.URL, entry["url"])
+	})
+
+	t.Run("RemoveGlobal removes safedep entry", func(t *testing.T) {
+		home := t.TempDir()
+		v := newVSCode(home)
+		require.NoError(t, v.InjectGlobal(testCfg))
+		require.NoError(t, v.RemoveGlobal())
+
+		data := readJSONAt(t, v.GlobalConfigPath())
+		servers, _ := data["servers"].(map[string]any)
+		assert.NotContains(t, servers, "safedep")
+	})
+
+	t.Run("RemoveGlobal is no-op on absent file", func(t *testing.T) {
+		require.NoError(t, newVSCode(t.TempDir()).RemoveGlobal())
 	})
 
 	t.Run("AsWorkspaceInjector returns self", func(t *testing.T) {

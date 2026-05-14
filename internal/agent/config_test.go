@@ -60,6 +60,18 @@ func TestWriteMCPConfig(t *testing.T) {
 		assert.Equal(t, "https://other-url", entry["url"])
 	})
 
+	t.Run("treats empty file as empty config", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "settings.json")
+		require.NoError(t, os.WriteFile(path, []byte{}, 0o600))
+
+		require.NoError(t, writeMCPConfig(path, testCfg))
+
+		data := readJSONAt(t, path)
+		servers := data["mcpServers"].(map[string]any)
+		assert.Contains(t, servers, "safedep")
+	})
+
 	t.Run("returns error on invalid JSON", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "settings.json")

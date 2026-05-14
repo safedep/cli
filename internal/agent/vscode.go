@@ -114,6 +114,9 @@ func removeVSCodeMCPConfig(path string) error {
 	if err != nil {
 		return err
 	}
+	if len(raw) == 0 {
+		return nil
+	}
 
 	var data map[string]any
 	if err := json.Unmarshal(raw, &data); err != nil {

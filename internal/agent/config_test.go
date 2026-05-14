@@ -11,7 +11,7 @@ import (
 )
 
 var testCfg = MCPConfig{
-	URL: "https://mcp.safedep.io/model-context-protocol/threats/v1/sse",
+	URL: "https://mcp.safedep.io/model-context-protocol/threats/v1/mcp",
 	Headers: map[string]string{
 		"Authorization": "Bearer tok",
 		"X-Tenant-ID":   "tenant-1",

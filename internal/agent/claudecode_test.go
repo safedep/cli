@@ -33,7 +33,7 @@ func TestClaudeCode(t *testing.T) {
 
 	t.Run("GlobalConfigPath", func(t *testing.T) {
 		cc := newClaudeCode("/home/user")
-		assert.Equal(t, "/home/user/.claude/settings.json", cc.GlobalConfigPath())
+		assert.Equal(t, "/home/user/.claude.json", cc.GlobalConfigPath())
 	})
 
 	t.Run("AsGlobalInjector returns self", func(t *testing.T) {
@@ -50,7 +50,7 @@ func TestClaudeCode(t *testing.T) {
 		assert.NotNil(t, inj)
 	})
 
-	t.Run("InjectGlobal creates and populates config", func(t *testing.T) {
+	t.Run("InjectGlobal creates and populates config with type:http", func(t *testing.T) {
 		home := t.TempDir()
 		cc := newClaudeCode(home)
 
@@ -60,6 +60,7 @@ func TestClaudeCode(t *testing.T) {
 		servers := data["mcpServers"].(map[string]any)
 		entry := servers["safedep"].(map[string]any)
 		assert.Equal(t, cfg.URL, entry["url"])
+		assert.Equal(t, "http", entry["type"])
 	})
 
 	t.Run("InjectGlobal is idempotent", func(t *testing.T) {

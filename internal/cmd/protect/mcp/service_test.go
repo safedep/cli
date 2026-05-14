@@ -41,10 +41,31 @@ func (f *fakeGlobalInjector) RemoveGlobal() error {
 	return nil
 }
 
+type fakeWorkspaceInjector struct {
+	injected  *agent.MCPConfig
+	removed   bool
+	injectErr error
+}
+
+func (f *fakeWorkspaceInjector) WorkspaceConfigPath(_ string) string { return "/fake/ws/path" }
+func (f *fakeWorkspaceInjector) InjectWorkspace(_ string, cfg agent.MCPConfig) error {
+	if f.injectErr != nil {
+		return f.injectErr
+	}
+	c := cfg
+	f.injected = &c
+	return nil
+}
+func (f *fakeWorkspaceInjector) RemoveWorkspace(_ string) error {
+	f.removed = true
+	return nil
+}
+
 type fakeAgent struct {
-	name     string
-	detected bool
-	global   *fakeGlobalInjector
+	name      string
+	detected  bool
+	global    *fakeGlobalInjector
+	workspace *fakeWorkspaceInjector
 }
 
 func (f *fakeAgent) Name() string   { return f.name }
@@ -56,7 +77,10 @@ func (f *fakeAgent) AsGlobalInjector() (agent.GlobalInjector, bool) {
 	return f.global, true
 }
 func (f *fakeAgent) AsWorkspaceInjector() (agent.WorkspaceInjector, bool) {
-	return nil, false
+	if f.workspace == nil {
+		return nil, false
+	}
+	return f.workspace, true
 }
 
 // --- tests ---
@@ -118,6 +142,34 @@ func TestMCPServiceInstall(t *testing.T) {
 			APIKey:   "k",
 			TenantID: "t",
 		}))
+	})
+
+	t.Run("workspace-only agent is skipped when no workspaceDir", func(t *testing.T) {
+		wi := &fakeWorkspaceInjector{}
+		a := &fakeAgent{name: "vscode", detected: true, workspace: wi}
+		svc := newMCPService([]agent.Agent{a}, &fakeResolver{identity: testIdentity})
+
+		require.NoError(t, svc.install(installInput{
+			MCPURL:       "https://mcp.safedep.io/v1",
+			APIKey:       "k",
+			TenantID:     "t",
+			WorkspaceDir: "", // no workspace
+		}))
+		assert.Nil(t, wi.injected, "workspace-only agent must not be injected without --workspace")
+	})
+
+	t.Run("workspace-only agent is configured when workspaceDir is set", func(t *testing.T) {
+		wi := &fakeWorkspaceInjector{}
+		a := &fakeAgent{name: "vscode", detected: true, workspace: wi}
+		svc := newMCPService([]agent.Agent{a}, &fakeResolver{identity: testIdentity})
+
+		require.NoError(t, svc.install(installInput{
+			MCPURL:       "https://mcp.safedep.io/v1",
+			APIKey:       "k",
+			TenantID:     "t",
+			WorkspaceDir: "/project",
+		}))
+		require.NotNil(t, wi.injected)
 	})
 }
 

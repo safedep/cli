@@ -33,45 +33,54 @@ func (s *mcpService) install(in installInput) error {
 		return err
 	}
 
-	detected := s.detectedAgents()
-	if len(detected) == 0 {
+	configurable := s.configurableAgents(in.WorkspaceDir)
+	if len(configurable) == 0 {
 		tui.Warning("No supported AI agents detected on this machine.")
 		return nil
 	}
 
-	for _, a := range detected {
+	for _, a := range configurable {
 		tui.Info("Configuring %s", a.Name())
 	}
 
-	if err := agent.InjectAll(detected, cfg, in.WorkspaceDir); err != nil {
+	if err := agent.InjectAll(configurable, cfg, in.WorkspaceDir); err != nil {
 		return err
 	}
 
-	tui.Success("SafeDep MCP server configured for %d agent(s).", len(detected))
+	tui.Success("SafeDep MCP server configured for %d agent(s).", len(configurable))
 	return nil
 }
 
 func (s *mcpService) uninstall(in uninstallInput) error {
-	detected := s.detectedAgents()
-	if len(detected) == 0 {
+	configurable := s.configurableAgents(in.WorkspaceDir)
+	if len(configurable) == 0 {
 		tui.Warning("No supported AI agents detected on this machine.")
 		return nil
 	}
 
-	if err := agent.RemoveAll(detected, in.WorkspaceDir); err != nil {
+	if err := agent.RemoveAll(configurable, in.WorkspaceDir); err != nil {
 		return err
 	}
 
-	tui.Success("SafeDep MCP server configuration removed from %d agent(s).", len(detected))
+	tui.Success("SafeDep MCP server configuration removed from %d agent(s).", len(configurable))
 	return nil
 }
 
-func (s *mcpService) detectedAgents() []agent.Agent {
-	var detected []agent.Agent
+// configurableAgents returns detected agents that have at least one applicable
+// injector given workspaceDir. Agents detected but with no injectors applicable
+// to the current invocation (e.g. workspace-only agents called without
+// --workspace) are excluded so they are not logged or counted.
+func (s *mcpService) configurableAgents(workspaceDir string) []agent.Agent {
+	var result []agent.Agent
 	for _, a := range s.agents {
-		if a.Detected() {
-			detected = append(detected, a)
+		if !a.Detected() {
+			continue
+		}
+		_, hasGlobal := a.AsGlobalInjector()
+		_, hasWorkspace := a.AsWorkspaceInjector()
+		if hasGlobal || (hasWorkspace && workspaceDir != "") {
+			result = append(result, a)
 		}
 	}
-	return detected
+	return result
 }

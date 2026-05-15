@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -154,7 +155,7 @@ func TestGenerateTenantDomain(t *testing.T) {
 	t.Run("randomness check", func(t *testing.T) {
 		// Generate multiple names and verify they differ
 		results := make(map[string]bool)
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			result := GenerateTenantDomain("Test")
 			results[result] = true
 		}
@@ -178,7 +179,7 @@ func TestGenerateTenantDomain(t *testing.T) {
 	})
 
 	t.Run("no leading or trailing hyphens", func(t *testing.T) {
-		for i := 0; i < 20; i++ {
+		for range 20 {
 			result := GenerateTenantDomain("Test Organization")
 			assert.False(t, strings.HasPrefix(result, "-"),
 				"should not start with hyphen")
@@ -277,10 +278,10 @@ func TestRandomSuffix(t *testing.T) {
 	})
 
 	t.Run("contains only alphanumeric", func(t *testing.T) {
-		for i := 0; i < 20; i++ {
+		for range 20 {
 			suffix := randomSuffix(3)
 			for _, ch := range suffix {
-				assert.True(t, isAlphanumeric(rune(ch)),
+				assert.True(t, isSlugChar(rune(ch)),
 					"should contain only alphanumeric characters")
 			}
 		}
@@ -288,7 +289,7 @@ func TestRandomSuffix(t *testing.T) {
 
 	t.Run("produces different values", func(t *testing.T) {
 		results := make(map[string]bool)
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			results[randomSuffix(3)] = true
 		}
 		assert.Greater(t, len(results), 1,
@@ -298,38 +299,24 @@ func TestRandomSuffix(t *testing.T) {
 
 func TestRandomItem(t *testing.T) {
 	t.Run("returns item from adjectives", func(t *testing.T) {
-		for i := 0; i < 20; i++ {
+		for range 20 {
 			item := randomItem(adjectives)
 			assert.NotEmpty(t, item)
-			found := false
-			for _, adj := range adjectives {
-				if item == adj {
-					found = true
-					break
-				}
-			}
-			assert.True(t, found, "should return an item from the list")
+			assert.True(t, slices.Contains(adjectives, item), "should return an item from the list")
 		}
 	})
 
 	t.Run("returns item from nouns", func(t *testing.T) {
-		for i := 0; i < 20; i++ {
+		for range 20 {
 			item := randomItem(nouns)
 			assert.NotEmpty(t, item)
-			found := false
-			for _, n := range nouns {
-				if item == n {
-					found = true
-					break
-				}
-			}
-			assert.True(t, found, "should return an item from the list")
+			assert.True(t, slices.Contains(nouns, item), "should return an item from the list")
 		}
 	})
 }
 
 func TestGenerateTenantDomainFormat(t *testing.T) {
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		result := GenerateTenantDomain("TestOrg")
 		parts := strings.Split(result, "-")
 		require.GreaterOrEqual(t, len(parts), 3,
@@ -339,8 +326,7 @@ func TestGenerateTenantDomainFormat(t *testing.T) {
 		assert.Equal(t, 3, len(suffix),
 			"suffix should be 3 chars")
 		for _, ch := range suffix {
-			assert.True(t, isAlphanumeric(ch),
-				"suffix should contain only alphanumeric")
+			assert.True(t, isSlugChar(ch), "suffix should contain only alphanumeric")
 		}
 	}
 }
@@ -353,10 +339,5 @@ func isValidRandomName(s string) bool {
 	if len(parts) != 3 {
 		return false
 	}
-	for _, part := range parts {
-		if part == "" {
-			return false
-		}
-	}
-	return true
+	return !slices.Contains(parts, "")
 }

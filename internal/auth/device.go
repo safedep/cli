@@ -2,12 +2,19 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/cli/oauth/api"
 	"github.com/cli/oauth/device"
 )
+
+// ErrEmailNotVerified is returned by RunDeviceFlow when Auth0 rejects the
+// device authorisation because the user's email address is unverified.
+// Callers can detect it with errors.Is to offer a retry path.
+var ErrEmailNotVerified = errors.New("auth: email not verified")
 
 // DeviceFlowResult is the outcome of a successful OAuth2 device-code
 // authorisation: the access + refresh token pair returned by the IdP.
@@ -46,6 +53,9 @@ func RunDeviceFlow(ctx context.Context, sink DeviceFlowSink) (*DeviceFlowResult,
 		DeviceCode: code,
 	})
 	if err != nil {
+		if isEmailVerificationError(err) {
+			return nil, fmt.Errorf("%w: check your inbox for a verification email from SafeDep and click the link", ErrEmailNotVerified)
+		}
 		return nil, fmt.Errorf("auth: device flow: %w", err)
 	}
 
@@ -60,4 +70,14 @@ func refreshFromAccessToken(t *api.AccessToken) string {
 		return ""
 	}
 	return t.RefreshToken
+}
+
+// isEmailVerificationError detects the Auth0 access_denied error that occurs
+// when the user has not yet verified their email address.
+func isEmailVerificationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "access_denied") && strings.Contains(msg, "verify your email")
 }

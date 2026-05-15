@@ -6,6 +6,17 @@ import (
 	"github.com/safedep/dry/log"
 )
 
+// FilterDetected returns the subset of agents whose Detected() method returns true.
+func FilterDetected(agents []Agent) []Agent {
+	var out []Agent
+	for _, a := range agents {
+		if a.Detected() {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 // NewRegistry returns all known agent adapters initialised with the
 // current user's home directory.
 func NewRegistry() []Agent {

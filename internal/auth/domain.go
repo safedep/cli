@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"strings"
 
+	"github.com/safedep/dry/log"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -64,21 +65,16 @@ func slugifyOrganizationName(s string) string {
 func replaceNonAlphanumeric(s string) string {
 	var result strings.Builder
 	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z':
+		if isSlugChar(r) {
 			result.WriteRune(r)
-		case r >= '0' && r <= '9':
-			result.WriteRune(r)
-		case r == '-':
-			result.WriteRune(r)
-		default:
+		} else {
 			result.WriteRune('-')
 		}
 	}
 	return result.String()
 }
 
-func isAlphanumeric(r rune) bool {
+func isSlugChar(r rune) bool {
 	return (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-'
 }
 
@@ -116,6 +112,7 @@ func randomItem(items []string) string {
 	}
 	b := make([]byte, 1)
 	if _, err := rand.Read(b); err != nil {
+		log.Warnf("auth: domain: rand read: %v", err)
 		return items[0]
 	}
 	idx := int(b[0]) % len(items)
@@ -126,9 +123,10 @@ func randomSuffix(length int) string {
 	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
 	b := make([]byte, length)
 	if _, err := rand.Read(b); err != nil {
+		log.Warnf("auth: domain: rand read: %v", err)
 		return strings.Repeat("a", length)
 	}
-	for i := 0; i < length; i++ {
+	for i := range length {
 		b[i] = chars[int(b[i])%len(chars)]
 	}
 	return string(b)

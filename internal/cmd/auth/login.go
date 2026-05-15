@@ -9,13 +9,11 @@ import (
 	"time"
 
 	"github.com/charmbracelet/huh"
-	"github.com/cli/browser"
 	"github.com/safedep/cli/internal/app"
 	cliauth "github.com/safedep/cli/internal/auth"
 	"github.com/safedep/dry/cloud"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/tui"
-	tuiout "github.com/safedep/dry/tui/output"
 	"github.com/spf13/cobra"
 )
 
@@ -92,9 +90,23 @@ func runAPIKeyLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 	tui.Info("Starting OAuth2 device login…")
 
-	res, err := cliauth.RunDeviceFlow(cmd.Context(), printVerification)
+	res, err := cliauth.RunDeviceFlow(cmd.Context(), cliauth.PrintVerification)
 	if err != nil {
-		return err
+		if !errors.Is(err, cliauth.ErrEmailNotVerified) {
+			return err
+		}
+		tui.Warning("%v", err)
+		tui.Info("Press Enter once you have verified your email to try again…")
+		if _, scanErr := fmt.Fscanln(cmd.InOrStdin()); scanErr != nil && !errors.Is(scanErr, io.EOF) {
+			log.Warnf("auth login: read stdin: %v", scanErr)
+		}
+		res, err = cliauth.RunDeviceFlow(cmd.Context(), cliauth.PrintVerification)
+		if err != nil {
+			if errors.Is(err, cliauth.ErrEmailNotVerified) {
+				return errors.New("email still not verified: verify your email and run 'safedep auth login' again")
+			}
+			return err
+		}
 	}
 
 	preferredTenant := flags.tenant
@@ -107,13 +119,23 @@ func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 
 	createKey, name := apiKeyCreationPlan(a, preferredTenant, flags)
 
+	var registrationPrompter func() (*cliauth.RegistrationInput, error)
+	if flags.noAPIKey {
+		registrationPrompter = func() (*cliauth.RegistrationInput, error) {
+			return nil, errors.New("--no-api-key cannot be used during initial registration: an API key is required to complete setup")
+		}
+	} else {
+		registrationPrompter = cliauth.NewRegistrationPrompter(res.AccessToken)
+	}
+
 	bootstrap, err := cliauth.PostOAuthBootstrap(cmd.Context(), cliauth.BootstrapInput{
-		AccessToken:      res.AccessToken,
-		PreferredTenant:  preferredTenant,
-		CreateAPIKey:     createKey,
-		APIKeyName:       name,
-		APIKeyExpiryDays: flags.apiKeyExpiryDays,
-		Picker:           promptTenantPicker,
+		AccessToken:          res.AccessToken,
+		PreferredTenant:      preferredTenant,
+		CreateAPIKey:         createKey,
+		APIKeyName:           name,
+		APIKeyExpiryDays:     flags.apiKeyExpiryDays,
+		Picker:               cliauth.PromptTenantPicker,
+		RegistrationPrompter: registrationPrompter,
 	})
 	if err != nil {
 		return err
@@ -124,14 +146,8 @@ func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 		return err
 	}
 
-	if err := store.SaveTokenCredential(res.AccessToken, res.RefreshToken, bootstrap.Tenant); err != nil {
-		return fmt.Errorf("save token credential: %w", err)
-	}
-
-	if bootstrap.APIKey != "" {
-		if err := store.SaveAPIKeyCredential(bootstrap.APIKey, bootstrap.Tenant); err != nil {
-			return fmt.Errorf("save api key credential: %w", err)
-		}
+	if err := cliauth.SaveBootstrapResult(store, res.AccessToken, res.RefreshToken, bootstrap); err != nil {
+		return err
 	}
 
 	switch {
@@ -159,7 +175,7 @@ func apiKeyCreationPlan(a *app.App, preferredTenant string, flags loginFlags) (b
 		log.Warnf("auth login: existing API key kept; use --rotate-api-key to create a new one")
 		return false, ""
 	}
-	return true, cliauth.APIKeyName(hostname(), time.Now())
+	return true, cliauth.APIKeyName(cliauth.Hostname(), time.Now())
 }
 
 func hasAPIKeyForTenant(a *app.App, tenant string) bool {
@@ -180,55 +196,6 @@ func hasAPIKeyForTenant(a *app.App, tenant string) bool {
 		return false
 	}
 	return got == tenant
-}
-
-func hostname() string {
-	h, err := os.Hostname()
-	if err != nil {
-		log.Warnf("auth login: hostname: %v", err)
-		return "unknown"
-	}
-
-	return h
-}
-
-func printVerification(verificationURL, userCode string) {
-	tui.Info("Open the following URL to complete authentication:")
-	tui.Info("  %s", verificationURL)
-	tui.Info("Verification code: %s", userCode)
-
-	switch tuiout.CurrentMode() {
-	case tuiout.Rich:
-		if err := openBrowser(verificationURL); err != nil {
-			log.Warnf("auth login: open browser: %v", err)
-		}
-	default:
-	}
-}
-
-func openBrowser(url string) error {
-	return browser.OpenURL(url)
-}
-
-func promptTenantPicker(tenants []string) (string, error) {
-	options := make([]huh.Option[string], 0, len(tenants))
-	for _, t := range tenants {
-		options = append(options, huh.NewOption(t, t))
-	}
-
-	var pick string
-	if err := huh.NewSelect[string]().
-		Title("Select tenant").
-		Description("You have access to multiple tenants. Pick one for this profile.").
-		Options(options...).
-		Value(&pick).
-		Run(); err != nil {
-		return "", fmt.Errorf("tenant picker: %w", err)
-	}
-	if pick == "" {
-		return "", errors.New("no tenant selected")
-	}
-	return pick, nil
 }
 
 func resolveAPIKey(flags loginFlags) (string, error) {

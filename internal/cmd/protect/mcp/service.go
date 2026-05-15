@@ -33,7 +33,7 @@ func (s *mcpService) install(in installInput) error {
 		return err
 	}
 
-	detected := s.detectedAgents()
+	detected := agent.FilterDetected(s.agents)
 	if len(detected) == 0 {
 		tui.Warning("No supported AI agents detected on this machine.")
 		return nil
@@ -52,7 +52,7 @@ func (s *mcpService) install(in installInput) error {
 }
 
 func (s *mcpService) uninstall(in uninstallInput) error {
-	detected := s.detectedAgents()
+	detected := agent.FilterDetected(s.agents)
 	if len(detected) == 0 {
 		tui.Warning("No supported AI agents detected on this machine.")
 		return nil
@@ -64,14 +64,4 @@ func (s *mcpService) uninstall(in uninstallInput) error {
 
 	tui.Success("SafeDep MCP server configuration removed from %d agent(s).", len(detected))
 	return nil
-}
-
-func (s *mcpService) detectedAgents() []agent.Agent {
-	var detected []agent.Agent
-	for _, a := range s.agents {
-		if a.Detected() {
-			detected = append(detected, a)
-		}
-	}
-	return detected
 }

@@ -36,3 +36,29 @@ func IsExpired(token string, now time.Time) bool {
 	}
 	return !now.Before(exp)
 }
+
+// EmailFromAccessToken extracts the email claim from an unverified JWT access
+// token. It tries the standard "email" claim first, then the namespaced
+// "https://safedep.io/email" claim. Returns empty string if neither is present.
+func EmailFromAccessToken(token string) string {
+	if token == "" {
+		return ""
+	}
+	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
+	claims := jwt.MapClaims{}
+	if _, _, err := parser.ParseUnverified(token, claims); err != nil {
+		return ""
+	}
+
+	// Try standard email claim first.
+	if email, ok := claims["email"].(string); ok && email != "" {
+		return email
+	}
+
+	// Try namespaced claim.
+	if email, ok := claims["https://safedep.io/email"].(string); ok && email != "" {
+		return email
+	}
+
+	return ""
+}

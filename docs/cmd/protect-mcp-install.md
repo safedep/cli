@@ -2,7 +2,7 @@
 
 Detect AI coding agents installed on this machine and inject the SafeDep MCP server entry into each agent's config file.
 
-Agents supported: Claude Code, Cursor, Gemini CLI, OpenCode, Antigravity.
+Agents supported: Claude Code, Cursor, Gemini CLI, OpenCode, Antigravity, VS Code.
 
 ## Synopsis
 
@@ -14,7 +14,7 @@ safedep protect mcp install [flags]
 
 | Flag | Description |
 |---|---|
-| `--mcp-url <url>` | SafeDep MCP server URL (default: `https://mcp.safedep.io/model-context-protocol/threats/v1`). |
+| `--mcp-url <url>` | SafeDep MCP server URL (default: `https://mcp.safedep.io/model-context-protocol/threats/v1/mcp`). |
 | `--workspace <dir>` | Project directory for workspace-level injection. Empty (default) skips workspace injection. |
 
 Inherits root flags `--output`, `--profile`, and `--insecure-keychain-fallback`.

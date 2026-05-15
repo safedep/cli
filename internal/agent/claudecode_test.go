@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -92,30 +93,66 @@ func TestClaudeCode(t *testing.T) {
 		require.NoError(t, cc.RemoveGlobal())
 	})
 
-	t.Run("WorkspaceConfigPath", func(t *testing.T) {
-		cc := newClaudeCode("")
-		assert.Equal(t, "/proj/.claude/settings.json", cc.WorkspaceConfigPath("/proj"))
+	t.Run("WorkspaceConfigPath returns ~/.claude.json", func(t *testing.T) {
+		cc := newClaudeCode("/home/user")
+		assert.Equal(t, "/home/user/.claude.json", cc.WorkspaceConfigPath("/proj"))
 	})
 
-	t.Run("InjectWorkspace writes to workspace dir", func(t *testing.T) {
+	t.Run("InjectWorkspace writes to ~/.claude.json under projects", func(t *testing.T) {
+		home := t.TempDir()
 		workspace := t.TempDir()
-		cc := newClaudeCode(t.TempDir())
+		cc := newClaudeCode(home)
 
 		require.NoError(t, cc.InjectWorkspace(workspace, cfg))
 
-		data := readJSONAt(t, cc.WorkspaceConfigPath(workspace))
-		servers := data["mcpServers"].(map[string]any)
-		assert.Contains(t, servers, "safedep")
+		data := readJSONAt(t, cc.GlobalConfigPath())
+		projects := data["projects"].(map[string]any)
+		project := projects[workspace].(map[string]any)
+		servers := project["mcpServers"].(map[string]any)
+		entry := servers["safedep"].(map[string]any)
+		assert.Equal(t, cfg.URL, entry["url"])
+		assert.Equal(t, "http", entry["type"])
+	})
+
+	t.Run("InjectWorkspace preserves existing project keys", func(t *testing.T) {
+		home := t.TempDir()
+		workspace := t.TempDir()
+		cc := newClaudeCode(home)
+
+		// Pre-populate ~/.claude.json with an existing project entry.
+		existing := map[string]any{
+			"projects": map[string]any{
+				workspace: map[string]any{
+					"allowedTools": []any{"Bash"},
+				},
+			},
+		}
+		encoded, err := json.Marshal(existing)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(cc.GlobalConfigPath(), encoded, 0o600))
+
+		require.NoError(t, cc.InjectWorkspace(workspace, cfg))
+
+		data := readJSONAt(t, cc.GlobalConfigPath())
+		project := data["projects"].(map[string]any)[workspace].(map[string]any)
+		assert.Contains(t, project, "allowedTools")
+		assert.Contains(t, project["mcpServers"].(map[string]any), "safedep")
 	})
 
 	t.Run("RemoveWorkspace removes safedep entry", func(t *testing.T) {
+		home := t.TempDir()
 		workspace := t.TempDir()
-		cc := newClaudeCode(t.TempDir())
+		cc := newClaudeCode(home)
 		require.NoError(t, cc.InjectWorkspace(workspace, cfg))
 		require.NoError(t, cc.RemoveWorkspace(workspace))
 
-		data := readJSONAt(t, cc.WorkspaceConfigPath(workspace))
-		servers, _ := data["mcpServers"].(map[string]any)
-		assert.NotContains(t, servers, "safedep")
+		data := readJSONAt(t, cc.GlobalConfigPath())
+		projects, _ := data["projects"].(map[string]any)
+		if projects != nil {
+			if project, ok := projects[workspace].(map[string]any); ok {
+				servers, _ := project["mcpServers"].(map[string]any)
+				assert.NotContains(t, servers, "safedep")
+			}
+		}
 	})
 }

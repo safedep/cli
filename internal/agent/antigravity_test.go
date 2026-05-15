@@ -27,16 +27,16 @@ func TestAntigravity(t *testing.T) {
 		assert.Equal(t, "/home/user/.gemini/antigravity/mcp_config.json", a.GlobalConfigPath())
 	})
 
-	t.Run("InjectGlobal writes streamable-http config with serverUrl", func(t *testing.T) {
+	t.Run("InjectGlobal writes config with serverUrl", func(t *testing.T) {
 		a := newAntigravity(t.TempDir())
 		require.NoError(t, a.InjectGlobal(testCfg))
 
 		data := readJSONAt(t, a.GlobalConfigPath())
 		servers := data["mcpServers"].(map[string]any)
 		entry := servers["safedep"].(map[string]any)
-		assert.Equal(t, "streamable-http", entry["type"])
 		assert.Equal(t, testCfg.URL, entry["serverUrl"])
 		assert.Equal(t, "Bearer tok", entry["headers"].(map[string]any)["Authorization"])
+		assert.NotContains(t, entry, "type")
 		assert.NotContains(t, entry, "url")
 	})
 

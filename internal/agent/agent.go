@@ -35,7 +35,8 @@ type GlobalInjector interface {
 
 // WorkspaceInjector writes or removes the SafeDep MCP config from a workspace config file.
 type WorkspaceInjector interface {
-	// WorkspaceConfigPath returns the absolute path inside workspaceDir.
+	// WorkspaceConfigPath returns the absolute path to the workspace config file.
+	// The path may or may not be inside workspaceDir depending on the agent.
 	WorkspaceConfigPath(workspaceDir string) string
 
 	// InjectWorkspace writes the SafeDep entry. Idempotent; preserves all other keys.

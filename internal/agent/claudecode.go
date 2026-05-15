@@ -1,6 +1,9 @@
 package agent
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -45,18 +48,19 @@ func (c *claudeCode) RemoveGlobal() error {
 	return removeMCPConfig(c.GlobalConfigPath())
 }
 
-// WorkspaceConfigPath returns .claude/settings.json within the workspace —
-// the project-scoped MCP config location for Claude Code.
-func (c *claudeCode) WorkspaceConfigPath(workspaceDir string) string {
-	return filepath.Join(workspaceDir, ".claude", "settings.json")
+// WorkspaceConfigPath returns ~/.claude.json — Claude Code stores per-project
+// MCP servers in the global file under projects[workspaceDir].mcpServers, not
+// inside the workspace directory.
+func (c *claudeCode) WorkspaceConfigPath(_ string) string {
+	return c.GlobalConfigPath()
 }
 
 func (c *claudeCode) InjectWorkspace(workspaceDir string, cfg MCPConfig) error {
-	return writeMCPConfig(c.WorkspaceConfigPath(workspaceDir), cfg)
+	return writeClaudeCodeWorkspaceMCPConfig(c.GlobalConfigPath(), workspaceDir, cfg)
 }
 
 func (c *claudeCode) RemoveWorkspace(workspaceDir string) error {
-	return removeMCPConfig(c.WorkspaceConfigPath(workspaceDir))
+	return removeClaudeCodeWorkspaceMCPConfig(c.GlobalConfigPath(), workspaceDir)
 }
 
 // writeClaudeCodeMCPConfig writes the SafeDep entry into a Claude Code JSON
@@ -80,6 +84,112 @@ func writeClaudeCodeMCPConfig(path string, cfg MCPConfig) error {
 	data["mcpServers"] = servers
 
 	return writeJSONFile(path, data)
+}
+
+// writeClaudeCodeWorkspaceMCPConfig writes the SafeDep entry into
+// ~/.claude.json under projects[workspaceDir].mcpServers, preserving all other
+// keys.
+func writeClaudeCodeWorkspaceMCPConfig(path, workspaceDir string, cfg MCPConfig) error {
+	data, err := readJSONFile(path)
+	if err != nil {
+		return err
+	}
+
+	projects, err := ensureClaudeProjects(data)
+	if err != nil {
+		return err
+	}
+
+	project, err := ensureClaudeProject(projects, workspaceDir)
+	if err != nil {
+		return err
+	}
+
+	servers, err := ensureMCPServers(project)
+	if err != nil {
+		return err
+	}
+
+	servers[safedepMCPKey] = claudeCodeMCPServerEntry{
+		Type:    "http",
+		URL:     cfg.URL,
+		Headers: cfg.Headers,
+	}
+	project["mcpServers"] = servers
+	projects[workspaceDir] = project
+	data["projects"] = projects
+
+	return writeJSONFile(path, data)
+}
+
+// removeClaudeCodeWorkspaceMCPConfig removes the SafeDep entry from
+// ~/.claude.json under projects[workspaceDir].mcpServers. No-op if absent.
+func removeClaudeCodeWorkspaceMCPConfig(path, workspaceDir string) error {
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+
+	var data map[string]any
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return fmt.Errorf("agent: parse %s: %w", path, err)
+	}
+
+	projects, ok := data["projects"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	project, ok := projects[workspaceDir].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	servers, ok := project["mcpServers"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	delete(servers, safedepMCPKey)
+	project["mcpServers"] = servers
+	projects[workspaceDir] = project
+	data["projects"] = projects
+
+	return writeJSONFile(path, data)
+}
+
+func ensureClaudeProjects(data map[string]any) (map[string]any, error) {
+	v, ok := data["projects"]
+	if !ok || v == nil {
+		return make(map[string]any), nil
+	}
+
+	projects, ok := v.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("agent: projects is not an object")
+	}
+
+	return projects, nil
+}
+
+func ensureClaudeProject(projects map[string]any, workspaceDir string) (map[string]any, error) {
+	v, ok := projects[workspaceDir]
+	if !ok || v == nil {
+		return make(map[string]any), nil
+	}
+
+	project, ok := v.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("agent: project %s is not an object", workspaceDir)
+	}
+
+	return project, nil
 }
 
 var _ Agent = (*claudeCode)(nil)

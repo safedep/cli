@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
@@ -9,11 +10,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
-
-// fallbackOnboardingEmail is used when the caller does not supply an email.
-// The server overrides it from the JWT header in production; proto validation
-// requires a non-empty value in local and test environments.
-const fallbackOnboardingEmail = "cloud@safedep.io"
 
 // RegistrationInput holds user-supplied data for first-time tenant registration.
 // It is passed via BootstrapInput.RegistrationPrompter when the user has no
@@ -42,6 +38,9 @@ type RegisterTenantInput struct {
 // uniqueness conflicts, regenerating the domain suffix each attempt.
 // On exhausted retries it returns a user-facing error message.
 func RegisterTenant(ctx context.Context, in RegisterTenantInput) (string, error) {
+	if in.Email == "" {
+		return "", errors.New("auth: register: email is required")
+	}
 	if in.ConnFor == nil {
 		in.ConnFor = controlPlaneConn
 	}
@@ -71,14 +70,9 @@ func attemptOnboardUser(ctx context.Context, in RegisterTenantInput) (string, er
 	}
 	defer closeConn("register tenant", conn)
 
-	email := in.Email
-	if email == "" {
-		email = fallbackOnboardingEmail
-	}
-
 	svc := controltowerv1grpc.NewOnboardingServiceClient(conn)
 	resp, err := svc.OnboardUser(ctx, &controltowerv1.OnboardUserRequest{
-		Email:              email,
+		Email:              in.Email,
 		Name:               in.Name,
 		OrganizationName:   in.OrganizationName,
 		OrganizationDomain: in.OrganizationDomain,

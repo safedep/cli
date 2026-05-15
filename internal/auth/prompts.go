@@ -32,9 +32,6 @@ func NewRegistrationPrompter(accessToken string) func() (*RegistrationInput, err
 // value is included in the returned RegistrationInput.
 func PromptRegistration(accessToken string) (RegistrationInput, error) {
 	email := EmailFromAccessToken(accessToken)
-	if email == "" {
-		email = "unknown"
-	}
 
 	var name, orgName, orgDomain string
 
@@ -42,7 +39,7 @@ func PromptRegistration(accessToken string) (RegistrationInput, error) {
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Email").
-				Description("This is the email associated with your account (shown for reference only).").
+				Description("Email address for your account.").
 				Value(&email).
 				Validate(func(s string) error {
 					s = strings.TrimSpace(s)

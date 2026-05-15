@@ -86,6 +86,7 @@ func TestRegisterTenant_SuccessFirstAttempt(t *testing.T) {
 
 	domain, err := RegisterTenant(context.Background(), RegisterTenantInput{
 		AccessToken:        "token-123",
+		Email:              "alice@example.com",
 		Name:               "Alice",
 		OrganizationName:   "Acme Corp",
 		OrganizationDomain: "acme-corp-amber-beacon-abc",
@@ -108,6 +109,7 @@ func TestRegisterTenant_AlreadyExistsFirstAttemptSuccessSecond(t *testing.T) {
 	firstDomain := "acme-corp-amber-beacon-abc"
 	domain, err := RegisterTenant(context.Background(), RegisterTenantInput{
 		AccessToken:        "token-123",
+		Email:              "alice@example.com",
 		Name:               "Alice",
 		OrganizationName:   "Acme Corp",
 		OrganizationDomain: firstDomain,
@@ -132,6 +134,7 @@ func TestRegisterTenant_AlreadyExistsThreeTimesReturnsError(t *testing.T) {
 
 	_, err := RegisterTenant(context.Background(), RegisterTenantInput{
 		AccessToken:        "token-123",
+		Email:              "alice@example.com",
 		Name:               "Alice",
 		OrganizationName:   "Acme Corp",
 		OrganizationDomain: "acme-corp-amber-beacon-abc",
@@ -153,6 +156,7 @@ func TestRegisterTenant_NonUniquenessErrorReturnedImmediately(t *testing.T) {
 
 	_, err := RegisterTenant(context.Background(), RegisterTenantInput{
 		AccessToken:        "token-123",
+		Email:              "alice@example.com",
 		Name:               "Alice",
 		OrganizationName:   "Acme Corp",
 		OrganizationDomain: "acme-corp-amber-beacon-abc",

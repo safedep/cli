@@ -108,6 +108,7 @@ func TestPostOAuthBootstrap_ZeroTenants_PrompterSucceeds_TenantReturnedAfterRegi
 
 	prompter := func() (*RegistrationInput, error) {
 		return &RegistrationInput{
+			Email:              "alice@example.com",
 			Name:               "Alice",
 			OrganizationName:   "Acme Corp",
 			OrganizationDomain: "acme-corp-amber-beacon-abc",
@@ -135,6 +136,7 @@ func TestPostOAuthBootstrap_ZeroTenants_PrompterSucceeds_StillZeroAfterRegister_
 
 	prompter := func() (*RegistrationInput, error) {
 		return &RegistrationInput{
+			Email:              "alice@example.com",
 			Name:               "Alice",
 			OrganizationName:   "Acme Corp",
 			OrganizationDomain: "acme-corp-amber-beacon-abc",

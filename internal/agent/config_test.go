@@ -11,7 +11,7 @@ import (
 )
 
 var testCfg = MCPConfig{
-	URL: "https://mcp.safedep.io/model-context-protocol/threats/v1",
+	URL: "https://mcp.safedep.io/model-context-protocol/threats/v1/mcp",
 	Headers: map[string]string{
 		"Authorization": "Bearer tok",
 		"X-Tenant-ID":   "tenant-1",
@@ -58,6 +58,18 @@ func TestWriteMCPConfig(t *testing.T) {
 		servers := data["mcpServers"].(map[string]any)
 		entry := servers["safedep"].(map[string]any)
 		assert.Equal(t, "https://other-url", entry["url"])
+	})
+
+	t.Run("treats empty file as empty config", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "settings.json")
+		require.NoError(t, os.WriteFile(path, []byte{}, 0o600))
+
+		require.NoError(t, writeMCPConfig(path, testCfg))
+
+		data := readJSONAt(t, path)
+		servers := data["mcpServers"].(map[string]any)
+		assert.Contains(t, servers, "safedep")
 	})
 
 	t.Run("returns error on invalid JSON", func(t *testing.T) {

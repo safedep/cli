@@ -45,6 +45,9 @@ func removeMCPConfig(path string) error {
 	if err != nil {
 		return err
 	}
+	if len(raw) == 0 {
+		return nil
+	}
 
 	var data map[string]any
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -63,7 +66,7 @@ func removeMCPConfig(path string) error {
 }
 
 // readJSONFile reads and unmarshals a JSON file. Returns an empty map when
-// the file does not exist so the caller can create one from scratch.
+// the file does not exist or is empty so the caller can create one from scratch.
 func readJSONFile(path string) (map[string]any, error) {
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -71,6 +74,9 @@ func readJSONFile(path string) (map[string]any, error) {
 	}
 	if err != nil {
 		return nil, err
+	}
+	if len(raw) == 0 {
+		return make(map[string]any), nil
 	}
 
 	var data map[string]any

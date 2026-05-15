@@ -35,7 +35,12 @@ func (a *antigravity) RemoveGlobal() error {
 	return removeMCPConfig(a.GlobalConfigPath())
 }
 
+// antigravityMCPServerEntry is the entry format for ~/.gemini/antigravity/mcp_config.json.
+// Antigravity requires "type": "streamable-http" to use Streamable HTTP transport.
+// Without it, Antigravity defaults to SSE and fails with "session not found" against
+// Streamable HTTP servers.
 type antigravityMCPServerEntry struct {
+	Type      string            `json:"type"`
 	ServerURL string            `json:"serverUrl"`
 	Headers   map[string]string `json:"headers,omitempty"`
 }
@@ -52,6 +57,7 @@ func writeAntigravityMCPConfig(path string, cfg MCPConfig) error {
 	}
 
 	servers[safedepMCPKey] = antigravityMCPServerEntry{
+		Type:      "streamable-http",
 		ServerURL: cfg.URL,
 		Headers:   cfg.Headers,
 	}

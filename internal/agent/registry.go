@@ -29,6 +29,7 @@ func NewRegistry() []Agent {
 	return []Agent{
 		newClaudeCode(homeDir),
 		newCursor(homeDir),
+		newVSCode(homeDir),
 		newGeminiCLI(homeDir),
 		newOpenCode(homeDir),
 		newAntigravity(homeDir),

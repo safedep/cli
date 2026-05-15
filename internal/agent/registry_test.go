@@ -18,6 +18,7 @@ func TestNewRegistry(t *testing.T) {
 
 	assert.True(t, names["claude-code"], "registry must include claude-code")
 	assert.True(t, names["cursor"], "registry must include cursor")
+	assert.True(t, names["vscode"], "registry must include vscode")
 	assert.True(t, names["gemini-cli"], "registry must include gemini-cli")
 	assert.True(t, names["opencode"], "registry must include opencode")
 	assert.True(t, names["antigravity"], "registry must include antigravity")

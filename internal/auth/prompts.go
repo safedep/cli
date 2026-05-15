@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/mail"
 	"os"
 	"strings"
@@ -150,6 +151,26 @@ func PrintVerification(verificationURL, userCode string) {
 			log.Warnf("auth: open browser: %v", err)
 		}
 	default:
+	}
+}
+
+// EmailVerificationRetry returns a DeviceFlowRetry that handles the
+// email-not-verified case: warns the user, waits for them to press Enter
+// after verifying, then allows one retry. stdin is typically os.Stdin;
+// callers may inject a reader for testing.
+func EmailVerificationRetry(stdin io.Reader) DeviceFlowRetry {
+	return DeviceFlowRetry{
+		ShouldRetry: func(err error) bool { return errors.Is(err, ErrEmailNotVerified) },
+		OnRetry: func(err error) {
+			tui.Warning("%v", err)
+			tui.Info("Press Enter once you have verified your email to try again…")
+			if _, scanErr := fmt.Fscanln(stdin); scanErr != nil && !errors.Is(scanErr, io.EOF) {
+				log.Warnf("auth: read stdin for email retry: %v", scanErr)
+			}
+		},
+		OnExhausted: func() error {
+			return errors.New("email still not verified: verify your email and run the command again")
+		},
 	}
 }
 

@@ -90,23 +90,10 @@ func runAPIKeyLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 	tui.Info("Starting OAuth2 device login…")
 
-	res, err := cliauth.RunDeviceFlow(cmd.Context(), cliauth.PrintVerification)
+	res, err := cliauth.RunDeviceFlow(cmd.Context(), cliauth.PrintVerification,
+		cliauth.EmailVerificationRetry(cmd.InOrStdin()))
 	if err != nil {
-		if !errors.Is(err, cliauth.ErrEmailNotVerified) {
-			return err
-		}
-		tui.Warning("%v", err)
-		tui.Info("Press Enter once you have verified your email to try again…")
-		if _, scanErr := fmt.Fscanln(cmd.InOrStdin()); scanErr != nil && !errors.Is(scanErr, io.EOF) {
-			log.Warnf("auth login: read stdin: %v", scanErr)
-		}
-		res, err = cliauth.RunDeviceFlow(cmd.Context(), cliauth.PrintVerification)
-		if err != nil {
-			if errors.Is(err, cliauth.ErrEmailNotVerified) {
-				return errors.New("email still not verified: verify your email and run 'safedep auth login' again")
-			}
-			return err
-		}
+		return err
 	}
 
 	preferredTenant := flags.tenant

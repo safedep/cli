@@ -28,10 +28,48 @@ type DeviceFlowResult struct {
 // browser, etc.). The sink runs once before polling begins.
 type DeviceFlowSink func(verificationURL, userCode string)
 
-// RunDeviceFlow performs a complete OAuth2 device-code authorisation
-// against the configured SafeDep identity provider. It blocks until the
-// user completes the flow in their browser or the IdP returns an error.
-func RunDeviceFlow(ctx context.Context, sink DeviceFlowSink) (*DeviceFlowResult, error) {
+// DeviceFlowRetry defines when and how to retry a failed device flow attempt.
+// Each policy is applied at most once: if ShouldRetry matches, OnRetry fires,
+// and the flow is attempted again. If the retry also fails with a matching
+// error, OnExhausted returns the terminal error shown to the user.
+type DeviceFlowRetry struct {
+	ShouldRetry func(err error) bool
+	OnRetry     func(err error)
+	OnExhausted func() error
+}
+
+// RunDeviceFlow performs a complete OAuth2 device-code authorisation against
+// the configured SafeDep identity provider. Optional retry policies are
+// applied in order: the first matching policy fires its OnRetry side-effect
+// and retries the flow once. Existing callers that pass no retries are
+// unaffected.
+func RunDeviceFlow(ctx context.Context, sink DeviceFlowSink, retries ...DeviceFlowRetry) (*DeviceFlowResult, error) {
+	result, err := runDeviceFlowOnce(ctx, sink)
+	if err == nil {
+		return result, nil
+	}
+
+	for _, r := range retries {
+		if !r.ShouldRetry(err) {
+			continue
+		}
+		if r.OnRetry != nil {
+			r.OnRetry(err)
+		}
+		result, err = runDeviceFlowOnce(ctx, sink)
+		if err != nil {
+			if r.ShouldRetry(err) && r.OnExhausted != nil {
+				return nil, r.OnExhausted()
+			}
+			return nil, err
+		}
+		return result, nil
+	}
+
+	return nil, err
+}
+
+func runDeviceFlowOnce(ctx context.Context, sink DeviceFlowSink) (*DeviceFlowResult, error) {
 	httpClient := http.DefaultClient
 
 	code, err := device.RequestCode(httpClient,

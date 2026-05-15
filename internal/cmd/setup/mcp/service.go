@@ -3,8 +3,6 @@ package mcp
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io"
 	"os"
 	"time"
 
@@ -101,23 +99,10 @@ func (s *setupMCPService) resolveCredentials(ctx context.Context, in installInpu
 	// Slow path: full device flow for first-timers or when --force is set.
 	tui.Info("Starting SafeDep onboarding...")
 
-	res, err := cliauth.RunDeviceFlow(ctx, cliauth.PrintVerification)
+	res, err := cliauth.RunDeviceFlow(ctx, cliauth.PrintVerification,
+		cliauth.EmailVerificationRetry(os.Stdin))
 	if err != nil {
-		if !errors.Is(err, cliauth.ErrEmailNotVerified) {
-			return "", "", false, err
-		}
-		tui.Warning("%v", err)
-		tui.Info("Press Enter once you have verified your email to try again…")
-		if _, scanErr := fmt.Fscanln(os.Stdin); scanErr != nil && !errors.Is(scanErr, io.EOF) {
-			log.Warnf("setup mcp: read stdin: %v", scanErr)
-		}
-		res, err = cliauth.RunDeviceFlow(ctx, cliauth.PrintVerification)
-		if err != nil {
-			if errors.Is(err, cliauth.ErrEmailNotVerified) {
-				return "", "", false, errors.New("email still not verified: verify your email and run 'safedep setup mcp install' again")
-			}
-			return "", "", false, err
-		}
+		return "", "", false, err
 	}
 
 	bootstrap, err := cliauth.PostOAuthBootstrap(ctx, cliauth.BootstrapInput{

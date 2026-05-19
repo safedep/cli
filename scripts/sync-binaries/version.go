@@ -35,9 +35,16 @@ func setPackageVersions(packagesPath, version string) error {
 	return nil
 }
 
+// versionFieldRe matches a JSON "version" key-value pair. The captured group
+// is the full match so ReplaceAll can swap just the value.
+var versionFieldRe = regexp.MustCompile(`"version"\s*:\s*"[^"]*"`)
+
 // setVersionInPackageJSON reads the file at path, sets "version" to version,
 // and writes it back. A missing file is silently skipped. Packages with
 // "private": true are skipped unchanged.
+//
+// The replacement is done on the raw bytes so all other formatting (key order,
+// inline arrays, whitespace) is preserved byte-for-byte.
 func setVersionInPackageJSON(path, version string) error {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -47,21 +54,20 @@ func setVersionInPackageJSON(path, version string) error {
 		return fmt.Errorf("read: %w", err)
 	}
 
-	var pkg map[string]any
+	var pkg map[string]json.RawMessage
 	if err := json.Unmarshal(data, &pkg); err != nil {
 		return fmt.Errorf("parse: %w", err)
 	}
 
-	if priv, ok := pkg["private"].(bool); ok && priv {
-		return nil
+	if priv, ok := pkg["private"]; ok {
+		var b bool
+		if json.Unmarshal(priv, &b) == nil && b {
+			return nil
+		}
 	}
 
-	pkg["version"] = version
+	replacement := fmt.Sprintf(`"version": %q`, version)
+	updated := versionFieldRe.ReplaceAll(data, []byte(replacement))
 
-	out, err := json.MarshalIndent(pkg, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal: %w", err)
-	}
-
-	return os.WriteFile(path, append(out, '\n'), 0o644)
+	return os.WriteFile(path, updated, 0o644)
 }

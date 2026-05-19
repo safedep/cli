@@ -103,4 +103,33 @@ func TestSetVersionInPackageJSON(t *testing.T) {
 		err := setVersionInPackageJSON("/nonexistent/package.json", "1.0.0")
 		require.NoError(t, err)
 	})
+
+	t.Run("preserves inline array formatting", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "pkg", "package.json")
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+
+		// Write a package.json with compact inline arrays, matching the real
+		// platform packages under packages/cli-*/package.json.
+		original := `{
+  "name": "pkg",
+  "version": "0.0.0",
+  "os": ["linux"],
+  "cpu": ["x64"],
+  "files": ["bin/**"]
+}
+`
+		require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+
+		require.NoError(t, setVersionInPackageJSON(path, "1.2.3"))
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		content := string(data)
+
+		assert.Contains(t, content, `"version": "1.2.3"`)
+		assert.Contains(t, content, `"os": ["linux"]`)
+		assert.Contains(t, content, `"cpu": ["x64"]`)
+		assert.Contains(t, content, `"files": ["bin/**"]`)
+	})
 }

@@ -4,18 +4,12 @@
   "targets": {
     "run": {
       "executor": "nx:run-commands",
-      "cache": true,
       "dependsOn": [{"projects": "safedep-cli", "target": "build-snapshot"}],
       "options": {
         "command": "go run ./scripts/sync-binaries/ --strict --artifacts-path dist/artifacts.json --packages-path ./packages",
         "cwd": "{workspaceRoot}"
       },
-      "inputs": [
-        "{workspaceRoot}/scripts/sync-binaries/**/*.go",
-        "{workspaceRoot}/scripts/go.mod",
-        "{workspaceRoot}/scripts/go.sum",
-        "{workspaceRoot}/dist/artifacts.json"
-      ],
+      "inputs": ["goSyncSources", "{workspaceRoot}/dist/artifacts.json"],
       "outputs": [
         "{workspaceRoot}/packages/cli-linux-x64/bin",
         "{workspaceRoot}/packages/cli-linux-arm64/bin",

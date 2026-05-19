@@ -50,11 +50,11 @@ function main() {
 
   const child = spawn(binPath, process.argv.slice(2), { stdio: "inherit" });
 
-  child.on("exit", (code, signal) => {
-    if (signal) process.kill(process.pid, signal);
+  child.on("exit", (code: number | null, signal: string | null) => {
+    if (signal) process.kill(process.pid, signal as NodeJS.Signals);
     process.exit(code ?? 1);
   });
-  child.on("error", (error) => {
+  child.on("error", (error: Error) => {
     console.error(`Failed to spawn the binary: ${error}`);
     process.exit(1);
   });

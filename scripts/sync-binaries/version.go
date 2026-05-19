@@ -35,8 +35,9 @@ func setPackageVersions(packagesPath, version string) error {
 	return nil
 }
 
-// versionFieldRe matches a JSON "version" key-value pair. The captured group
-// is the full match so ReplaceAll can swap just the value.
+// versionFieldRe is used to swap the "version" field in raw JSON bytes instead
+// of round-tripping through a Go struct, which would re-serialize arrays and
+// destroy inline formatting (e.g. "os": ["linux"] would expand to multi-line).
 var versionFieldRe = regexp.MustCompile(`"version"\s*:\s*"[^"]*"`)
 
 // setVersionInPackageJSON reads the file at path, sets "version" to version,

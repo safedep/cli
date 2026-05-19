@@ -28,6 +28,11 @@ profile.cov
 # env file
 .env
 
+# Node
+node_modules/
+.pnpm-store/
+.nx/
+
 # Editor/IDE
 # .idea/
 # .vscode/

@@ -4,6 +4,7 @@
   "targets": {
     "run": {
       "executor": "nx:run-commands",
+      "cache": true,
       "dependsOn": [{"projects": "safedep-cli", "target": "build-snapshot"}],
       "options": {
         "command": "go run ./scripts/sync-binaries/ --strict --artifacts-path dist/artifacts.json --packages-path ./packages",

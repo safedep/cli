@@ -4,6 +4,7 @@
   "targets": {
     "build-snapshot": {
       "executor": "nx:run-commands",
+      "cache": true,
       "options": {
         "command": "goreleaser build --clean --snapshot",
         "cwd": "{workspaceRoot}"

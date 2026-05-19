@@ -1,0 +1,14 @@
+{
+  "name": "smoke",
+  "root": "packages/smoke",
+  "targets": {
+    "verify": {
+      "executor": "nx:run-commands",
+      "dependsOn": [{"projects": "safedep-cli", "target": "build-dev"}],
+      "options": {
+        "command": "pnpm exec safedep --version",
+        "cwd": "{workspaceRoot}/packages/smoke"
+      }
+    }
+  }
+}

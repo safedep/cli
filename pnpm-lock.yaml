@@ -50,6 +50,12 @@ importers:
 
   packages/cli-win32-x64: {}
 
+  packages/smoke:
+    dependencies:
+      '@safedep/cli':
+        specifier: workspace:*
+        version: link:../cli
+
 packages:
 
   '@babel/generator@8.0.0-rc.4':

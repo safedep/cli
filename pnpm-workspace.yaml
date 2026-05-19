@@ -1,2 +1,4 @@
 packages:
   - 'packages/*'
+allowBuilds:
+  nx: set this to true or false

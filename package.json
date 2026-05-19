@@ -1,0 +1,7 @@
+{
+  "name": "safedep-cli-workspace",
+  "private": true,
+  "devDependencies": {
+    "nx": "latest"
+  }
+}

@@ -34,6 +34,7 @@ func main() {
 	artifactsPath := flag.String("artifacts-path", "dist/artifacts.json", "Path to goreleaser artifacts.json")
 	packagesPath := flag.String("packages-path", "./packages", "Path to the npm packages directory")
 	strict := flag.Bool("strict", true, "Fail if a package directory does not exist for a built artifact")
+	setVersion := flag.String("set-version", "", "Semver x.y.z to write into all non-private package.json files under packages-path")
 	flag.Parse()
 
 	artifactsBytes, err := os.ReadFile(*artifactsPath)
@@ -86,6 +87,12 @@ func main() {
 					log.Fatalf("sync darwin universal -> %s: %v", nodeArch, err)
 				}
 			}
+		}
+	}
+
+	if *setVersion != "" {
+		if err := setPackageVersions(*packagesPath, *setVersion); err != nil {
+			log.Fatalf("set-version: %v", err)
 		}
 	}
 }

@@ -1,0 +1,10 @@
+{
+  "name": "@safedep/cli-win32-x64",
+  "version": "0.0.0",
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "files": ["bin/**"],
+  "bin": {
+    "safedep-cli": "bin/safedep.exe"
+  }
+}

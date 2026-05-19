@@ -1,0 +1,10 @@
+{
+  "name": "@safedep/cli-linux-arm64",
+  "version": "0.0.0",
+  "os": ["linux"],
+  "cpu": ["arm64"],
+  "files": ["bin/**"],
+  "bin": {
+    "safedep-cli": "bin/safedep"
+  }
+}

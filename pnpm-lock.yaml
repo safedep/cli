@@ -12,6 +12,16 @@ importers:
         specifier: latest
         version: 23.0.0-beta.11
 
+  packages/cli-darwin-arm64: {}
+
+  packages/cli-darwin-x64: {}
+
+  packages/cli-linux-arm64: {}
+
+  packages/cli-linux-x64: {}
+
+  packages/cli-win32-x64: {}
+
 packages:
 
   '@emnapi/core@1.4.5':

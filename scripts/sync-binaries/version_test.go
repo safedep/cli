@@ -80,6 +80,91 @@ func TestSetPackageVersions(t *testing.T) {
 	})
 }
 
+func writeBinary(t *testing.T, dir, pkgName, binName string) {
+	t.Helper()
+	binDir := filepath.Join(dir, pkgName, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, binName), []byte("binary"), 0o755))
+}
+
+func TestVerifyPackageBins(t *testing.T) {
+	t.Run("passes when all platform packages have binaries", func(t *testing.T) {
+		dir := t.TempDir()
+		writePkgJSON(t, dir, "cli-linux-x64", map[string]any{
+			"name": "cli-linux-x64", "version": "0.0.0", "os": []string{"linux"},
+		})
+		writeBinary(t, dir, "cli-linux-x64", "safedep")
+
+		writePkgJSON(t, dir, "cli-darwin-arm64", map[string]any{
+			"name": "cli-darwin-arm64", "version": "0.0.0", "os": []string{"darwin"},
+		})
+		writeBinary(t, dir, "cli-darwin-arm64", "safedep")
+
+		require.NoError(t, verifyPackageBins(dir))
+	})
+
+	t.Run("fails when a platform package has an empty bin/", func(t *testing.T) {
+		dir := t.TempDir()
+		writePkgJSON(t, dir, "cli-linux-x64", map[string]any{
+			"name": "cli-linux-x64", "version": "0.0.0", "os": []string{"linux"},
+		})
+		// Create empty bin/ dir — no binary inside.
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "cli-linux-x64", "bin"), 0o755))
+
+		err := verifyPackageBins(dir)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cli-linux-x64")
+	})
+
+	t.Run("fails when a platform package has no bin/ directory", func(t *testing.T) {
+		dir := t.TempDir()
+		writePkgJSON(t, dir, "cli-linux-x64", map[string]any{
+			"name": "cli-linux-x64", "version": "0.0.0", "os": []string{"linux"},
+		})
+		// No bin/ directory created.
+
+		err := verifyPackageBins(dir)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cli-linux-x64")
+	})
+
+	t.Run("skips meta packages without os field", func(t *testing.T) {
+		dir := t.TempDir()
+		writePkgJSON(t, dir, "cli", map[string]any{
+			"name": "cli", "version": "0.0.0",
+		})
+		// No bin/ — this should not cause an error since there's no "os" field.
+
+		require.NoError(t, verifyPackageBins(dir))
+	})
+
+	t.Run("skips private packages", func(t *testing.T) {
+		dir := t.TempDir()
+		writePkgJSON(t, dir, "cli-private", map[string]any{
+			"name": "cli-private", "version": "0.0.0", "os": []string{"linux"}, "private": true,
+		})
+		// No bin/ — private packages are skipped regardless of "os".
+
+		require.NoError(t, verifyPackageBins(dir))
+	})
+
+	t.Run("reports multiple missing packages", func(t *testing.T) {
+		dir := t.TempDir()
+		writePkgJSON(t, dir, "cli-linux-x64", map[string]any{
+			"name": "cli-linux-x64", "version": "0.0.0", "os": []string{"linux"},
+		})
+		writePkgJSON(t, dir, "cli-darwin-x64", map[string]any{
+			"name": "cli-darwin-x64", "version": "0.0.0", "os": []string{"darwin"},
+		})
+		// Neither has a bin/.
+
+		err := verifyPackageBins(dir)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cli-linux-x64")
+		assert.Contains(t, err.Error(), "cli-darwin-x64")
+	})
+}
+
 func TestSetVersionInPackageJSON(t *testing.T) {
 	t.Run("writes version field", func(t *testing.T) {
 		dir := t.TempDir()

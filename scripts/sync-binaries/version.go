@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 var semverRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
@@ -73,4 +74,61 @@ func setVersionInPackageJSON(path, version string) error {
 	updated := versionFieldRe.ReplaceAll(data, repl)
 
 	return os.WriteFile(path, updated, 0o644)
+}
+
+// verifyPackageBins checks that every platform package under packagesPath has a
+// non-empty bin/ directory. Platform packages are identified by the presence of
+// an "os" field in their package.json; packages without that field (e.g. the
+// meta/shim package) and private packages are skipped.
+func verifyPackageBins(packagesPath string) error {
+	entries, err := os.ReadDir(packagesPath)
+	if err != nil {
+		return fmt.Errorf("read packages dir: %w", err)
+	}
+
+	var missing []string
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		pkgJSONPath := filepath.Join(packagesPath, entry.Name(), "package.json")
+		data, err := os.ReadFile(pkgJSONPath)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("read %s: %w", pkgJSONPath, err)
+		}
+
+		var pkg map[string]json.RawMessage
+		if err := json.Unmarshal(data, &pkg); err != nil {
+			return fmt.Errorf("parse %s: %w", pkgJSONPath, err)
+		}
+
+		// Skip private packages.
+		if priv, ok := pkg["private"]; ok {
+			var b bool
+			if json.Unmarshal(priv, &b) == nil && b {
+				continue
+			}
+		}
+
+		// Only platform packages declare an "os" constraint.
+		if _, ok := pkg["os"]; !ok {
+			continue
+		}
+
+		binDir := filepath.Join(packagesPath, entry.Name(), "bin")
+		binEntries, err := os.ReadDir(binDir)
+		if err != nil || len(binEntries) == 0 {
+			missing = append(missing, entry.Name())
+		}
+	}
+
+	if len(missing) > 0 {
+		return fmt.Errorf("platform packages missing bin/: %s", strings.Join(missing, ", "))
+	}
+	return nil
 }

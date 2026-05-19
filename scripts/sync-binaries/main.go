@@ -35,6 +35,7 @@ func main() {
 	packagesPath := flag.String("packages-path", "./packages", "Path to the npm packages directory")
 	strict := flag.Bool("strict", true, "Fail if a package directory does not exist for a built artifact")
 	setVersion := flag.String("set-version", "", "Semver x.y.z to write into all non-private package.json files under packages-path")
+	verifyBins := flag.Bool("verify-bins", false, "Verify that each platform package has a non-empty bin/ directory after sync")
 	flag.Parse()
 
 	artifactsBytes, err := os.ReadFile(*artifactsPath)
@@ -93,6 +94,12 @@ func main() {
 	if *setVersion != "" {
 		if err := setPackageVersions(*packagesPath, *setVersion); err != nil {
 			log.Fatalf("set-version: %v", err)
+		}
+	}
+
+	if *verifyBins {
+		if err := verifyPackageBins(*packagesPath); err != nil {
+			log.Fatalf("verify-bins: %v", err)
 		}
 	}
 }

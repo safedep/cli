@@ -3,11 +3,10 @@ package mcp
 import (
 	"github.com/safedep/cli/internal/agent"
 	"github.com/safedep/cli/internal/app"
+	"github.com/safedep/cli/internal/endpoint"
 	"github.com/safedep/dry/cloud/endpointsync"
 	"github.com/spf13/cobra"
 )
-
-const defaultMCPServerURL = "https://mcp.safedep.io/model-context-protocol/threats/v1/mcp"
 
 type installFlags struct {
 	MCPURL       string
@@ -56,7 +55,7 @@ func installCmd(a *app.App) *cobra.Command {
 	}
 
 	f := cmd.Flags()
-	f.StringVar(&flags.MCPURL, "mcp-url", defaultMCPServerURL, "SafeDep MCP server URL")
+	f.StringVar(&flags.MCPURL, "mcp-url", endpoint.DefaultMCPServerURL, "SafeDep MCP server URL")
 	f.StringVar(&flags.WorkspaceDir, "workspace", "", "project directory for workspace-level injection (empty = skip)")
 
 	return cmd

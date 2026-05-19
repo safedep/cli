@@ -5,6 +5,7 @@ import (
 
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/config"
+	"github.com/safedep/cli/internal/endpoint"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,7 +53,7 @@ func TestInstallCmd_Flags(t *testing.T) {
 
 	mcpURLFlag := installCmd.Flags().Lookup("mcp-url")
 	require.NotNil(t, mcpURLFlag, "--mcp-url flag must exist")
-	assert.Equal(t, defaultMCPServerURL, mcpURLFlag.DefValue)
+	assert.Equal(t, endpoint.DefaultMCPServerURL, mcpURLFlag.DefValue)
 
 	workspaceFlag := installCmd.Flags().Lookup("workspace")
 	require.NotNil(t, workspaceFlag, "--workspace flag must exist")

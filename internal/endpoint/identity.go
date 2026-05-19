@@ -9,6 +9,11 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// DefaultMCPServerURL is the canonical SafeDep MCP endpoint. Both
+// `protect mcp install` and `setup mcp install` default to this value;
+// a single constant prevents drift between the two commands.
+const DefaultMCPServerURL = "https://mcp.safedep.io/model-context-protocol/threats/v1/mcp"
+
 // IdentityHeaderValue returns the X-Endpoint-ID header value for the current
 // machine: base64(proto.Marshal(EndpointIdentity)). The identity is derived
 // from the machine's stable hardware UUID and hostname; it does not require

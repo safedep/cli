@@ -55,14 +55,27 @@ func main() {
 				log.Printf("skipping invalid artifact: %v", err)
 				continue
 			}
+
+			// goreleaser v2 emits a universal macOS binary as type "Binary"
+			// with goarch "all" when universal_binaries.replace is true.
+			// Copy it to both darwin platform packages.
+			if artifact.Goos == "darwin" && artifact.Goarch == "all" {
+				for _, nodeArch := range []string{"x64", "arm64"} {
+					packagePath := filepath.Join(*packagesPath, fmt.Sprintf("cli-darwin-%s", nodeArch))
+					if err := copyToBin(artifact.Path, packagePath, "safedep", *strict); err != nil {
+						log.Fatalf("sync darwin universal -> %s: %v", nodeArch, err)
+					}
+				}
+				continue
+			}
+
 			if err := syncBinary(artifact, *packagesPath, *strict); err != nil {
 				log.Fatalf("sync: %v", err)
 			}
 
 		case "Universal Binary":
-			// goreleaser merges darwin/amd64 + darwin/arm64 into a single fat
-			// binary when universal_binaries.replace is true. Copy it to both
-			// darwin platform packages since it runs on either architecture.
+			// Retained for compatibility with older goreleaser versions that
+			// emitted a distinct type for universal binaries.
 			if artifact.Goos != "darwin" {
 				log.Printf("unexpected universal binary for goos=%s, skipping", artifact.Goos)
 				continue

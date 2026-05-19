@@ -6,7 +6,7 @@
       "executor": "nx:run-commands",
       "dependsOn": [{"projects": "safedep-cli", "target": "build-dev"}],
       "options": {
-        "command": "pnpm exec safedep --version",
+        "command": "pnpm exec safedep version",
         "cwd": "{workspaceRoot}/packages/smoke"
       }
     }

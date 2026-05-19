@@ -33,6 +33,9 @@ node_modules/
 .pnpm-store/
 .nx/
 
+# Internal docs (specs, plans)
+docs/superpowers/
+
 # Editor/IDE
 # .idea/
 # .vscode/

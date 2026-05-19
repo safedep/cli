@@ -1,0 +1,27 @@
+{
+  "name": "@safedep/cli",
+  "version": "0.0.0",
+  "type": "module",
+  "bin": {
+    "safedep": "dist/bin.cjs"
+  },
+  "files": [
+    "dist/**"
+  ],
+  "optionalDependencies": {
+    "@safedep/cli-linux-x64":    "workspace:*",
+    "@safedep/cli-linux-arm64":  "workspace:*",
+    "@safedep/cli-darwin-x64":   "workspace:*",
+    "@safedep/cli-darwin-arm64": "workspace:*",
+    "@safedep/cli-win32-x64":    "workspace:*"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "tsdown": "latest",
+    "typescript": "latest"
+  }
+}

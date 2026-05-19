@@ -1,0 +1,39 @@
+{
+  "name": "safedep-cli",
+  "root": ".",
+  "targets": {
+    "build-snapshot": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "goreleaser build --clean --snapshot",
+        "cwd": "{workspaceRoot}"
+      },
+      "inputs": [
+        "{workspaceRoot}/**/*.go",
+        "{workspaceRoot}/go.mod",
+        "{workspaceRoot}/go.sum",
+        "{workspaceRoot}/.goreleaser.yaml",
+        "!{workspaceRoot}/packages/**",
+        "!{workspaceRoot}/scripts/**",
+        "!{workspaceRoot}/dist/**",
+        "!{workspaceRoot}/bin/**",
+        "!{workspaceRoot}/node_modules/**"
+      ],
+      "outputs": ["{workspaceRoot}/dist"]
+    },
+    "build-dev": {
+      "executor": "nx:run-commands",
+      "dependsOn": [{"projects": "@safedep/cli", "target": "build"}],
+      "options": {
+        "command": "echo 'build-dev complete'"
+      }
+    },
+    "verify": {
+      "executor": "nx:run-commands",
+      "dependsOn": [{"projects": "smoke", "target": "verify"}],
+      "options": {
+        "command": "echo 'verify complete'"
+      }
+    }
+  }
+}

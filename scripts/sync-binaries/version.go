@@ -38,7 +38,9 @@ func setPackageVersions(packagesPath, version string) error {
 // versionFieldRe is used to swap the "version" field in raw JSON bytes instead
 // of round-tripping through a Go struct, which would re-serialize arrays and
 // destroy inline formatting (e.g. "os": ["linux"] would expand to multi-line).
-var versionFieldRe = regexp.MustCompile(`"version"\s*:\s*"[^"]*"`)
+// Anchoring to start-of-line prevents false matches inside string values of
+// other keys. Group 1 captures leading whitespace so indentation is unchanged.
+var versionFieldRe = regexp.MustCompile(`(?m)^(\s*)"version"\s*:\s*"[^"]*"`)
 
 // setVersionInPackageJSON reads the file at path, sets "version" to version,
 // and writes it back. A missing file is silently skipped. Packages with
@@ -67,8 +69,8 @@ func setVersionInPackageJSON(path, version string) error {
 		}
 	}
 
-	replacement := fmt.Sprintf(`"version": %q`, version)
-	updated := versionFieldRe.ReplaceAll(data, []byte(replacement))
+	repl := fmt.Appendf(nil, "${1}\"version\": \"%s\"", version)
+	updated := versionFieldRe.ReplaceAll(data, repl)
 
 	return os.WriteFile(path, updated, 0o644)
 }

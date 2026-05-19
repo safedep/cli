@@ -132,4 +132,27 @@ func TestSetVersionInPackageJSON(t *testing.T) {
 		assert.Contains(t, content, `"cpu": ["x64"]`)
 		assert.Contains(t, content, `"files": ["bin/**"]`)
 	})
+
+	t.Run("does not match version inside a string value", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "pkg", "package.json")
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+
+		// A description that contains the text "version": "..." mid-line must
+		// not be rewritten. The multiline anchor prevents this: "version"
+		// appears after "description": "..., not at the start of a line.
+		original := "{\n  \"name\": \"pkg\",\n  \"version\": \"0.0.0\",\n  \"description\": \"see \\\"version\\\": \\\"1.0.0\\\" in docs\"\n}\n"
+		require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+
+		require.NoError(t, setVersionInPackageJSON(path, "2.0.0"))
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		content := string(data)
+
+		assert.Contains(t, content, `"version": "2.0.0"`)
+		// The description value is stored as JSON with backslash-escaped quotes;
+		// assert the raw bytes are unchanged (no rewrite occurred inside the string).
+		assert.Contains(t, content, "\"description\": \"see \\\"version\\\": \\\"1.0.0\\\" in docs\"")
+	})
 }

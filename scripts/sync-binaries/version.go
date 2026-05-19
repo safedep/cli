@@ -11,6 +11,26 @@ import (
 
 var semverRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
+// packageMeta holds the fields from package.json that drive sync decisions.
+// Only the fields we actually branch on are declared; json.Unmarshal ignores
+// the rest, so the full file content is never disturbed.
+type packageMeta struct {
+	Private bool     `json:"private"`
+	OS      []string `json:"os"`
+}
+
+func readPackageMeta(path string) (*packageMeta, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var meta packageMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return nil, fmt.Errorf("parse: %w", err)
+	}
+	return &meta, nil
+}
+
 // setPackageVersions scans every immediate subdirectory of packagesPath for a
 // package.json, skips those with "private": true, and writes version to the
 // rest. Returns an error on the first failure.
@@ -58,22 +78,19 @@ func setVersionInPackageJSON(path, version string) error {
 		return fmt.Errorf("read: %w", err)
 	}
 
-	var pkg map[string]json.RawMessage
-	if err := json.Unmarshal(data, &pkg); err != nil {
+	var meta packageMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
 		return fmt.Errorf("parse: %w", err)
 	}
-
-	if priv, ok := pkg["private"]; ok {
-		var b bool
-		if json.Unmarshal(priv, &b) == nil && b {
-			return nil
-		}
+	if meta.Private {
+		return nil
 	}
 
 	repl := fmt.Appendf(nil, "${1}\"version\": \"%s\"", version)
 	updated := versionFieldRe.ReplaceAll(data, repl)
 
-	return os.WriteFile(path, updated, 0o644)
+	// 0o644: package.json must be world-readable for npm tooling.
+	return os.WriteFile(path, updated, 0o644) //nolint:gosec
 }
 
 // verifyPackageBins checks that every platform package under packagesPath has a
@@ -94,29 +111,15 @@ func verifyPackageBins(packagesPath string) error {
 		}
 
 		pkgJSONPath := filepath.Join(packagesPath, entry.Name(), "package.json")
-		data, err := os.ReadFile(pkgJSONPath)
+		meta, err := readPackageMeta(pkgJSONPath)
 		if os.IsNotExist(err) {
 			continue
 		}
 		if err != nil {
-			return fmt.Errorf("read %s: %w", pkgJSONPath, err)
+			return fmt.Errorf("%s: %w", entry.Name(), err)
 		}
 
-		var pkg map[string]json.RawMessage
-		if err := json.Unmarshal(data, &pkg); err != nil {
-			return fmt.Errorf("parse %s: %w", pkgJSONPath, err)
-		}
-
-		// Skip private packages.
-		if priv, ok := pkg["private"]; ok {
-			var b bool
-			if json.Unmarshal(priv, &b) == nil && b {
-				continue
-			}
-		}
-
-		// Only platform packages declare an "os" constraint.
-		if _, ok := pkg["os"]; !ok {
+		if meta.Private || len(meta.OS) == 0 {
 			continue
 		}
 

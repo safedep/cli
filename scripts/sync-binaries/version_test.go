@@ -10,14 +10,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// makeDir creates a directory for test fixtures.
+// 0o755 is the conventional permission for directories that need traversal.
+func makeDir(t *testing.T, path string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(path, 0o755)) //nolint:gosec
+}
+
+// writeTestFile writes a file for test fixtures.
+// 0o644 is the conventional permission for config files like package.json.
+func writeTestFile(t *testing.T, path string, content []byte) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(path, content, 0o644)) //nolint:gosec
+}
+
 func writePkgJSON(t *testing.T, dir, name string, content map[string]any) string {
 	t.Helper()
 	pkgDir := filepath.Join(dir, name)
-	require.NoError(t, os.MkdirAll(pkgDir, 0o755))
+	makeDir(t, pkgDir)
 	data, err := json.MarshalIndent(content, "", "  ")
 	require.NoError(t, err)
 	path := filepath.Join(pkgDir, "package.json")
-	require.NoError(t, os.WriteFile(path, append(data, '\n'), 0o644))
+	writeTestFile(t, path, append(data, '\n'))
 	return path
 }
 
@@ -60,7 +74,7 @@ func TestSetPackageVersions(t *testing.T) {
 
 	t.Run("skips subdirectories without package.json", func(t *testing.T) {
 		dir := t.TempDir()
-		require.NoError(t, os.MkdirAll(filepath.Join(dir, "no-pkg-json"), 0o755))
+		makeDir(t, filepath.Join(dir, "no-pkg-json"))
 		pathA := writePkgJSON(t, dir, "pkg-a", map[string]any{"name": "pkg-a", "version": "0.0.0"})
 
 		require.NoError(t, setPackageVersions(dir, "3.0.0"))
@@ -83,8 +97,9 @@ func TestSetPackageVersions(t *testing.T) {
 func writeBinary(t *testing.T, dir, pkgName, binName string) {
 	t.Helper()
 	binDir := filepath.Join(dir, pkgName, "bin")
-	require.NoError(t, os.MkdirAll(binDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(binDir, binName), []byte("binary"), 0o755))
+	makeDir(t, binDir)
+	// 0o755: binary files need execute permission.
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, binName), []byte("binary"), 0o755)) //nolint:gosec
 }
 
 func TestVerifyPackageBins(t *testing.T) {
@@ -108,8 +123,7 @@ func TestVerifyPackageBins(t *testing.T) {
 		writePkgJSON(t, dir, "cli-linux-x64", map[string]any{
 			"name": "cli-linux-x64", "version": "0.0.0", "os": []string{"linux"},
 		})
-		// Create empty bin/ dir — no binary inside.
-		require.NoError(t, os.MkdirAll(filepath.Join(dir, "cli-linux-x64", "bin"), 0o755))
+		makeDir(t, filepath.Join(dir, "cli-linux-x64", "bin"))
 
 		err := verifyPackageBins(dir)
 		require.Error(t, err)
@@ -121,7 +135,6 @@ func TestVerifyPackageBins(t *testing.T) {
 		writePkgJSON(t, dir, "cli-linux-x64", map[string]any{
 			"name": "cli-linux-x64", "version": "0.0.0", "os": []string{"linux"},
 		})
-		// No bin/ directory created.
 
 		err := verifyPackageBins(dir)
 		require.Error(t, err)
@@ -133,7 +146,6 @@ func TestVerifyPackageBins(t *testing.T) {
 		writePkgJSON(t, dir, "cli", map[string]any{
 			"name": "cli", "version": "0.0.0",
 		})
-		// No bin/ — this should not cause an error since there's no "os" field.
 
 		require.NoError(t, verifyPackageBins(dir))
 	})
@@ -143,7 +155,6 @@ func TestVerifyPackageBins(t *testing.T) {
 		writePkgJSON(t, dir, "cli-private", map[string]any{
 			"name": "cli-private", "version": "0.0.0", "os": []string{"linux"}, "private": true,
 		})
-		// No bin/ — private packages are skipped regardless of "os".
 
 		require.NoError(t, verifyPackageBins(dir))
 	})
@@ -156,7 +167,6 @@ func TestVerifyPackageBins(t *testing.T) {
 		writePkgJSON(t, dir, "cli-darwin-x64", map[string]any{
 			"name": "cli-darwin-x64", "version": "0.0.0", "os": []string{"darwin"},
 		})
-		// Neither has a bin/.
 
 		err := verifyPackageBins(dir)
 		require.Error(t, err)
@@ -192,7 +202,7 @@ func TestSetVersionInPackageJSON(t *testing.T) {
 	t.Run("preserves inline array formatting", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "pkg", "package.json")
-		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		makeDir(t, filepath.Dir(path))
 
 		// Write a package.json with compact inline arrays, matching the real
 		// platform packages under packages/cli-*/package.json.
@@ -204,7 +214,7 @@ func TestSetVersionInPackageJSON(t *testing.T) {
   "files": ["bin/**"]
 }
 `
-		require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+		writeTestFile(t, path, []byte(original))
 
 		require.NoError(t, setVersionInPackageJSON(path, "1.2.3"))
 
@@ -221,13 +231,13 @@ func TestSetVersionInPackageJSON(t *testing.T) {
 	t.Run("does not match version inside a string value", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "pkg", "package.json")
-		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		makeDir(t, filepath.Dir(path))
 
 		// A description that contains the text "version": "..." mid-line must
 		// not be rewritten. The multiline anchor prevents this: "version"
 		// appears after "description": "..., not at the start of a line.
 		original := "{\n  \"name\": \"pkg\",\n  \"version\": \"0.0.0\",\n  \"description\": \"see \\\"version\\\": \\\"1.0.0\\\" in docs\"\n}\n"
-		require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+		writeTestFile(t, path, []byte(original))
 
 		require.NoError(t, setVersionInPackageJSON(path, "2.0.0"))
 

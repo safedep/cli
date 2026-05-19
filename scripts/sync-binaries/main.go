@@ -132,7 +132,7 @@ func copyToBin(src, packagePath, binName string, strict bool) error {
 	}
 
 	binDir := filepath.Join(packagePath, "bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
+	if err := os.MkdirAll(binDir, 0o755); err != nil { //nolint:gosec // bin/ needs execute permission
 		return fmt.Errorf("create bin dir %s: %w", binDir, err)
 	}
 
@@ -146,13 +146,13 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("open source: %w", err)
 	}
-	defer srcFile.Close()
+	defer srcFile.Close() //nolint:errcheck // read-only; close error is negligible
 
 	dstFile, err := os.Create(dst)
 	if err != nil {
 		return fmt.Errorf("create destination: %w", err)
 	}
-	defer dstFile.Close()
+	defer dstFile.Close() //nolint:errcheck // Sync() is called explicitly before return; deferred close is best-effort
 
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
 		return fmt.Errorf("copy: %w", err)

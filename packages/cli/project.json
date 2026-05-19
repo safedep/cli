@@ -12,6 +12,17 @@
       "inputs": ["tsPackageSources", "{projectRoot}/tsdown.config.ts"],
       "outputs": ["{projectRoot}/dist"]
     },
+    "build-release": {
+      "executor": "nx:run-commands",
+      "dependsOn": [{"projects": "sync-binaries", "target": "run-release"}],
+      "options": {
+        "command": "pnpm run build",
+        "cwd": "{projectRoot}"
+      },
+      "inputs": ["tsPackageSources", "{projectRoot}/tsdown.config.ts"],
+      "outputs": ["{projectRoot}/dist"],
+      "cache": false
+    },
     "typecheck": {
       "executor": "nx:run-commands",
       "options": {

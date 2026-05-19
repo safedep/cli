@@ -17,6 +17,22 @@
         "{workspaceRoot}/packages/cli-darwin-arm64/bin",
         "{workspaceRoot}/packages/cli-win32-x64/bin"
       ]
+    },
+    "run-release": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "go run ./scripts/sync-binaries/ --strict --artifacts-path dist/artifacts.json --packages-path ./packages --set-version $VERSION",
+        "cwd": "{workspaceRoot}"
+      },
+      "inputs": ["goSyncSources", "{workspaceRoot}/dist/artifacts.json"],
+      "outputs": [
+        "{workspaceRoot}/packages/cli-linux-x64/bin",
+        "{workspaceRoot}/packages/cli-linux-arm64/bin",
+        "{workspaceRoot}/packages/cli-darwin-x64/bin",
+        "{workspaceRoot}/packages/cli-darwin-arm64/bin",
+        "{workspaceRoot}/packages/cli-win32-x64/bin"
+      ],
+      "cache": false
     }
   }
 }

@@ -31,7 +31,7 @@ func NewRegistrationPrompter(accessToken string) func() (*RegistrationInput, err
 // forms. The email from the access token is shown and editable; the final
 // value is included in the returned RegistrationInput.
 func PromptRegistration(accessToken string) (RegistrationInput, error) {
-	email := EmailFromAccessToken(accessToken)
+	email := emailFromUnverifiedAccessToken(accessToken)
 
 	var name, orgName, orgDomain string
 

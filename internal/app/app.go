@@ -4,12 +4,14 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
 
+	cliauth "github.com/safedep/cli/internal/auth"
 	"github.com/safedep/cli/internal/config"
 	"github.com/safedep/cli/internal/storage"
 	"github.com/safedep/cli/internal/tui"
@@ -20,13 +22,6 @@ import (
 const (
 	envProfile     = "SAFEDEP_PROFILE"
 	defaultProfile = "default"
-
-	// gRPCClientName identifies the CLI in server logs and request
-	// metadata. It is NOT the keychain app name: dry/cloud's
-	// DefaultAppName ("safedep") is shared across vet, pmg, and the CLI
-	// so credentials saved by one tool are discoverable by the others
-	// (per ADR Authentication section).
-	gRPCClientName = "safedep-cli"
 )
 
 // App is constructed once in main(). Output and profile are populated by
@@ -201,7 +196,7 @@ func (a *App) DataPlane() (*cloud.Client, error) {
 		return nil, errors.New("not authenticated: run `safedep auth login` first")
 	}
 
-	client, err := cloud.NewDataPlaneClient(gRPCClientName, creds)
+	client, err := cloud.NewDataPlaneClient(cliauth.GRPCAppName, creds)
 	if err != nil {
 		return nil, fmt.Errorf("app: data plane client: %w", err)
 	}
@@ -211,9 +206,9 @@ func (a *App) DataPlane() (*cloud.Client, error) {
 }
 
 // ControlPlane returns the control plane client for the active profile.
-// Returns a user-facing error when no OAuth credentials are available.
-// Auto-refresh of expired tokens is a future feature. Today an expired
-// token surfaces as a clear "session expired" error.
+// If the stored access token is expired it attempts a silent refresh via the
+// refresh token before building the client. On refresh failure the user is
+// directed to re-authenticate.
 func (a *App) ControlPlane() (*cloud.Client, error) {
 	resolver, err := a.TokenResolver()
 	if err != nil {
@@ -232,13 +227,55 @@ func (a *App) ControlPlane() (*cloud.Client, error) {
 		return nil, errors.New("not authenticated for control plane: run `safedep auth login`")
 	}
 
-	client, err := cloud.NewControlPlaneClient(gRPCClientName, creds)
+	creds, err = a.refreshIfExpiredLocked(creds)
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := cloud.NewControlPlaneClient(cliauth.GRPCAppName, creds)
 	if err != nil {
 		return nil, fmt.Errorf("app: control plane client: %w", err)
 	}
 
 	a.controlPlane = client
 	return a.controlPlane, nil
+}
+
+// refreshIfExpiredLocked silently refreshes the access token when it is
+// expired. It must be called with a.mu held. On success it returns new
+// credentials backed by the freshly-saved keychain entry. On refresh
+// failure it returns ErrRefreshFailed so the caller can prompt re-login.
+func (a *App) refreshIfExpiredLocked(creds *cloud.Credentials) (*cloud.Credentials, error) {
+	store, err := a.keychainStoreForRefreshLocked()
+	if err != nil {
+		return nil, fmt.Errorf("app: refresh: credential store: %w", err)
+	}
+
+	fresh, err := cliauth.RefreshAndPersistIfExpired(context.Background(), store, creds, a.keychainOptsLocked())
+	if err != nil {
+		return nil, err
+	}
+
+	if fresh != creds {
+		// Token was refreshed; reset the resolver cache so future calls use the new token.
+		a.tokenResolver = nil
+	}
+
+	return fresh, nil
+}
+
+// keychainStoreForRefreshLocked returns the credential store, constructing it
+// if it has not been initialised yet. Must be called with a.mu held.
+func (a *App) keychainStoreForRefreshLocked() (cloud.CredentialStore, error) {
+	if a.credStore != nil {
+		return a.credStore, nil
+	}
+	store, err := cloud.NewKeychainCredentialStore(a.keychainOptsLocked()...)
+	if err != nil {
+		return nil, err
+	}
+	a.credStore = store
+	return store, nil
 }
 
 // Close releases resources held by lazily-initialised collaborators.

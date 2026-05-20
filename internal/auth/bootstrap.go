@@ -11,6 +11,8 @@ import (
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/safedep/dry/log"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // TenantPicker resolves the tenant when the user has access to multiple.
@@ -33,6 +35,12 @@ type BootstrapInput struct {
 	APIKeyExpiryDays int
 	APIKeyName       string
 	Picker           TenantPicker
+
+	// RegistrationPrompter is called when the user has no accessible tenant.
+	// It should collect registration data interactively and return it. When
+	// nil, the zero-tenant case returns the existing "no accessible tenant"
+	// error (preserving behaviour for callers that do not support registration).
+	RegistrationPrompter func() (*RegistrationInput, error)
 
 	// ConnFor is the control-plane connection builder. Optional. When
 	// nil, the package-local default is used. Tests inject a fake.
@@ -63,7 +71,13 @@ func PostOAuthBootstrap(ctx context.Context, in BootstrapInput) (*BootstrapResul
 		return nil, err
 	}
 	if len(tenants) == 0 {
-		return nil, errors.New("auth: this account has no accessible tenant: contact SafeDep support")
+		if in.RegistrationPrompter == nil {
+			return nil, errors.New("auth: this account has no accessible tenant: contact SafeDep support")
+		}
+		tenants, err = registerAndRefetch(ctx, in)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	tenant, err := pickTenant(tenants, in.PreferredTenant, in.Picker)
@@ -95,6 +109,11 @@ func listAccessibleTenants(ctx context.Context, connFor ControlPlaneConnFunc, to
 	svc := controltowerv1grpc.NewUserServiceClient(conn)
 	resp, err := svc.GetUserInfo(ctx, &controltowerv1.GetUserInfoRequest{})
 	if err != nil {
+		// NotFound means the user has no control-tower account yet. Treat as
+		// zero tenants so PostOAuthBootstrap triggers the registration flow.
+		if status.Code(err) == codes.NotFound {
+			return []string{}, nil
+		}
 		return nil, fmt.Errorf("auth: get user info: %w", err)
 	}
 
@@ -146,6 +165,41 @@ func createAPIKey(ctx context.Context, connFor ControlPlaneConnFunc, token, tena
 		return "", time.Time{}, fmt.Errorf("auth: create api key: %w", err)
 	}
 	return resp.GetKey(), resp.GetExpiresAt().AsTime(), nil
+}
+
+// registerAndRefetch calls RegistrationPrompter to collect registration data,
+// registers the tenant, then re-fetches accessible tenants. It returns an
+// error if the prompter fails, if registration fails, or if the re-fetch
+// still returns zero tenants.
+func registerAndRefetch(ctx context.Context, in BootstrapInput) ([]string, error) {
+	reg, err := in.RegistrationPrompter()
+	if err != nil {
+		return nil, err
+	}
+	if reg == nil {
+		return nil, errors.New("auth: registration prompter returned nil input")
+	}
+
+	_, err = RegisterTenant(ctx, RegisterTenantInput{
+		AccessToken:        in.AccessToken,
+		Email:              reg.Email,
+		Name:               reg.Name,
+		OrganizationName:   reg.OrganizationName,
+		OrganizationDomain: reg.OrganizationDomain,
+		ConnFor:            in.ConnFor,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	tenants, err := listAccessibleTenants(ctx, in.ConnFor, in.AccessToken)
+	if err != nil {
+		return nil, err
+	}
+	if len(tenants) == 0 {
+		return nil, fmt.Errorf("auth: registration succeeded but no tenant found: contact SafeDep support")
+	}
+	return tenants, nil
 }
 
 func closeConn(label string, conn *grpc.ClientConn) {

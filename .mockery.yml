@@ -1,0 +1,12 @@
+template: testify
+force-file-write: true
+
+packages:
+  github.com/safedep/dry/cloud:
+    config:
+      dir: "internal/auth/mocks"
+      pkgname: "mocks"
+      structname: "{{.InterfaceName}}Mock"
+      filename: "{{.InterfaceName}}_mock.go"
+    interfaces:
+      CredentialStore:

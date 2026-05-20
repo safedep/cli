@@ -29,3 +29,4 @@ brew install safedep/tap/cli
 | [`safedep integration jfrog run`](./docs/cmd/integration-jfrog-run.md) | Push SafeDep malware findings to JFrog XRay |
 | [`safedep protect mcp install`](./docs/cmd/protect-mcp-install.md) | Inject SafeDep MCP server config into detected AI agents |
 | [`safedep protect mcp uninstall`](./docs/cmd/protect-mcp-uninstall.md) | Remove SafeDep MCP server config from detected AI agents |
+| [`safedep setup mcp install`](./docs/cmd/setup-mcp-install.md) | Guided onboarding: authenticate and configure AI agents in one step |

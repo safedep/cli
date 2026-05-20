@@ -34,7 +34,7 @@ GO_CFLAGS := -X 'github.com/safedep/cli/internal/version.Commit=$(GITCOMMIT)' \
              -X 'github.com/safedep/cli/internal/version.Version=$(VERSION)'
 GO_LDFLAGS := -ldflags "-s -w $(GO_CFLAGS)"
 
-.PHONY: all build create_bin test lint lint-conventions fmt deps clean release-snapshot
+.PHONY: all build create_bin test lint lint-conventions fmt deps mocks clean release-snapshot
 
 all: build
 
@@ -58,6 +58,9 @@ fmt:
 
 deps:
 	$(GO) mod download && $(GO) mod tidy
+
+mocks:
+	$(GO) tool mockery
 
 clean:
 	$(RM_RF)

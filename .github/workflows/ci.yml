@@ -60,6 +60,13 @@ jobs:
           node-version: "24"
           cache: "pnpm"
 
+      - name: Install and configure PMG
+        uses: safedep/pmg@46cc70db535107183c9e752bb55d1d5c5f1a9290 # v0.14.0
+        with:
+          api-key: ${{ secrets.SAFEDEP_CLOUD_API_KEY }}
+          tenant-id: ${{ secrets.SAFEDEP_CLOUD_TENANT_DOMAIN }}
+          endpoint-id: CICD_GHA_SAFEDEP_CLI
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -71,3 +78,7 @@ jobs:
 
       - name: Release preflight
         run: pnpm nx run safedep-cli:release-preflight
+
+      - name: Sync PMG events
+        if: always()
+        run: pmg cloud sync

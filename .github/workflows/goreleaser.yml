@@ -76,7 +76,6 @@ jobs:
         run: pnpm nx run safedep-cli:publish-npm
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          GITHUB_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Sync PMG events
@@ -88,6 +87,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         node: ["18", "20", "22", "24"]

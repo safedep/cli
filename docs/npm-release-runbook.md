@@ -36,8 +36,11 @@ After the first release succeeds and all 6 packages exist on npm:
    linking to the `safedep/cli` repo + `binary-release` environment
 2. Delete `NPM_TOKEN` from `binary-release` — it is never needed again
 
-`GORELEASER_GITHUB_TOKEN` must have write access to `safedep/homebrew-tap`
-in addition to `safedep/cli`.
+`GORELEASER_GITHUB_TOKEN` must have write access to both `safedep/cli` (create
+release, upload tarballs) and `safedep/homebrew-tap` (update `Casks/cli.rb`).
+If this is a fine-grained PAT scoped only to `safedep/cli`, goreleaser creates
+the GitHub Release then fails during the homebrew step — partial state requiring
+manual cleanup. Verify token repository scope before first release.
 
 ### Round 2+ — OIDC only (no stored npm token)
 
@@ -143,8 +146,24 @@ To add support, three changes are needed:
 Full mental walkthrough of first-time and day-2 release flows. Findings:
 
 - `binary-release` environment missing `NPM_TOKEN`, `SAFEDEP_CLOUD_API_KEY`, `SAFEDEP_CLOUD_TENANT_DOMAIN` — **blocking for first release**
-- Retry-after-partial-failure requires manual GitHub Release deletion before goreleaser can re-run — documented above
-- `fail-fast: false` missing on `test-installation` matrix (added separately)
-- `GITHUB_TOKEN` passed to `publish-npm` Nx step is redundant — npm provenance OIDC uses ambient GHA tokens, not GORELEASER_GITHUB_TOKEN
-- `workspace:*` rewriting by pnpm at publish time is correct — lock file is not re-read during publish
+- Retry-after-partial-failure requires manual GitHub Release deletion before goreleaser can re-run
+- `fail-fast: false` missing on `test-installation` matrix — fixed
+- `GITHUB_TOKEN` passed to `publish-npm` Nx step is redundant — removed
+- `workspace:*` rewriting by pnpm at publish time is correct — lock file not re-read during publish
 - VERSION env var propagation through Nx chain confirmed correct — nx:run-commands inherits parent env
+- `GORELEASER_GITHUB_TOKEN` must have write to both `safedep/cli` and `safedep/homebrew-tap` — fine-grained PATs scoped to one repo will fail mid-release
+- PMG `cloud sync` with `if: always()` but no `continue-on-error: true` would mark a successful release as failed — fixed
+- `pnpm publish -r` skips already-published versions on retry — safe recovery for partial npm publish
+
+Failure-mode matrix:
+
+| Fails at | GH Release exists | npm published | Recovery |
+|---|---|---|---|
+| Any setup step | No | No | Fix, re-run |
+| goreleaser compile/archive/checksum | No | No | Fix, re-run |
+| goreleaser release creation+ | Yes (partial) | No | Delete GH release, fix, re-run |
+| Attestation | Yes | No | Delete GH release, re-run |
+| tsdown build | Yes | No | Delete GH release, re-run |
+| npm partial publish | Yes | Some | Delete GH release, re-run (pnpm skips already-published) |
+| PMG cloud sync | Yes | Yes | No action — `continue-on-error: true` |
+| test-installation smoke | Yes | Yes | Investigate per OS/Node combo |

@@ -80,6 +80,7 @@ jobs:
 
       - name: Sync PMG events
         if: always()
+        continue-on-error: true
         run: pmg cloud sync
 
   test-installation:

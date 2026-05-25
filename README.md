@@ -5,7 +5,7 @@
 # SafeDep CLI
 
 `safedep` is SafeDep Cloud on the command line. Manage auth, query endpoint
-telemetry, harden AI coding agents, and push findings to your security stack —
+telemetry, harden AI coding agents, and integrate with your security toolchain —
 for humans and the agents they work with.
 
 ## Protect your AI agents in one command

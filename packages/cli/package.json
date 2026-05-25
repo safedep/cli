@@ -1,0 +1,36 @@
+{
+  "name": "@safedep/cli",
+  "version": "0.0.0",
+  "description": "SafeDep CLI: open source software supply chain security",
+  "license": "Apache-2.0",
+  "keywords": ["security", "supply-chain", "sbom", "safedep", "cli"],
+  "engines": { "node": ">=18" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/safedep/cli.git"
+  },
+  "publishConfig": { "access": "public" },
+  "type": "module",
+  "bin": {
+    "safedep": "dist/bin.cjs"
+  },
+  "files": [
+    "dist/**"
+  ],
+  "optionalDependencies": {
+    "@safedep/cli-linux-x64":    "workspace:*",
+    "@safedep/cli-linux-arm64":  "workspace:*",
+    "@safedep/cli-darwin-x64":   "workspace:*",
+    "@safedep/cli-darwin-arm64": "workspace:*",
+    "@safedep/cli-win32-x64":    "workspace:*"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "tsdown": "latest",
+    "typescript": "latest"
+  }
+}

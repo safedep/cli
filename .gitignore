@@ -13,6 +13,7 @@
 
 # output dirs
 bin/
+packages/*/bin/
 dist/
 
 # Code coverage profiles and other test artifacts
@@ -24,12 +25,16 @@ profile.cov
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
-# Go workspace file
-go.work
-go.work.sum
-
 # env file
 .env
+
+# Node
+node_modules/
+.pnpm-store/
+.nx/
+
+# Internal docs (specs, plans)
+docs/superpowers/
 
 # Editor/IDE
 # .idea/

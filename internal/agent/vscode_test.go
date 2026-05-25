@@ -22,10 +22,10 @@ func TestVSCode(t *testing.T) {
 		assert.True(t, v.Detected())
 	})
 
-	t.Run("Detected is true when .config/Code/User exists", func(t *testing.T) {
+	t.Run("Detected is true when user config dir exists", func(t *testing.T) {
 		home := t.TempDir()
-		require.NoError(t, os.MkdirAll(filepath.Join(home, ".config", "Code", "User"), 0o700))
 		v := newVSCode(home)
+		require.NoError(t, os.MkdirAll(v.userConfigDir(), 0o700))
 		assert.True(t, v.Detected())
 	})
 

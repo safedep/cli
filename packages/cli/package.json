@@ -9,6 +9,8 @@
     "type": "git",
     "url": "git+https://github.com/safedep/cli.git"
   },
+  "homepage": "https://safedep.io",
+  "bugs": { "url": "https://github.com/safedep/cli/issues" },
   "publishConfig": { "access": "public" },
   "type": "module",
   "bin": {

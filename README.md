@@ -82,6 +82,29 @@ Push SafeDep malware findings to external security tools. JFrog XRay supported t
 ## Learn more
 
 - [Documentation](https://docs.safedep.io) — guides, concepts, and API reference
-- [Command reference](./docs/cmd/) — every command, flag, and example
 - [SafeDep Cloud](https://app.safedep.io) — the platform behind the CLI
 - [GitHub Issues](https://github.com/safedep/cli/issues) — bug reports and feature requests
+
+<details>
+<summary>Full command reference</summary>
+
+| Command | Description |
+|---------|-------------|
+| [`safedep auth login`](./docs/cmd/auth-login.md) | Authenticate with SafeDep Cloud |
+| [`safedep auth logout`](./docs/cmd/auth-logout.md) | Remove credentials for the active profile |
+| [`safedep auth status`](./docs/cmd/auth-status.md) | Show authentication status |
+| [`safedep auth profile list`](./docs/cmd/auth-profile-list.md) | List credential profiles |
+| [`safedep endpoint status`](./docs/cmd/endpoint-status.md) | Show fleet health |
+| [`safedep endpoint list`](./docs/cmd/endpoint-list.md) | List endpoints with filters |
+| [`safedep endpoint show`](./docs/cmd/endpoint-show.md) | Show endpoint detail |
+| [`safedep endpoint activity list`](./docs/cmd/endpoint-activity-list.md) | List recent endpoint activity |
+| [`safedep endpoint inventory list`](./docs/cmd/endpoint-inventory-list.md) | List current endpoint inventory |
+| [`safedep query exec`](./docs/cmd/query-exec.md) | Execute a SQL query against SafeDep Cloud |
+| [`safedep query schema get`](./docs/cmd/query-schema-get.md) | Inspect the SafeDep Cloud query schema |
+| [`safedep protect mcp install`](./docs/cmd/protect-mcp-install.md) | Inject SafeDep MCP server config into detected AI agents |
+| [`safedep protect mcp uninstall`](./docs/cmd/protect-mcp-uninstall.md) | Remove SafeDep MCP server config from detected AI agents |
+| [`safedep integration jfrog run`](./docs/cmd/integration-jfrog-run.md) | Push SafeDep malware findings to JFrog XRay |
+| [`safedep setup mcp install`](./docs/cmd/setup-mcp-install.md) | Guided onboarding: authenticate and configure AI agents |
+| [`safedep version`](./docs/cmd/version.md) | Print CLI version |
+
+</details>

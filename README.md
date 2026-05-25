@@ -1,6 +1,7 @@
 [![npm](https://img.shields.io/npm/v/@safedep/cli?style=flat-square)](https://www.npmjs.com/package/@safedep/cli)
 [![License](https://img.shields.io/github/license/safedep/cli?style=flat-square)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/safedep/cli/goreleaser.yml?style=flat-square)](https://github.com/safedep/cli/actions)
+[![Website](https://img.shields.io/badge/Website-safedep.io-3b82f6?style=flat-square)](https://safedep.io)
 
 # SafeDep CLI
 

@@ -14,8 +14,9 @@ for humans and the agents they work with.
 npx @safedep/cli setup mcp install
 ```
 
-SafeDep authenticates, detects your AI coding agents (Claude Code, Cursor,
-Gemini CLI, and more), and injects MCP-based threat protection into each one.
+One command authenticates you with SafeDep Cloud, detects your AI coding agents
+(Claude Code, Cursor, Gemini CLI, and more), and injects MCP-based threat protection
+into each one.
 
 ## Install
 
@@ -73,11 +74,11 @@ Run SQL against SafeDep Cloud's query service. Inspect packages, events, and fin
 across your entire fleet.
 
 **AI agent protection** — `safedep protect mcp`
-Inject or remove the SafeDep MCP server from detected AI coding agents. Works with
+Inject or remove the SafeDep MCP server from detected AI coding agents. Supports
 Claude Code, Cursor, Gemini CLI, and more.
 
 **Integrations** — `safedep integration`
-Push SafeDep malware findings to external security tools. JFrog XRay supported today.
+Push SafeDep malware findings to external security tools. JFrog XRay is supported.
 
 ## Learn more
 

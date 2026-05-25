@@ -6,10 +6,10 @@
 # SafeDep CLI
 
 `safedep` is SafeDep Cloud on the command line. Manage auth, query endpoint
-telemetry, harden AI coding agents, and integrate with your security toolchain —
-for humans and the agents they work with.
+telemetry, harden AI coding agents, and integrate with your security toolchain.
+Built for humans and the agents they work with.
 
-## Protect your AI agents in one command
+## TL;DR
 
 ```bash
 npx @safedep/cli setup mcp install
@@ -21,24 +21,32 @@ into each one.
 
 ## Install
 
+Homebrew (macOS and Linux):
+
 ```bash
 brew install safedep/tap/cli
 ```
+
+<details>
+<summary>Other installation options</summary>
+
+npm:
 
 ```bash
 npm install -g @safedep/cli
 ```
 
+pnpm:
+
 ```bash
 pnpm add -g @safedep/cli
 ```
 
+Bun:
+
 ```bash
 bun add -g @safedep/cli
 ```
-
-<details>
-<summary>Other installation options</summary>
 
 Download prebuilt binaries for Linux, macOS, and Windows from the
 [GitHub Releases](https://github.com/safedep/cli/releases) page.
@@ -63,29 +71,29 @@ safedep setup mcp install
 
 ## What safedep can do
 
-**Authentication and profiles** — `safedep auth`
+**Authentication and profiles**: `safedep auth`
 Log in to SafeDep Cloud, manage credential profiles, and switch between tenants.
 
-**Endpoint fleet intelligence** — `safedep endpoint`
+**Endpoint fleet intelligence**: `safedep endpoint`
 Monitor the health of every endpoint reporting to your tenant, list active machines,
 and drill into package inventory and recent activity.
 
-**Security telemetry queries** — `safedep query`
+**Security telemetry queries**: `safedep query`
 Run SQL against SafeDep Cloud's query service. Inspect packages, events, and findings
 across your entire fleet.
 
-**AI agent protection** — `safedep protect mcp`
+**AI agent protection**: `safedep protect mcp`
 Inject or remove the SafeDep MCP server from detected AI coding agents. Supports
 Claude Code, Cursor, Gemini CLI, and more.
 
-**Integrations** — `safedep integration`
+**Integrations**: `safedep integration`
 Push SafeDep malware findings to external security tools. JFrog XRay is supported.
 
 ## Learn more
 
-- [Documentation](https://docs.safedep.io) — guides, concepts, and API reference
-- [SafeDep Cloud](https://app.safedep.io) — the platform behind the CLI
-- [GitHub Issues](https://github.com/safedep/cli/issues) — bug reports and feature requests
+- [Documentation](https://docs.safedep.io): guides, concepts, and API reference
+- [SafeDep Cloud](https://app.safedep.io): the platform behind the CLI
+- [GitHub Issues](https://github.com/safedep/cli/issues): bug reports and feature requests
 
 <details>
 <summary>Full command reference</summary>

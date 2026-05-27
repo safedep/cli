@@ -25,7 +25,9 @@ func schemaCmd(a *app.App) *cobra.Command {
 }
 
 func schemaGetCmd(a *app.App) *cobra.Command {
-	return &cobra.Command{
+	var tables []string
+
+	cmd := &cobra.Command{
 		Use:   "get",
 		Short: "Get the SafeDep Cloud query schema",
 		Long: "Fetch the SQL schema served by SafeDep Cloud: tables and columns with types, " +
@@ -37,21 +39,80 @@ func schemaGetCmd(a *app.App) *cobra.Command {
 			}
 
 			svc := cloudquery.NewService(client.Connection())
-			result, err := runSchema(cmd.Context(), svc)
+			result, err := runSchema(cmd.Context(), svc, tables)
 			if err != nil {
 				return err
 			}
 			return a.Output.Print(result)
 		},
 	}
+
+	cmd.Flags().StringSliceVar(&tables, "table", nil,
+		"limit output to the named table (repeatable, comma-separated also accepted)")
+	return cmd
 }
 
-func runSchema(ctx context.Context, fetcher cloudquery.SchemaFetcher) (*schemaResult, error) {
+func runSchema(ctx context.Context, fetcher cloudquery.SchemaFetcher, tableFilter []string) (*schemaResult, error) {
 	res, err := fetcher.Schema(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return &schemaResult{data: sortSchema(res)}, nil
+	sorted := sortSchema(res)
+	filtered, err := filterSchemaByTable(sorted, tableFilter)
+	if err != nil {
+		return nil, err
+	}
+	return &schemaResult{data: filtered}, nil
+}
+
+// filterSchemaByTable narrows the schema to the requested table names. When
+// filter is empty the schema passes through. Unknown names produce an error
+// that lists the available tables. Edges narrow to those whose endpoints both
+// fall inside the filter set; usage carries through.
+func filterSchemaByTable(s *cloudquery.Schema, filter []string) (*cloudquery.Schema, error) {
+	if len(filter) == 0 {
+		return s, nil
+	}
+
+	want := make(map[string]bool, len(filter))
+	for _, name := range filter {
+		want[strings.TrimSpace(name)] = true
+	}
+
+	have := make(map[string]bool, len(s.Tables))
+	for _, tbl := range s.Tables {
+		have[tbl.Name] = true
+	}
+
+	var missing []string
+	for name := range want {
+		if !have[name] {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		names := make([]string, 0, len(s.Tables))
+		for _, tbl := range s.Tables {
+			names = append(names, tbl.Name)
+		}
+		return nil, fmt.Errorf("unknown table(s): %s (available: %s)",
+			strings.Join(missing, ", "), strings.Join(names, ", "))
+	}
+
+	out := &cloudquery.Schema{Usage: s.Usage}
+	out.Tables = make([]cloudquery.SchemaTable, 0, len(want))
+	for _, tbl := range s.Tables {
+		if want[tbl.Name] {
+			out.Tables = append(out.Tables, tbl)
+		}
+	}
+	for _, e := range s.Edges {
+		if want[e.From] && want[e.To] {
+			out.Edges = append(out.Edges, e)
+		}
+	}
+	return out, nil
 }
 
 // sortSchema returns a copy with tables and columns sorted by name so
@@ -202,6 +263,11 @@ func (r *schemaResult) RenderPlain() string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
+// enumPreviewLimit caps the number of enum names shown in the table-mode
+// Notes column before collapsing the rest into a count. JSON output keeps
+// the full list for agent consumption.
+const enumPreviewLimit = 3
+
 func (r *schemaResult) RenderTable() string {
 	if len(r.data.Tables) == 0 && len(r.data.Edges) == 0 &&
 		len(r.data.Usage.Rules) == 0 && len(r.data.Usage.ExampleQueries) == 0 {
@@ -210,22 +276,11 @@ func (r *schemaResult) RenderTable() string {
 
 	var sb strings.Builder
 
-	if len(r.data.Tables) > 0 {
-		t := table.New().Headers("Table", "Column", "Type", "Caps", "Enum", "Reference")
-		rows := make([][]string, 0)
-		for _, tbl := range r.data.Tables {
-			for _, c := range tbl.Columns {
-				rows = append(rows, []string{
-					tbl.Name,
-					c.Name,
-					c.Type,
-					columnFlags(c),
-					enumNamesCSV(c.EnumValues),
-					c.ReferenceURL,
-				})
-			}
+	for i, tbl := range r.data.Tables {
+		if i > 0 {
+			sb.WriteString("\n\n")
 		}
-		sb.WriteString(t.Rows(rows...).Render())
+		sb.WriteString(renderSchemaTable(tbl))
 	}
 
 	if len(r.data.Edges) > 0 {
@@ -254,6 +309,87 @@ func (r *schemaResult) RenderTable() string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
+func renderSchemaTable(tbl cloudquery.SchemaTable) string {
+	var sb strings.Builder
+	sb.WriteString(tbl.Name)
+	if tbl.Description != "" {
+		fmt.Fprintf(&sb, "  %s", tbl.Description)
+	}
+	if tbl.TimeColumn != "" {
+		fmt.Fprintf(&sb, "  [time: %s", tbl.TimeColumn)
+		if tbl.TimeWindowMaxDays > 0 {
+			fmt.Fprintf(&sb, ", max %dd", tbl.TimeWindowMaxDays)
+		}
+		sb.WriteString("]")
+	}
+	sb.WriteString("\n")
+
+	t := table.New().Headers("Column", "Type", "Caps", "Notes")
+	rows := make([][]string, 0, len(tbl.Columns))
+	for _, c := range tbl.Columns {
+		rows = append(rows, []string{c.Name, c.Type, shortCaps(c), notesFor(c)})
+	}
+	sb.WriteString(t.Rows(rows...).Render())
+
+	refs := referenceFootnotes(tbl)
+	if len(refs) > 0 {
+		sb.WriteString("\nrefs:")
+		for _, line := range refs {
+			fmt.Fprintf(&sb, "\n  %s", line)
+		}
+	}
+	return sb.String()
+}
+
+func shortCaps(c cloudquery.SchemaColumn) string {
+	flags := make([]string, 0, 5)
+	if c.Selectable {
+		flags = append(flags, "sel")
+	}
+	if c.Filterable {
+		flags = append(flags, "fil")
+	}
+	if c.Groupable {
+		flags = append(flags, "grp")
+	}
+	if c.Aggregatable {
+		flags = append(flags, "agg")
+	}
+	if c.Indexed {
+		flags = append(flags, "idx")
+	}
+	if len(flags) == 0 {
+		return "-"
+	}
+	return strings.Join(flags, ",")
+}
+
+// notesFor returns the table-mode Notes cell: a truncated enum preview for
+// enum columns, empty otherwise. Reference URLs are emitted separately as
+// per-table footnotes by referenceFootnotes.
+func notesFor(c cloudquery.SchemaColumn) string {
+	if len(c.EnumValues) == 0 {
+		return ""
+	}
+	if len(c.EnumValues) <= enumPreviewLimit {
+		return enumNamesCSV(c.EnumValues)
+	}
+	shown := enumNamesCSV(c.EnumValues[:enumPreviewLimit])
+	return fmt.Sprintf("%s (+%d more)", shown, len(c.EnumValues)-enumPreviewLimit)
+}
+
+func referenceFootnotes(tbl cloudquery.SchemaTable) []string {
+	var lines []string
+	for _, c := range tbl.Columns {
+		if c.ReferenceURL != "" {
+			lines = append(lines, fmt.Sprintf("%s -> %s", c.Name, c.ReferenceURL))
+		}
+	}
+	return lines
+}
+
+// columnFlags is the long-form caps string retained for plain-mode output.
+// Plain mode is a machine contract (TSV) and keeps the verbose flag names.
 func columnFlags(c cloudquery.SchemaColumn) string {
 	flags := []string{}
 	if c.Selectable {

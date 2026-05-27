@@ -28,9 +28,42 @@ func TestRunSchema_PropagatesError(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubSchemaFetcher{err: errors.New("nope")}
-	_, err := runSchema(context.Background(), stub)
+	_, err := runSchema(context.Background(), stub, nil)
 	require.Error(t, err)
 	assert.EqualError(t, err, "nope")
+}
+
+func TestRunSchema_FilterUnknownTable(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubSchemaFetcher{res: sampleSchema()}
+	_, err := runSchema(context.Background(), stub, []string{"nope"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown table(s): nope")
+	assert.Contains(t, err.Error(), "available: projects")
+}
+
+func TestRunSchema_FilterNarrows(t *testing.T) {
+	t.Parallel()
+
+	in := &cloudquery.Schema{
+		Tables: []cloudquery.SchemaTable{
+			{Name: "projects", Columns: []cloudquery.SchemaColumn{{Name: "id", Type: "STRING"}}},
+			{Name: "packages", Columns: []cloudquery.SchemaColumn{{Name: "id", Type: "STRING"}}},
+		},
+		Edges: []cloudquery.JoinEdge{
+			{From: "packages", To: "projects", Cardinality: "many_to_one"},
+			{From: "packages", To: "boms", Cardinality: "many_to_one"},
+		},
+		Usage: cloudquery.Usage{Rules: []string{"r"}},
+	}
+	stub := &stubSchemaFetcher{res: in}
+	got, err := runSchema(context.Background(), stub, []string{"projects", "packages"})
+	require.NoError(t, err)
+	require.Len(t, got.data.Tables, 2)
+	require.Len(t, got.data.Edges, 1, "edges must narrow to the filter set")
+	assert.Equal(t, "projects", got.data.Edges[0].To)
+	assert.Equal(t, []string{"r"}, got.data.Usage.Rules)
 }
 
 func TestSortSchema_OrdersTablesAndColumns(t *testing.T) {
@@ -162,14 +195,90 @@ func TestSchemaResult_RenderTable(t *testing.T) {
 	out := r.RenderTable()
 
 	assert.Contains(t, out, "projects")
+	assert.Contains(t, out, "projects table", "table description must be inline with the header")
 	assert.Contains(t, out, "origin_source")
 	assert.Contains(t, out, "ENUM")
 	assert.Contains(t, out, "SOURCE_GITHUB")
+	assert.NotContains(t, out, "Reference", "Reference column must be removed from the main table")
+	assert.Contains(t, out, "refs:", "reference URLs must surface as a footnote when present")
+	assert.Contains(t, out, "https://docs.example/name")
 	assert.Contains(t, out, "Joins")
 	assert.Contains(t, out, "many_to_one")
 	assert.Contains(t, out, "Usage")
 	assert.Contains(t, out, "- Every query must filter")
 	assert.Contains(t, out, "Examples")
+}
+
+func TestSchemaResult_RenderTable_TruncatesLongEnums(t *testing.T) {
+	t.Parallel()
+
+	values := []cloudquery.EnumValue{
+		{Name: "A", Number: 1}, {Name: "B", Number: 2}, {Name: "C", Number: 3},
+		{Name: "D", Number: 4}, {Name: "E", Number: 5},
+	}
+	r := &schemaResult{data: &cloudquery.Schema{
+		Tables: []cloudquery.SchemaTable{{
+			Name: "t",
+			Columns: []cloudquery.SchemaColumn{
+				{Name: "kind", Type: "ENUM", EnumValues: values},
+			},
+		}},
+	}}
+	out := r.RenderTable()
+	assert.Contains(t, out, "A,B,C (+2 more)")
+	assert.NotContains(t, out, "A,B,C,D,E")
+}
+
+func TestSchemaResult_RenderTable_GroupsByTable(t *testing.T) {
+	t.Parallel()
+
+	r := &schemaResult{data: &cloudquery.Schema{Tables: []cloudquery.SchemaTable{
+		{Name: "alpha", Columns: []cloudquery.SchemaColumn{{Name: "x", Type: "STRING", Selectable: true}}},
+		{Name: "beta", Columns: []cloudquery.SchemaColumn{{Name: "y", Type: "INT", Selectable: true}}},
+	}}}
+	out := r.RenderTable()
+	alpha := strings.Index(out, "alpha")
+	beta := strings.Index(out, "beta")
+	require.NotEqual(t, -1, alpha)
+	require.NotEqual(t, -1, beta)
+	assert.Less(t, alpha, beta, "tables must render in order with their own sections")
+}
+
+func TestSchemaResult_RenderTable_TableTimeAnnotation(t *testing.T) {
+	t.Parallel()
+
+	r := &schemaResult{data: &cloudquery.Schema{Tables: []cloudquery.SchemaTable{
+		{
+			Name: "events", TimeColumn: "created_at", TimeWindowMaxDays: 30,
+			Columns: []cloudquery.SchemaColumn{{Name: "id", Type: "STRING", Selectable: true}},
+		},
+	}}}
+	out := r.RenderTable()
+	assert.Contains(t, out, "[time: created_at, max 30d]")
+}
+
+func TestShortCaps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   cloudquery.SchemaColumn
+		want string
+	}{
+		{"none", cloudquery.SchemaColumn{}, "-"},
+		{"select-only", cloudquery.SchemaColumn{Selectable: true}, "sel"},
+		{
+			"all",
+			cloudquery.SchemaColumn{Selectable: true, Filterable: true, Groupable: true, Aggregatable: true, Indexed: true},
+			"sel,fil,grp,agg,idx",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, shortCaps(tt.in))
+		})
+	}
 }
 
 func TestSchemaResult_RenderEmpty(t *testing.T) {

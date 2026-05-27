@@ -21,13 +21,13 @@ const (
 )
 
 type showInput struct {
-	Ref             string
-	Window          TimeWindow
-	Blocks          uint32
-	Actions         []GuardAction // empty -> default blocked + cooldown-blocked
-	ShowInventory   bool
-	InventoryKinds  []messagescontroltowerv1.InventoryItemKind
-	InventoryLimit  uint32
+	Ref            string
+	Window         TimeWindow
+	Blocks         uint32
+	Actions        []GuardAction // empty -> default blocked + cooldown-blocked
+	ShowInventory  bool
+	InventoryKinds []messagescontroltowerv1.InventoryItemKind
+	InventoryLimit uint32
 }
 
 // showSvc is the union of interfaces show.go needs from a Service.
@@ -39,12 +39,12 @@ type showSvc interface {
 
 func showCmd(a *app.App) *cobra.Command {
 	var (
-		since          time.Duration
-		blocks         uint32
-		actionsRaw     []string
-		inventoryFlag  bool
-		invKinds       []string
-		invLimit       uint32
+		since         time.Duration
+		blocks        uint32
+		actionsRaw    []string
+		inventoryFlag bool
+		invKinds      []string
+		invLimit      uint32
 	)
 	cmd := &cobra.Command{
 		Use:   "show <endpoint>",
@@ -260,8 +260,8 @@ func (r *showResult) RenderJSON() ([]byte, error) {
 		}
 	}
 	out := struct {
-		Endpoint       *GetResult `json:"endpoint"`
-		Window         struct {
+		Endpoint *GetResult `json:"endpoint"`
+		Window   struct {
 			Start time.Time `json:"start,omitempty"`
 			End   time.Time `json:"end,omitempty"`
 		} `json:"window"`

@@ -58,7 +58,7 @@ func openSqlite(ctx context.Context, opts Options) (Storage, error) {
 	return s, nil
 }
 
-func (s *sqliteImpl) Close() error                   { return s.conn.Close() }
-func (s *sqliteImpl) db() *sql.DB                    { return s.conn }
-func (s *sqliteImpl) scopeProfile(p string) string   { return "profile:" + p }
-func (s *sqliteImpl) scopeGlobal() string            { return "global" }
+func (s *sqliteImpl) Close() error                 { return s.conn.Close() }
+func (s *sqliteImpl) db() *sql.DB                  { return s.conn }
+func (s *sqliteImpl) scopeProfile(p string) string { return "profile:" + p }
+func (s *sqliteImpl) scopeGlobal() string          { return "global" }

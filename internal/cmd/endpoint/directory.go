@@ -185,7 +185,9 @@ func (d *Directory) expired(e DirectoryEntry) bool {
 // kvStore adapts app.ProfileKV to the Store interface. The whole
 // directory lives under a single "all" key. Per-entry TTL would not
 // help here. Expiry is enforced in memory by Directory.expired.
-type kvStore struct{ kv *storage.KV[map[string]DirectoryEntry] }
+type kvStore struct {
+	kv *storage.KV[map[string]DirectoryEntry]
+}
 
 func (k *kvStore) Get(ctx context.Context) (map[string]DirectoryEntry, error) {
 	v, err := k.kv.Get(ctx, "all")

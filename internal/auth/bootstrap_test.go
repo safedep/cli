@@ -47,7 +47,7 @@ func (f *fakeUserServer) GetUserInfo(_ context.Context, _ *controltowerv1.GetUse
 // same in-memory listener so PostOAuthBootstrap (which calls both) can be
 // tested end-to-end without a real network.
 type bootstrapTestServer struct {
-	user      *fakeUserServer
+	user       *fakeUserServer
 	onboarding *fakeOnboardingServer
 }
 

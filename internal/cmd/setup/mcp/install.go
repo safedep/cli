@@ -52,4 +52,3 @@ func installCmd(a *app.App) *cobra.Command {
 
 	return cmd
 }
-

@@ -75,11 +75,11 @@ func TestPmgActionToCLI(t *testing.T) {
 
 func TestVerdictFor(t *testing.T) {
 	cases := []struct {
-		name      string
-		action    messagescontroltowerv1.PmgPackageAction
-		isMalware bool
+		name       string
+		action     messagescontroltowerv1.PmgPackageAction
+		isMalware  bool
 		isVerified bool
-		want      string
+		want       string
 	}{
 		{"verified malware is malicious", messagescontroltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_BLOCKED, true, true, "malicious"},
 		{"unverified malware is suspicious", messagescontroltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_BLOCKED, true, false, "suspicious"},

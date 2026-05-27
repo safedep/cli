@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/cloudquery"
@@ -12,16 +13,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Bounds match the buf.validate constraints in the QueryService proto
-// at safedep-api/proto/safedep/services/controltower/v1/query.proto.
-// The server enforces these via a validation interceptor; mirroring
-// them client-side surfaces clearer errors than the wrapped
-// "invalid argument" gRPC response.
+// Bounds match the buf.validate constraints in the v2 QueryService proto.
+// The server enforces these via a validation interceptor; mirroring them
+// client-side surfaces clearer errors than the wrapped "invalid argument"
+// gRPC response.
 const (
 	defaultPageSize  = 100
 	maxPageSize      = 100
-	maxSQLBytes      = 2000
-	maxPageTokenSize = 100
+	maxSQLBytes      = 16000
+	maxPageTokenSize = 2048
 )
 
 type execInput struct {
@@ -96,23 +96,50 @@ type execResult struct {
 	data *cloudquery.ExecResult
 }
 
+type execColumnJSON struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+type execStatsJSON struct {
+	EstimatedCost float64 `json:"estimated_cost"`
+	EstimatedRows int64   `json:"estimated_rows"`
+	ElapsedMs     int64   `json:"elapsed_ms"`
+}
+
 type execJSON struct {
-	Columns       []string         `json:"columns"`
+	Columns       []execColumnJSON `json:"columns"`
 	Rows          []map[string]any `json:"rows"`
 	Count         int              `json:"count"`
 	NextPageToken string           `json:"next_page_token,omitempty"`
+	GeneratedAt   string           `json:"generated_at,omitempty"`
+	Stats         execStatsJSON    `json:"stats"`
 }
 
 func (r *execResult) RenderJSON() ([]byte, error) {
+	cols := make([]execColumnJSON, 0, len(r.data.Columns))
+	for _, c := range r.data.Columns {
+		cols = append(cols, execColumnJSON{Name: c.Name, Type: c.Type})
+	}
+
 	rows := make([]map[string]any, 0, len(r.data.Rows))
 	for _, row := range r.data.Rows {
 		rows = append(rows, map[string]any(row))
 	}
+
 	out := execJSON{
-		Columns:       r.data.Columns,
+		Columns:       cols,
 		Rows:          rows,
 		Count:         len(r.data.Rows),
 		NextPageToken: r.data.NextPage,
+		Stats: execStatsJSON{
+			EstimatedCost: r.data.Stats.EstimatedCost,
+			EstimatedRows: r.data.Stats.EstimatedRows,
+			ElapsedMs:     r.data.Stats.ElapsedMs,
+		},
+	}
+	if !r.data.GeneratedAt.IsZero() {
+		out.GeneratedAt = r.data.GeneratedAt.UTC().Format(time.RFC3339)
 	}
 	return json.MarshalIndent(out, "", "  ")
 }
@@ -122,12 +149,13 @@ func (r *execResult) RenderPlain() string {
 		return "no rows"
 	}
 
+	names := columnNames(r.data.Columns)
 	var sb strings.Builder
-	sb.WriteString(strings.Join(r.data.Columns, "\t"))
+	sb.WriteString(strings.Join(names, "\t"))
 	sb.WriteString("\n")
 	for _, row := range r.data.Rows {
-		cells := make([]string, len(r.data.Columns))
-		for i, col := range r.data.Columns {
+		cells := make([]string, len(names))
+		for i, col := range names {
 			cells[i] = formatCell(row[col])
 		}
 		sb.WriteString(strings.Join(cells, "\t"))
@@ -141,17 +169,42 @@ func (r *execResult) RenderTable() string {
 		return "no rows"
 	}
 
-	t := table.New().Headers(r.data.Columns...)
+	names := columnNames(r.data.Columns)
+	t := table.New().Headers(names...)
 	rows := make([][]string, 0, len(r.data.Rows))
 	for _, row := range r.data.Rows {
-		cells := make([]string, len(r.data.Columns))
-		for i, col := range r.data.Columns {
+		cells := make([]string, len(names))
+		for i, col := range names {
 			cells[i] = formatCell(row[col])
 		}
 		rows = append(rows, cells)
 	}
-	t = t.Rows(rows...)
-	return t.Render()
+
+	var sb strings.Builder
+	sb.WriteString(t.Rows(rows...).Render())
+	sb.WriteString("\n")
+	sb.WriteString(renderExecFooter(r.data))
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func columnNames(cols []cloudquery.Column) []string {
+	names := make([]string, len(cols))
+	for i, c := range cols {
+		names[i] = c.Name
+	}
+	return names
+}
+
+// renderExecFooter returns the D2 footer: one summary line, and a second
+// line advertising the next-page cursor when present.
+func renderExecFooter(r *cloudquery.ExecResult) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%d rows | ~%g cost | %dms",
+		len(r.Rows), r.Stats.EstimatedCost, r.Stats.ElapsedMs)
+	if r.NextPage != "" {
+		fmt.Fprintf(&sb, "\nnext page: --page-token %s", r.NextPage)
+	}
+	return sb.String()
 }
 
 func formatCell(v any) string {

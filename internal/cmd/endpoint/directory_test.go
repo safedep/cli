@@ -103,7 +103,7 @@ func TestDirectory_zeroCachedAtEntriesExpire(t *testing.T) {
 
 type fakeStore struct{ data map[string]DirectoryEntry }
 
-func newFakeStore() *fakeStore { return &fakeStore{data: map[string]DirectoryEntry{}} }
+func newFakeStore() *fakeStore                                                { return &fakeStore{data: map[string]DirectoryEntry{}} }
 func (f *fakeStore) Get(_ context.Context) (map[string]DirectoryEntry, error) { return f.data, nil }
 func (f *fakeStore) Put(_ context.Context, v map[string]DirectoryEntry) error {
 	f.data = v

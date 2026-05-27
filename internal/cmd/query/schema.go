@@ -28,7 +28,8 @@ func schemaGetCmd(a *app.App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "get",
 		Short: "Get the SafeDep Cloud query schema",
-		Long:  "Fetch the SQL schema served by SafeDep Cloud, listing each table and its columns with selectability and reference URLs.",
+		Long: "Fetch the SQL schema served by SafeDep Cloud: tables and columns with types, " +
+			"capability flags, enum values, join edges, and the server's usage rules.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, err := a.ControlPlane()
 			if err != nil {
@@ -54,9 +55,14 @@ func runSchema(ctx context.Context, fetcher cloudquery.SchemaFetcher) (*schemaRe
 }
 
 // sortSchema returns a copy with tables and columns sorted by name so
-// output is deterministic across runs and presentation modes.
+// output is deterministic across runs and presentation modes. Edges and
+// usage carry through unchanged.
 func sortSchema(s *cloudquery.Schema) *cloudquery.Schema {
-	out := &cloudquery.Schema{Tables: make([]cloudquery.SchemaTable, len(s.Tables))}
+	out := &cloudquery.Schema{
+		Tables: make([]cloudquery.SchemaTable, len(s.Tables)),
+		Edges:  s.Edges,
+		Usage:  s.Usage,
+	}
 	copy(out.Tables, s.Tables)
 	sort.Slice(out.Tables, func(i, j int) bool {
 		return out.Tables[i].Name < out.Tables[j].Name
@@ -78,20 +84,45 @@ type schemaResult struct {
 
 type schemaJSON struct {
 	Tables []schemaTableJSON `json:"tables"`
+	Edges  []schemaEdgeJSON  `json:"edges,omitempty"`
+	Usage  *schemaUsageJSON  `json:"usage,omitempty"`
 }
 
 type schemaTableJSON struct {
-	Name    string             `json:"name"`
-	Columns []schemaColumnJSON `json:"columns"`
+	Name              string             `json:"name"`
+	Description       string             `json:"description,omitempty"`
+	Columns           []schemaColumnJSON `json:"columns"`
+	TimeColumn        string             `json:"time_column,omitempty"`
+	TimeWindowMaxDays int64              `json:"time_window_max_days,omitempty"`
 }
 
 type schemaColumnJSON struct {
-	Name         string `json:"name"`
-	Description  string `json:"description,omitempty"`
-	Selectable   bool   `json:"selectable"`
-	Filterable   bool   `json:"filterable"`
-	Required     bool   `json:"required"`
-	ReferenceURL string `json:"reference_url,omitempty"`
+	Name         string           `json:"name"`
+	Type         string           `json:"type"`
+	Description  string           `json:"description,omitempty"`
+	Selectable   bool             `json:"selectable"`
+	Filterable   bool             `json:"filterable"`
+	Groupable    bool             `json:"groupable,omitempty"`
+	Aggregatable bool             `json:"aggregatable,omitempty"`
+	Indexed      bool             `json:"indexed,omitempty"`
+	ReferenceURL string           `json:"reference_url,omitempty"`
+	EnumValues   []schemaEnumJSON `json:"enum_values,omitempty"`
+}
+
+type schemaEnumJSON struct {
+	Name   string `json:"name"`
+	Number int32  `json:"number"`
+}
+
+type schemaEdgeJSON struct {
+	From        string `json:"from"`
+	To          string `json:"to"`
+	Cardinality string `json:"cardinality,omitempty"`
+}
+
+type schemaUsageJSON struct {
+	Rules          []string `json:"rules,omitempty"`
+	ExampleQueries []string `json:"example_queries,omitempty"`
 }
 
 func (r *schemaResult) RenderJSON() ([]byte, error) {
@@ -101,51 +132,126 @@ func (r *schemaResult) RenderJSON() ([]byte, error) {
 		for _, c := range tbl.Columns {
 			cols = append(cols, schemaColumnJSON{
 				Name:         c.Name,
+				Type:         c.Type,
 				Description:  c.Description,
 				Selectable:   c.Selectable,
 				Filterable:   c.Filterable,
-				Required:     c.Required,
+				Groupable:    c.Groupable,
+				Aggregatable: c.Aggregatable,
+				Indexed:      c.Indexed,
 				ReferenceURL: c.ReferenceURL,
+				EnumValues:   enumValuesJSON(c.EnumValues),
 			})
 		}
-		out.Tables = append(out.Tables, schemaTableJSON{Name: tbl.Name, Columns: cols})
+		out.Tables = append(out.Tables, schemaTableJSON{
+			Name:              tbl.Name,
+			Description:       tbl.Description,
+			Columns:           cols,
+			TimeColumn:        tbl.TimeColumn,
+			TimeWindowMaxDays: tbl.TimeWindowMaxDays,
+		})
+	}
+	if len(r.data.Edges) > 0 {
+		out.Edges = make([]schemaEdgeJSON, 0, len(r.data.Edges))
+		for _, e := range r.data.Edges {
+			out.Edges = append(out.Edges, schemaEdgeJSON{From: e.From, To: e.To, Cardinality: e.Cardinality})
+		}
+	}
+	if len(r.data.Usage.Rules) > 0 || len(r.data.Usage.ExampleQueries) > 0 {
+		out.Usage = &schemaUsageJSON{
+			Rules:          r.data.Usage.Rules,
+			ExampleQueries: r.data.Usage.ExampleQueries,
+		}
 	}
 	return json.MarshalIndent(out, "", "  ")
 }
 
+func enumValuesJSON(vs []cloudquery.EnumValue) []schemaEnumJSON {
+	if len(vs) == 0 {
+		return nil
+	}
+	out := make([]schemaEnumJSON, 0, len(vs))
+	for _, v := range vs {
+		out = append(out, schemaEnumJSON{Name: v.Name, Number: v.Number})
+	}
+	return out
+}
+
 func (r *schemaResult) RenderPlain() string {
-	if len(r.data.Tables) == 0 {
+	if len(r.data.Tables) == 0 && len(r.data.Edges) == 0 &&
+		len(r.data.Usage.Rules) == 0 && len(r.data.Usage.ExampleQueries) == 0 {
 		return "no tables"
 	}
 
 	var sb strings.Builder
 	for _, tbl := range r.data.Tables {
 		for _, c := range tbl.Columns {
-			fmt.Fprintf(&sb, "%s.%s\t%s\t%s\n", tbl.Name, c.Name, columnFlags(c), c.ReferenceURL)
+			fmt.Fprintf(&sb, "%s.%s\t%s\t%s\t%s\n",
+				tbl.Name, c.Name, c.Type, columnFlags(c), enumNamesCSV(c.EnumValues))
 		}
+	}
+	for _, e := range r.data.Edges {
+		fmt.Fprintf(&sb, "# join: %s -> %s (%s)\n", e.From, e.To, e.Cardinality)
+	}
+	for _, rule := range r.data.Usage.Rules {
+		fmt.Fprintf(&sb, "# rule: %s\n", rule)
+	}
+	for _, q := range r.data.Usage.ExampleQueries {
+		fmt.Fprintf(&sb, "# example: %s\n", q)
 	}
 	return strings.TrimRight(sb.String(), "\n")
 }
 
 func (r *schemaResult) RenderTable() string {
-	if len(r.data.Tables) == 0 {
+	if len(r.data.Tables) == 0 && len(r.data.Edges) == 0 &&
+		len(r.data.Usage.Rules) == 0 && len(r.data.Usage.ExampleQueries) == 0 {
 		return "no tables"
 	}
 
-	t := table.New().Headers("Table", "Column", "Selectable", "Filterable", "Reference")
-	rows := make([][]string, 0)
-	for _, tbl := range r.data.Tables {
-		for _, c := range tbl.Columns {
-			rows = append(rows, []string{
-				tbl.Name,
-				c.Name,
-				yesNo(c.Selectable),
-				yesNo(c.Filterable),
-				c.ReferenceURL,
-			})
+	var sb strings.Builder
+
+	if len(r.data.Tables) > 0 {
+		t := table.New().Headers("Table", "Column", "Type", "Caps", "Enum", "Reference")
+		rows := make([][]string, 0)
+		for _, tbl := range r.data.Tables {
+			for _, c := range tbl.Columns {
+				rows = append(rows, []string{
+					tbl.Name,
+					c.Name,
+					c.Type,
+					columnFlags(c),
+					enumNamesCSV(c.EnumValues),
+					c.ReferenceURL,
+				})
+			}
+		}
+		sb.WriteString(t.Rows(rows...).Render())
+	}
+
+	if len(r.data.Edges) > 0 {
+		sb.WriteString("\n\nJoins\n")
+		t := table.New().Headers("From", "To", "Cardinality")
+		rows := make([][]string, 0, len(r.data.Edges))
+		for _, e := range r.data.Edges {
+			rows = append(rows, []string{e.From, e.To, e.Cardinality})
+		}
+		sb.WriteString(t.Rows(rows...).Render())
+	}
+
+	if len(r.data.Usage.Rules) > 0 || len(r.data.Usage.ExampleQueries) > 0 {
+		sb.WriteString("\n\nUsage")
+		for _, rule := range r.data.Usage.Rules {
+			fmt.Fprintf(&sb, "\n- %s", rule)
+		}
+		if len(r.data.Usage.ExampleQueries) > 0 {
+			sb.WriteString("\n\nExamples")
+			for _, q := range r.data.Usage.ExampleQueries {
+				fmt.Fprintf(&sb, "\n  %s", q)
+			}
 		}
 	}
-	return t.Rows(rows...).Render()
+
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 func columnFlags(c cloudquery.SchemaColumn) string {
@@ -156,8 +262,14 @@ func columnFlags(c cloudquery.SchemaColumn) string {
 	if c.Filterable {
 		flags = append(flags, "filterable")
 	}
-	if c.Required {
-		flags = append(flags, "required")
+	if c.Groupable {
+		flags = append(flags, "groupable")
+	}
+	if c.Aggregatable {
+		flags = append(flags, "aggregatable")
+	}
+	if c.Indexed {
+		flags = append(flags, "indexed")
 	}
 	if len(flags) == 0 {
 		return "-"
@@ -165,9 +277,13 @@ func columnFlags(c cloudquery.SchemaColumn) string {
 	return strings.Join(flags, ",")
 }
 
-func yesNo(b bool) string {
-	if b {
-		return "yes"
+func enumNamesCSV(vs []cloudquery.EnumValue) string {
+	if len(vs) == 0 {
+		return ""
 	}
-	return "no"
+	names := make([]string, 0, len(vs))
+	for _, v := range vs {
+		names = append(names, v.Name)
+	}
+	return strings.Join(names, ",")
 }

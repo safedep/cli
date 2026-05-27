@@ -43,4 +43,3 @@ func inventoryCmd(a *app.App) *cobra.Command {
 	parent.AddCommand(inventoryListCmd(a))
 	return parent
 }
-

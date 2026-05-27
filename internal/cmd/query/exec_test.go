@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/safedep/cli/internal/cloudquery"
 	"github.com/stretchr/testify/assert"
@@ -82,13 +83,19 @@ func TestValidatePageToken(t *testing.T) {
 func TestExecResult_RenderJSON(t *testing.T) {
 	t.Parallel()
 
+	ts := time.Date(2026, 5, 24, 4, 43, 34, 0, time.UTC)
 	r := &execResult{data: &cloudquery.ExecResult{
-		Columns: []string{"name", "score"},
+		Columns: []cloudquery.Column{
+			{Name: "name", Type: "STRING"},
+			{Name: "score", Type: "INT"},
+		},
 		Rows: []cloudquery.Row{
 			{"name": "alpha", "score": float64(1)},
 			{"name": "beta", "score": float64(2)},
 		},
-		NextPage: "tok",
+		NextPage:    "tok",
+		GeneratedAt: ts,
+		Stats:       cloudquery.Stats{EstimatedCost: 1243.7, EstimatedRows: 2, ElapsedMs: 9},
 	}}
 
 	got, err := r.RenderJSON()
@@ -96,10 +103,34 @@ func TestExecResult_RenderJSON(t *testing.T) {
 
 	var parsed execJSON
 	require.NoError(t, json.Unmarshal(got, &parsed))
-	assert.Equal(t, []string{"name", "score"}, parsed.Columns)
+	assert.Equal(t, []execColumnJSON{
+		{Name: "name", Type: "STRING"},
+		{Name: "score", Type: "INT"},
+	}, parsed.Columns)
 	assert.Equal(t, 2, parsed.Count)
 	assert.Equal(t, "tok", parsed.NextPageToken)
 	require.Len(t, parsed.Rows, 2)
+	assert.Equal(t, "2026-05-24T04:43:34Z", parsed.GeneratedAt)
+	assert.Equal(t, execStatsJSON{EstimatedCost: 1243.7, EstimatedRows: 2, ElapsedMs: 9}, parsed.Stats)
+}
+
+func TestExecResult_RenderJSON_EmptyKeepsColumns(t *testing.T) {
+	t.Parallel()
+
+	r := &execResult{data: &cloudquery.ExecResult{
+		Columns: []cloudquery.Column{{Name: "name", Type: "STRING"}},
+	}}
+
+	got, err := r.RenderJSON()
+	require.NoError(t, err)
+
+	var parsed execJSON
+	require.NoError(t, json.Unmarshal(got, &parsed))
+	assert.Equal(t, []execColumnJSON{{Name: "name", Type: "STRING"}}, parsed.Columns)
+	assert.Empty(t, parsed.Rows)
+	assert.Equal(t, 0, parsed.Count)
+	assert.Empty(t, parsed.NextPageToken)
+	assert.Empty(t, parsed.GeneratedAt)
 }
 
 func TestExecResult_RenderPlainEmpty(t *testing.T) {
@@ -114,7 +145,7 @@ func TestExecResult_RenderPlain(t *testing.T) {
 	t.Parallel()
 
 	r := &execResult{data: &cloudquery.ExecResult{
-		Columns: []string{"a", "b"},
+		Columns: []cloudquery.Column{{Name: "a"}, {Name: "b"}},
 		Rows: []cloudquery.Row{
 			{"a": "x", "b": float64(2)},
 		},
@@ -124,6 +155,32 @@ func TestExecResult_RenderPlain(t *testing.T) {
 	require.Len(t, lines, 2)
 	assert.Equal(t, "a\tb", lines[0])
 	assert.Equal(t, "x\t2", lines[1])
+}
+
+func TestExecResult_RenderTable_Footer(t *testing.T) {
+	t.Parallel()
+
+	r := &execResult{data: &cloudquery.ExecResult{
+		Columns: []cloudquery.Column{{Name: "n"}},
+		Rows:    []cloudquery.Row{{"n": float64(1)}},
+		Stats:   cloudquery.Stats{EstimatedCost: 12.5, ElapsedMs: 7},
+	}}
+	out := r.RenderTable()
+	assert.Contains(t, out, "1 rows | ~12.5 cost | 7ms")
+	assert.NotContains(t, out, "next page:")
+}
+
+func TestExecResult_RenderTable_FooterWithNextPage(t *testing.T) {
+	t.Parallel()
+
+	r := &execResult{data: &cloudquery.ExecResult{
+		Columns:  []cloudquery.Column{{Name: "n"}},
+		Rows:     []cloudquery.Row{{"n": float64(1)}},
+		Stats:    cloudquery.Stats{EstimatedCost: 1, ElapsedMs: 1},
+		NextPage: "tok-xyz",
+	}}
+	out := r.RenderTable()
+	assert.Contains(t, out, "next page: --page-token tok-xyz")
 }
 
 func TestValidateSQL(t *testing.T) {
@@ -203,7 +260,6 @@ func TestResolveSQL_FromStdin(t *testing.T) {
 func TestResolveSQL_NoneProvided(t *testing.T) {
 	t.Parallel()
 
-	// strings.Reader with empty content reads as EOF; validateSQL rejects.
 	_, err := resolveSQL(strings.NewReader(""), execInput{})
 	require.Error(t, err)
 }

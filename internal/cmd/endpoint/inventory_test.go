@@ -97,11 +97,11 @@ func TestRunInventory_allPagesFetchesAndDedupesAcrossPages(t *testing.T) {
 func TestRunInventory_allPagesDetectsPaginationLoop(t *testing.T) {
 	f := &fakeInvSvc{pages: map[string]*InventoryEventsResult{
 		"": {
-			Events:    []InventoryEvent{{Timestamp: time.Unix(100, 0), ItemIdentity: "a", Name: "a"}},
+			Events:   []InventoryEvent{{Timestamp: time.Unix(100, 0), ItemIdentity: "a", Name: "a"}},
 			NextPage: "tok-loop",
 		},
 		"tok-loop": {
-			Events:    []InventoryEvent{{Timestamp: time.Unix(200, 0), ItemIdentity: "b", Name: "b"}},
+			Events:   []InventoryEvent{{Timestamp: time.Unix(200, 0), ItemIdentity: "b", Name: "b"}},
 			NextPage: "tok-loop",
 		},
 	}}

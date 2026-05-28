@@ -13,7 +13,7 @@ import (
 // Verbs used in cleanup log lines. Distinguishing dry-run output from a
 // real run matters for operators reading logs.
 const (
-	cleanupVerbDeleted    = "deleted"
+	cleanupVerbDeleted     = "deleted"
 	cleanupVerbWouldDelete = "would delete"
 )
 

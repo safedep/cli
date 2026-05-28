@@ -159,7 +159,7 @@ func runActivity(ctx context.Context, svc activitySvc, dir *Directory, in activi
 			res, err := svc.ListInventoryEvents(gctx, InventoryEventsInput{
 				Window: in.Window, EndpointIDs: in.EndpointIDs,
 				InvocationID: in.InvocationID,
-				PageSize: in.PageSize, PageToken: pageTokenFor(in.PageToken, ActivityTypeInventory, typ),
+				PageSize:     in.PageSize, PageToken: pageTokenFor(in.PageToken, ActivityTypeInventory, typ),
 			})
 			if err != nil {
 				return err

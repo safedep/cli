@@ -182,8 +182,8 @@ type GuardEventsInput struct {
 type GuardEvent struct {
 	Timestamp   time.Time
 	EndpointID  string
-	Tool        string      // outer header ToolName
-	ToolVersion string      // outer header ToolVersion
+	Tool        string // outer header ToolName
+	ToolVersion string // outer header ToolVersion
 	Action      GuardAction
 	// Verdict is the user-facing reason for a block: "malicious",
 	// "suspicious", "cooldown", or "blocked". Empty for non-block actions.
@@ -222,18 +222,18 @@ type InventoryEventsInput struct {
 type InventoryEvent struct {
 	Timestamp    time.Time
 	EndpointID   string
-	Tool         string                                // outer header ToolName
+	Tool         string // outer header ToolName
 	Kind         messagescontroltowerv1.InventoryItemKind
-	ItemIdentity string                               // ItemObserved.ItemIdentity (dedup key)
-	Name         string                               // ItemObserved.Name
-	App          string                               // ItemObserved.App
+	ItemIdentity string // ItemObserved.ItemIdentity (dedup key)
+	Name         string // ItemObserved.Name
+	App          string // ItemObserved.App
 	Scope        messagescontroltowerv1.InventoryScope
 	ConfigPath   string
 	Metadata     map[string]string
 	InvocationID string
 	// Raw exposes the original proto event so JSON output preserves
 	// every field. Intentional v1 trade-off for the activity feed.
-	Raw          *controltowerv1.ListEndpointInventoryEventsResponse_InventoryEvent
+	Raw *controltowerv1.ListEndpointInventoryEventsResponse_InventoryEvent
 }
 type InventoryEventsResult struct {
 	Events   []InventoryEvent

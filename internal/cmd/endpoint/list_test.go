@@ -54,7 +54,7 @@ func TestMapCapabilities_validatesAndNormalizes(t *testing.T) {
 func TestRunList_clientSideSilentFilter(t *testing.T) {
 	now := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC)
 	f := &fakeLister{out: &ListResult{Endpoints: []ListEndpoint{
-		{ID: "01KR0EKN6PMW0ZRFRN992H1PKX", LastSync: now.Add(-1 * time.Hour)},          // active
+		{ID: "01KR0EKN6PMW0ZRFRN992H1PKX", LastSync: now.Add(-1 * time.Hour)},       // active
 		{ID: "01KR0EKN6PMW0ZRFRN992H1PKY", LastSync: now.Add(-10 * 24 * time.Hour)}, // silent
 	}}}
 	in := listInput{SilentFor: 7 * 24 * time.Hour, _now: func() time.Time { return now }}

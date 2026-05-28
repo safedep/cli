@@ -71,7 +71,7 @@ func normalisePageSize(n int) (int, error) {
 	return n, nil
 }
 
-// validatePageToken enforces the proto bound (max_len 100) on page tokens.
+// validatePageToken enforces the proto bound on page tokens (v2: max_len 2048).
 // Empty input is allowed: it means "first page".
 func validatePageToken(s string) (string, error) {
 	if len(s) > maxPageTokenSize {

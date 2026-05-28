@@ -67,8 +67,8 @@ type fakeAgent struct {
 	workspace *fakeWorkspaceInjector
 }
 
-func (f *fakeAgent) Name() string    { return f.name }
-func (f *fakeAgent) Detected() bool  { return f.detected }
+func (f *fakeAgent) Name() string   { return f.name }
+func (f *fakeAgent) Detected() bool { return f.detected }
 func (f *fakeAgent) AsGlobalInjector() (GlobalInjector, bool) {
 	if f.global == nil {
 		return nil, false

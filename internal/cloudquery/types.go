@@ -18,13 +18,28 @@ type ExecInput struct {
 	PageToken string
 }
 
+// Column is one result column with its server-declared type. Type is the
+// ColumnType name with the COLUMN_TYPE_ prefix stripped (e.g. STRING, INT).
+type Column struct {
+	Name string
+	Type string
+}
+
+// Stats is the planner-reported execution summary for a query response.
+type Stats struct {
+	EstimatedCost float64
+	EstimatedRows int64
+	ElapsedMs     int64
+}
+
 // ExecResult is the materialised query response in a presentation-friendly
-// shape. Columns is the ordered union of field names across all rows.
+// shape. Columns is the ordered set of columns the server returned.
 type ExecResult struct {
-	Columns     []string
+	Columns     []Column
 	Rows        []Row
 	NextPage    string
 	GeneratedAt time.Time
+	Stats       Stats
 }
 
 // Row is one decoded row. Values are typed natives (string, float64,
@@ -35,20 +50,49 @@ type Row map[string]any
 // Schema is the full SQL schema served by the control plane.
 type Schema struct {
 	Tables []SchemaTable
+	Edges  []JoinEdge
+	Usage  Usage
 }
 
 // SchemaTable describes one queryable table.
 type SchemaTable struct {
-	Name    string
-	Columns []SchemaColumn
+	Name              string
+	Description       string
+	Columns           []SchemaColumn
+	TimeColumn        string
+	TimeWindowMaxDays int64
 }
 
 // SchemaColumn describes one column inside a table.
 type SchemaColumn struct {
 	Name         string
+	Type         string
 	Description  string
 	Selectable   bool
 	Filterable   bool
-	Required     bool
+	Groupable    bool
+	Aggregatable bool
+	Indexed      bool
 	ReferenceURL string
+	EnumValues   []EnumValue
+}
+
+// EnumValue is one server-advertised value for an enum-typed column.
+type EnumValue struct {
+	Name   string
+	Number int32
+}
+
+// JoinEdge is an advertised join relationship between two tables. Cardinality
+// is the server string verbatim (one_to_one, one_to_many, many_to_one).
+type JoinEdge struct {
+	From        string
+	To          string
+	Cardinality string
+}
+
+// Usage is the server's grammar guidance: rules to follow and example queries.
+type Usage struct {
+	Rules          []string
+	ExampleQueries []string
 }

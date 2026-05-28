@@ -21,6 +21,8 @@ func schemaCmd(a *app.App) *cobra.Command {
 	}
 
 	parent.AddCommand(schemaGetCmd(a))
+	parent.AddCommand(schemaListCmd(a))
+	parent.AddCommand(schemaShowCmd(a))
 	return parent
 }
 
@@ -29,9 +31,12 @@ func schemaGetCmd(a *app.App) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "get",
-		Short: "Get the SafeDep Cloud query schema",
-		Long: "Fetch the SQL schema served by SafeDep Cloud: tables and columns with types, " +
-			"capability flags, enum values, join edges, and the server's usage rules.",
+		Short: "Get the full schema in one call (verbose, intended for AI agents and scripts)",
+		Long: "Fetch the entire SQL schema served by SafeDep Cloud: tables and columns with types, " +
+			"capability flags, enum values, join edges, and the server's usage rules. " +
+			"Output is verbose and primarily intended for AI agents and scripts that " +
+			"need the whole surface in one call. For human inspection prefer " +
+			"'safedep query schema list' and 'safedep query schema show <table>'.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, err := a.ControlPlane()
 			if err != nil {

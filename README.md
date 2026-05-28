@@ -110,7 +110,9 @@ Push SafeDep malware findings to external security tools. JFrog XRay is supporte
 | [`safedep endpoint activity list`](./docs/cmd/endpoint-activity-list.md) | List recent endpoint activity |
 | [`safedep endpoint inventory list`](./docs/cmd/endpoint-inventory-list.md) | List current endpoint inventory |
 | [`safedep query exec`](./docs/cmd/query-exec.md) | Execute a SQL query against SafeDep Cloud |
-| [`safedep query schema get`](./docs/cmd/query-schema-get.md) | Inspect the SafeDep Cloud query schema |
+| [`safedep query schema list`](./docs/cmd/query-schema-list.md) | List tables in the query schema |
+| [`safedep query schema show`](./docs/cmd/query-schema-show.md) | Show one table from the query schema |
+| [`safedep query schema get`](./docs/cmd/query-schema-get.md) | Get the full schema in one call (for AI agents and scripts) |
 | [`safedep protect mcp install`](./docs/cmd/protect-mcp-install.md) | Inject SafeDep MCP server config into detected AI agents |
 | [`safedep protect mcp uninstall`](./docs/cmd/protect-mcp-uninstall.md) | Remove SafeDep MCP server config from detected AI agents |
 | [`safedep integration jfrog run`](./docs/cmd/integration-jfrog-run.md) | Push SafeDep malware findings to JFrog XRay |

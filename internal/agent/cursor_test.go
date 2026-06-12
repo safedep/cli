@@ -102,4 +102,38 @@ func TestCursor(t *testing.T) {
 		servers, _ := data["mcpServers"].(map[string]any)
 		assert.NotContains(t, servers, "safedep")
 	})
+
+	t.Run("GlobalConfigured is false on absent file", func(t *testing.T) {
+		got, err := newCursor(t.TempDir()).GlobalConfigured()
+		require.NoError(t, err)
+		assert.False(t, got)
+	})
+
+	t.Run("GlobalConfigured tracks inject and remove", func(t *testing.T) {
+		c := newCursor(t.TempDir())
+		require.NoError(t, c.InjectGlobal(cfg))
+
+		got, err := c.GlobalConfigured()
+		require.NoError(t, err)
+		assert.True(t, got)
+
+		require.NoError(t, c.RemoveGlobal())
+		got, err = c.GlobalConfigured()
+		require.NoError(t, err)
+		assert.False(t, got)
+	})
+
+	t.Run("WorkspaceConfigured tracks inject", func(t *testing.T) {
+		workspace := t.TempDir()
+		c := newCursor(t.TempDir())
+
+		got, err := c.WorkspaceConfigured(workspace)
+		require.NoError(t, err)
+		assert.False(t, got)
+
+		require.NoError(t, c.InjectWorkspace(workspace, cfg))
+		got, err = c.WorkspaceConfigured(workspace)
+		require.NoError(t, err)
+		assert.True(t, got)
+	})
 }

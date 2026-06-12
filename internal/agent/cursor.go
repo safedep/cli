@@ -47,4 +47,12 @@ func (c *cursor) RemoveWorkspace(workspaceDir string) error {
 	return removeMCPConfig(c.WorkspaceConfigPath(workspaceDir))
 }
 
+func (c *cursor) GlobalConfigured() (bool, error) {
+	return mcpEntryConfigured(c.GlobalConfigPath(), "mcpServers")
+}
+
+func (c *cursor) WorkspaceConfigured(workspaceDir string) (bool, error) {
+	return mcpEntryConfigured(c.WorkspaceConfigPath(workspaceDir), "mcpServers")
+}
+
 var _ Agent = (*cursor)(nil)

@@ -65,6 +65,42 @@ func removeMCPConfig(path string) error {
 	return writeJSONFile(path, data)
 }
 
+// mcpEntryConfigured reports whether the SafeDep entry exists under
+// rootKey.safedep in the JSON config file at path. Returns false (no error)
+// when the file is absent or empty. rootKey is the agent-specific container
+// key (e.g. "mcpServers", "servers", "mcp"). Server bodies are decoded as
+// json.RawMessage so only the structure needed to detect the entry is parsed.
+func mcpEntryConfigured(path, rootKey string) (bool, error) {
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if len(raw) == 0 {
+		return false, nil
+	}
+
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return false, fmt.Errorf("agent: parse %s: %w", path, err)
+	}
+
+	container, ok := doc[rootKey]
+	if !ok {
+		return false, nil
+	}
+
+	var servers map[string]json.RawMessage
+	if err := json.Unmarshal(container, &servers); err != nil {
+		return false, fmt.Errorf("agent: parse %s: %w", path, err)
+	}
+
+	_, ok = servers[safedepMCPKey]
+	return ok, nil
+}
+
 // readJSONFile reads and unmarshals a JSON file. Returns an empty map when
 // the file does not exist or is empty so the caller can create one from scratch.
 func readJSONFile(path string) (map[string]any, error) {

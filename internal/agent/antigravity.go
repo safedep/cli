@@ -35,6 +35,10 @@ func (a *antigravity) RemoveGlobal() error {
 	return removeMCPConfig(a.GlobalConfigPath())
 }
 
+func (a *antigravity) GlobalConfigured() (bool, error) {
+	return mcpEntryConfigured(a.GlobalConfigPath(), "mcpServers")
+}
+
 // antigravityMCPServerEntry is the entry format for ~/.gemini/antigravity/mcp_config.json.
 type antigravityMCPServerEntry struct {
 	ServerURL string            `json:"serverUrl"`

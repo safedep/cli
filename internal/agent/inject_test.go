@@ -34,6 +34,9 @@ func (f *fakeGlobalInjector) RemoveGlobal() error {
 	f.removed = true
 	return nil
 }
+func (f *fakeGlobalInjector) GlobalConfigured() (bool, error) {
+	return f.injected != nil, nil
+}
 
 type fakeWorkspaceInjector struct {
 	path      string
@@ -58,6 +61,9 @@ func (f *fakeWorkspaceInjector) RemoveWorkspace(_ string) error {
 	}
 	f.removed = true
 	return nil
+}
+func (f *fakeWorkspaceInjector) WorkspaceConfigured(_ string) (bool, error) {
+	return f.injected != nil, nil
 }
 
 type fakeAgent struct {

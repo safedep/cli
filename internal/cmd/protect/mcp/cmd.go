@@ -15,5 +15,6 @@ func Register(parent *cobra.Command, a *app.App) {
 	}
 	cmd.AddCommand(installCmd(a))
 	cmd.AddCommand(uninstallCmd(a))
+	cmd.AddCommand(statusCmd(a))
 	parent.AddCommand(cmd)
 }

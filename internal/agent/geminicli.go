@@ -47,4 +47,12 @@ func (g *geminiCLI) RemoveWorkspace(workspaceDir string) error {
 	return removeMCPConfig(g.WorkspaceConfigPath(workspaceDir))
 }
 
+func (g *geminiCLI) GlobalConfigured() (bool, error) {
+	return mcpEntryConfigured(g.GlobalConfigPath(), "mcpServers")
+}
+
+func (g *geminiCLI) WorkspaceConfigured(workspaceDir string) (bool, error) {
+	return mcpEntryConfigured(g.WorkspaceConfigPath(workspaceDir), "mcpServers")
+}
+
 var _ Agent = (*geminiCLI)(nil)

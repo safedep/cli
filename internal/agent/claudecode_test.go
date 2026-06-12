@@ -155,4 +155,42 @@ func TestClaudeCode(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("GlobalConfigured tracks inject and remove", func(t *testing.T) {
+		cc := newClaudeCode(t.TempDir())
+
+		got, err := cc.GlobalConfigured()
+		require.NoError(t, err)
+		assert.False(t, got)
+
+		require.NoError(t, cc.InjectGlobal(cfg))
+		got, err = cc.GlobalConfigured()
+		require.NoError(t, err)
+		assert.True(t, got)
+
+		require.NoError(t, cc.RemoveGlobal())
+		got, err = cc.GlobalConfigured()
+		require.NoError(t, err)
+		assert.False(t, got)
+	})
+
+	t.Run("WorkspaceConfigured reads nested projects entry", func(t *testing.T) {
+		home := t.TempDir()
+		workspace := t.TempDir()
+		cc := newClaudeCode(home)
+
+		got, err := cc.WorkspaceConfigured(workspace)
+		require.NoError(t, err)
+		assert.False(t, got)
+
+		require.NoError(t, cc.InjectWorkspace(workspace, cfg))
+		got, err = cc.WorkspaceConfigured(workspace)
+		require.NoError(t, err)
+		assert.True(t, got)
+
+		// A different project path must not report as configured.
+		got, err = cc.WorkspaceConfigured(t.TempDir())
+		require.NoError(t, err)
+		assert.False(t, got)
+	})
 }

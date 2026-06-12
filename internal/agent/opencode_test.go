@@ -63,4 +63,26 @@ func TestOpenCode(t *testing.T) {
 		mcp := data["mcp"].(map[string]any)
 		assert.NotContains(t, mcp, "safedep")
 	})
+
+	t.Run("GlobalConfigured reads the mcp key", func(t *testing.T) {
+		o := newOpenCode(t.TempDir())
+
+		got, err := o.GlobalConfigured()
+		require.NoError(t, err)
+		assert.False(t, got)
+
+		require.NoError(t, o.InjectGlobal(testCfg))
+		got, err = o.GlobalConfigured()
+		require.NoError(t, err)
+		assert.True(t, got)
+	})
+
+	t.Run("WorkspaceConfigured reads the mcp key", func(t *testing.T) {
+		o := newOpenCode(t.TempDir())
+		workspace := t.TempDir()
+		require.NoError(t, o.InjectWorkspace(workspace, testCfg))
+		got, err := o.WorkspaceConfigured(workspace)
+		require.NoError(t, err)
+		assert.True(t, got)
+	})
 }

@@ -1,6 +1,8 @@
 package mcp
 
 import (
+	"errors"
+
 	"github.com/safedep/cli/internal/agent"
 	"github.com/safedep/cli/internal/endpoint"
 	"github.com/safedep/dry/cloud/endpointsync"
@@ -16,6 +18,26 @@ type installInput struct {
 
 type uninstallInput struct {
 	WorkspaceDir string
+}
+
+type statusInput struct {
+	WorkspaceDir string
+}
+
+// scopeStatus is the SafeDep MCP state for one config scope (global or
+// workspace) of an agent.
+type scopeStatus struct {
+	Supported  bool
+	Configured bool
+	Path       string
+}
+
+// agentStatus is the SafeDep MCP integration state of a single agent.
+type agentStatus struct {
+	Name      string
+	Detected  bool
+	Global    scopeStatus
+	Workspace scopeStatus
 }
 
 type mcpService struct {
@@ -64,6 +86,48 @@ func (s *mcpService) uninstall(in uninstallInput) error {
 
 	tui.Success("SafeDep MCP server configuration removed from %d agent(s).", len(configurable))
 	return nil
+}
+
+// status reports the SafeDep MCP integration state of every known agent.
+// Workspace scope is only inspected when WorkspaceDir is set. Per-agent read
+// errors are accumulated and returned alongside the partial report.
+func (s *mcpService) status(in statusInput) ([]agentStatus, error) {
+	var (
+		out  []agentStatus
+		errs []error
+	)
+
+	for _, a := range s.agents {
+		st := agentStatus{Name: a.Name(), Detected: a.Detected()}
+
+		if gi, ok := a.AsGlobalInjector(); ok {
+			st.Global.Supported = true
+			st.Global.Path = gi.GlobalConfigPath()
+			if st.Detected {
+				configured, err := gi.GlobalConfigured()
+				if err != nil {
+					errs = append(errs, err)
+				}
+				st.Global.Configured = configured
+			}
+		}
+
+		if wi, ok := a.AsWorkspaceInjector(); ok && in.WorkspaceDir != "" {
+			st.Workspace.Supported = true
+			st.Workspace.Path = wi.WorkspaceConfigPath(in.WorkspaceDir)
+			if st.Detected {
+				configured, err := wi.WorkspaceConfigured(in.WorkspaceDir)
+				if err != nil {
+					errs = append(errs, err)
+				}
+				st.Workspace.Configured = configured
+			}
+		}
+
+		out = append(out, st)
+	}
+
+	return out, errors.Join(errs...)
 }
 
 // configurableAgents returns detected agents that have at least one applicable

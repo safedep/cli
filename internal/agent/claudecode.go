@@ -63,6 +63,42 @@ func (c *claudeCode) RemoveWorkspace(workspaceDir string) error {
 	return removeClaudeCodeWorkspaceMCPConfig(c.GlobalConfigPath(), workspaceDir)
 }
 
+func (c *claudeCode) GlobalConfigured() (bool, error) {
+	return mcpEntryConfigured(c.GlobalConfigPath(), "mcpServers")
+}
+
+// claudeCodeProbe is a minimal view of ~/.claude.json used to detect a
+// per-project SafeDep entry. Only projects[*].mcpServers is parsed; server
+// bodies stay raw.
+type claudeCodeProbe struct {
+	Projects map[string]struct {
+		MCPServers map[string]json.RawMessage `json:"mcpServers"`
+	} `json:"projects"`
+}
+
+// WorkspaceConfigured checks projects[workspaceDir].mcpServers.safedep in
+// ~/.claude.json, the per-project location Claude Code uses.
+func (c *claudeCode) WorkspaceConfigured(workspaceDir string) (bool, error) {
+	raw, err := os.ReadFile(c.GlobalConfigPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if len(raw) == 0 {
+		return false, nil
+	}
+
+	var probe claudeCodeProbe
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return false, fmt.Errorf("agent: parse %s: %w", c.GlobalConfigPath(), err)
+	}
+
+	_, ok := probe.Projects[workspaceDir].MCPServers[safedepMCPKey]
+	return ok, nil
+}
+
 // writeClaudeCodeMCPConfig writes the SafeDep entry into a Claude Code JSON
 // config file using the "type": "http" format required by ~/.claude.json.
 func writeClaudeCodeMCPConfig(path string, cfg MCPConfig) error {

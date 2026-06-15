@@ -31,6 +31,10 @@ type GlobalInjector interface {
 
 	// RemoveGlobal deletes the SafeDep entry. No-op if absent.
 	RemoveGlobal() error
+
+	// GlobalConfigured reports whether the SafeDep entry is present in the
+	// global config file. Returns false (no error) when the file is absent.
+	GlobalConfigured() (bool, error)
 }
 
 // WorkspaceInjector writes or removes the SafeDep MCP config from a workspace config file.
@@ -44,4 +48,8 @@ type WorkspaceInjector interface {
 
 	// RemoveWorkspace deletes the SafeDep entry. No-op if absent.
 	RemoveWorkspace(workspaceDir string) error
+
+	// WorkspaceConfigured reports whether the SafeDep entry is present in the
+	// workspace config file. Returns false (no error) when the file is absent.
+	WorkspaceConfigured(workspaceDir string) (bool, error)
 }

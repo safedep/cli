@@ -56,11 +56,72 @@ func (c *claudeCode) WorkspaceConfigPath(_ string) string {
 }
 
 func (c *claudeCode) InjectWorkspace(workspaceDir string, cfg MCPConfig) error {
-	return writeClaudeCodeWorkspaceMCPConfig(c.GlobalConfigPath(), workspaceDir, cfg)
+	key, err := claudeProjectKey(workspaceDir)
+	if err != nil {
+		return err
+	}
+	return writeClaudeCodeWorkspaceMCPConfig(c.GlobalConfigPath(), key, cfg)
 }
 
 func (c *claudeCode) RemoveWorkspace(workspaceDir string) error {
-	return removeClaudeCodeWorkspaceMCPConfig(c.GlobalConfigPath(), workspaceDir)
+	key, err := claudeProjectKey(workspaceDir)
+	if err != nil {
+		return err
+	}
+	return removeClaudeCodeWorkspaceMCPConfig(c.GlobalConfigPath(), key)
+}
+
+// claudeProjectKey resolves workspaceDir to the absolute, cleaned path Claude
+// Code uses as the projects map key in ~/.claude.json. A relative path like "."
+// or one with a trailing slash would otherwise miss the entry Claude Code keys
+// by absolute path, both when probing and when writing.
+func claudeProjectKey(workspaceDir string) (string, error) {
+	abs, err := filepath.Abs(workspaceDir)
+	if err != nil {
+		return "", fmt.Errorf("agent: resolve workspace path %s: %w", workspaceDir, err)
+	}
+	return abs, nil
+}
+
+func (c *claudeCode) GlobalConfigured() (bool, error) {
+	return mcpEntryConfigured(c.GlobalConfigPath(), "mcpServers")
+}
+
+// claudeCodeProbe is a minimal view of ~/.claude.json used to detect a
+// per-project SafeDep entry. Only projects[*].mcpServers is parsed; server
+// bodies stay raw.
+type claudeCodeProbe struct {
+	Projects map[string]struct {
+		MCPServers map[string]json.RawMessage `json:"mcpServers"`
+	} `json:"projects"`
+}
+
+// WorkspaceConfigured checks projects[workspaceDir].mcpServers.safedep in
+// ~/.claude.json, the per-project location Claude Code uses.
+func (c *claudeCode) WorkspaceConfigured(workspaceDir string) (bool, error) {
+	key, err := claudeProjectKey(workspaceDir)
+	if err != nil {
+		return false, err
+	}
+
+	raw, err := os.ReadFile(c.GlobalConfigPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if len(raw) == 0 {
+		return false, nil
+	}
+
+	var probe claudeCodeProbe
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return false, fmt.Errorf("agent: parse %s: %w", c.GlobalConfigPath(), err)
+	}
+
+	_, ok := probe.Projects[key].MCPServers[safedepMCPKey]
+	return ok, nil
 }
 
 // writeClaudeCodeMCPConfig writes the SafeDep entry into a Claude Code JSON

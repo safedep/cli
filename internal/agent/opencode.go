@@ -48,6 +48,14 @@ func (o *openCode) RemoveWorkspace(workspaceDir string) error {
 	return removeOpenCodeMCPConfig(o.WorkspaceConfigPath(workspaceDir))
 }
 
+func (o *openCode) GlobalConfigured() (bool, error) {
+	return mcpEntryConfigured(o.GlobalConfigPath(), "mcp")
+}
+
+func (o *openCode) WorkspaceConfigured(workspaceDir string) (bool, error) {
+	return mcpEntryConfigured(o.WorkspaceConfigPath(workspaceDir), "mcp")
+}
+
 type openCodeMCPServerEntry struct {
 	Type    string            `json:"type"`
 	URL     string            `json:"url"`

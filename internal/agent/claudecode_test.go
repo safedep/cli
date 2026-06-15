@@ -155,4 +155,68 @@ func TestClaudeCode(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("GlobalConfigured tracks inject and remove", func(t *testing.T) {
+		cc := newClaudeCode(t.TempDir())
+
+		got, err := cc.GlobalConfigured()
+		require.NoError(t, err)
+		assert.False(t, got)
+
+		require.NoError(t, cc.InjectGlobal(cfg))
+		got, err = cc.GlobalConfigured()
+		require.NoError(t, err)
+		assert.True(t, got)
+
+		require.NoError(t, cc.RemoveGlobal())
+		got, err = cc.GlobalConfigured()
+		require.NoError(t, err)
+		assert.False(t, got)
+	})
+
+	t.Run("WorkspaceConfigured reads nested projects entry", func(t *testing.T) {
+		home := t.TempDir()
+		workspace := t.TempDir()
+		cc := newClaudeCode(home)
+
+		got, err := cc.WorkspaceConfigured(workspace)
+		require.NoError(t, err)
+		assert.False(t, got)
+
+		require.NoError(t, cc.InjectWorkspace(workspace, cfg))
+		got, err = cc.WorkspaceConfigured(workspace)
+		require.NoError(t, err)
+		assert.True(t, got)
+
+		// A different project path must not report as configured.
+		got, err = cc.WorkspaceConfigured(t.TempDir())
+		require.NoError(t, err)
+		assert.False(t, got)
+	})
+
+	t.Run("WorkspaceConfigured matches non-absolute workspace path", func(t *testing.T) {
+		home := t.TempDir()
+		workspace := t.TempDir()
+		cc := newClaudeCode(home)
+		require.NoError(t, cc.InjectWorkspace(workspace, cfg))
+
+		// A trailing slash must resolve to the same projects key Claude Code
+		// stores by absolute, cleaned path.
+		got, err := cc.WorkspaceConfigured(workspace + string(filepath.Separator))
+		require.NoError(t, err)
+		assert.True(t, got)
+	})
+
+	t.Run("InjectWorkspace keys projects by absolute path", func(t *testing.T) {
+		home := t.TempDir()
+		workspace := t.TempDir()
+		cc := newClaudeCode(home)
+
+		// Inject via a path with a trailing slash, probe via the clean path.
+		require.NoError(t, cc.InjectWorkspace(workspace+string(filepath.Separator), cfg))
+
+		got, err := cc.WorkspaceConfigured(workspace)
+		require.NoError(t, err)
+		assert.True(t, got)
+	})
 }

@@ -144,4 +144,36 @@ func TestVSCode(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte("not json"), 0o600))
 		require.Error(t, v.RemoveWorkspace(workspace))
 	})
+
+	t.Run("GlobalConfigured reads the servers key", func(t *testing.T) {
+		v := newVSCode(t.TempDir())
+
+		got, err := v.GlobalConfigured()
+		require.NoError(t, err)
+		assert.False(t, got)
+
+		require.NoError(t, v.InjectGlobal(testCfg))
+		got, err = v.GlobalConfigured()
+		require.NoError(t, err)
+		assert.True(t, got)
+	})
+
+	t.Run("GlobalConfigured returns error on invalid JSON", func(t *testing.T) {
+		v := newVSCode(t.TempDir())
+		path := v.GlobalConfigPath()
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+		require.NoError(t, os.WriteFile(path, []byte("not json"), 0o600))
+		_, err := v.GlobalConfigured()
+		require.Error(t, err)
+	})
+
+	t.Run("WorkspaceConfigured reads the servers key", func(t *testing.T) {
+		workspace := t.TempDir()
+		v := newVSCode(t.TempDir())
+
+		require.NoError(t, v.InjectWorkspace(workspace, testCfg))
+		got, err := v.WorkspaceConfigured(workspace)
+		require.NoError(t, err)
+		assert.True(t, got)
+	})
 }

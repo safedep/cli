@@ -80,6 +80,14 @@ func (v *vsCode) RemoveWorkspace(workspaceDir string) error {
 	return removeVSCodeMCPConfig(v.WorkspaceConfigPath(workspaceDir))
 }
 
+func (v *vsCode) GlobalConfigured() (bool, error) {
+	return mcpEntryConfigured(v.GlobalConfigPath(), "servers")
+}
+
+func (v *vsCode) WorkspaceConfigured(workspaceDir string) (bool, error) {
+	return mcpEntryConfigured(v.WorkspaceConfigPath(workspaceDir), "servers")
+}
+
 // writeVSCodeMCPConfig writes the SafeDep entry into a VS Code mcp.json.
 // VS Code uses "servers" as the root key (not "mcpServers") and requires
 // "type": "http" with "url" for remote Streamable HTTP servers.

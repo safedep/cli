@@ -193,4 +193,30 @@ func TestClaudeCode(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, got)
 	})
+
+	t.Run("WorkspaceConfigured matches non-absolute workspace path", func(t *testing.T) {
+		home := t.TempDir()
+		workspace := t.TempDir()
+		cc := newClaudeCode(home)
+		require.NoError(t, cc.InjectWorkspace(workspace, cfg))
+
+		// A trailing slash must resolve to the same projects key Claude Code
+		// stores by absolute, cleaned path.
+		got, err := cc.WorkspaceConfigured(workspace + string(filepath.Separator))
+		require.NoError(t, err)
+		assert.True(t, got)
+	})
+
+	t.Run("InjectWorkspace keys projects by absolute path", func(t *testing.T) {
+		home := t.TempDir()
+		workspace := t.TempDir()
+		cc := newClaudeCode(home)
+
+		// Inject via a path with a trailing slash, probe via the clean path.
+		require.NoError(t, cc.InjectWorkspace(workspace+string(filepath.Separator), cfg))
+
+		got, err := cc.WorkspaceConfigured(workspace)
+		require.NoError(t, err)
+		assert.True(t, got)
+	})
 }

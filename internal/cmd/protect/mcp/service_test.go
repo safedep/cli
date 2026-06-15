@@ -260,4 +260,23 @@ func TestMCPServiceStatus(t *testing.T) {
 		require.Error(t, err)
 		require.Len(t, statuses, 1)
 	})
+
+	t.Run("returns partial report alongside per-scope error", func(t *testing.T) {
+		failing := &fakeAgent{name: "claude-code", detected: true, global: &fakeGlobalInjector{configuredErr: errors.New("read fail")}}
+		healthy := &fakeAgent{name: "cursor", detected: true, global: &fakeGlobalInjector{configured: true}}
+		svc := newMCPService([]agent.Agent{failing, healthy}, nil)
+
+		statuses, err := svc.status(statusInput{})
+		require.Error(t, err)
+		require.Len(t, statuses, 2)
+
+		// The failing scope carries its error and is not reported as a clean
+		// "not configured".
+		require.Error(t, statuses[0].Global.Err)
+		assert.False(t, statuses[0].Global.Configured)
+
+		// The healthy agent is still reported.
+		assert.NoError(t, statuses[1].Global.Err)
+		assert.True(t, statuses[1].Global.Configured)
+	})
 }

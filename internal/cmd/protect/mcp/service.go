@@ -25,11 +25,13 @@ type statusInput struct {
 }
 
 // scopeStatus is the SafeDep MCP state for one config scope (global or
-// workspace) of an agent.
+// workspace) of an agent. Err records a probe failure for this scope, so the
+// report can mark it distinctly instead of conflating it with "not configured".
 type scopeStatus struct {
 	Supported  bool
 	Configured bool
 	Path       string
+	Err        error
 }
 
 // agentStatus is the SafeDep MCP integration state of a single agent.
@@ -107,6 +109,7 @@ func (s *mcpService) status(in statusInput) ([]agentStatus, error) {
 				configured, err := gi.GlobalConfigured()
 				if err != nil {
 					errs = append(errs, err)
+					st.Global.Err = err
 				}
 				st.Global.Configured = configured
 			}
@@ -119,6 +122,7 @@ func (s *mcpService) status(in statusInput) ([]agentStatus, error) {
 				configured, err := wi.WorkspaceConfigured(in.WorkspaceDir)
 				if err != nil {
 					errs = append(errs, err)
+					st.Workspace.Err = err
 				}
 				st.Workspace.Configured = configured
 			}

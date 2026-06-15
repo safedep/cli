@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -25,15 +26,16 @@ func statusCmd(a *app.App) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			svc := newMCPService(agent.NewRegistry(), nil)
 
-			statuses, err := svc.status(flags)
-			if err != nil {
-				return err
-			}
-
-			return a.Output.Print(&statusResult{
+			// status accumulates per-agent probe errors alongside a partial
+			// report. Print the report first so healthy agents are still shown,
+			// then surface the errors via stderr and a non-zero exit.
+			statuses, statusErr := svc.status(flags)
+			printErr := a.Output.Print(&statusResult{
 				statuses:     statuses,
 				workspaceDir: flags.WorkspaceDir,
 			})
+
+			return errors.Join(statusErr, printErr)
 		},
 	}
 
@@ -51,6 +53,19 @@ type scopeJSON struct {
 	Supported  bool   `json:"supported"`
 	Configured bool   `json:"configured"`
 	Path       string `json:"path,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+func toScopeJSON(sc scopeStatus) scopeJSON {
+	out := scopeJSON{
+		Supported:  sc.Supported,
+		Configured: sc.Configured,
+		Path:       sc.Path,
+	}
+	if sc.Err != nil {
+		out.Error = sc.Err.Error()
+	}
+	return out
 }
 
 type agentStatusJSON struct {
@@ -66,10 +81,10 @@ func (r *statusResult) RenderJSON() ([]byte, error) {
 		row := agentStatusJSON{
 			Name:     st.Name,
 			Detected: st.Detected,
-			Global:   scopeJSON(st.Global),
+			Global:   toScopeJSON(st.Global),
 		}
 		if r.workspaceDir != "" {
-			ws := scopeJSON(st.Workspace)
+			ws := toScopeJSON(st.Workspace)
 			row.Workspace = &ws
 		}
 		out = append(out, row)
@@ -124,10 +139,15 @@ func detectedBadge(detected bool) string {
 }
 
 // scopeBadge renders a styled cell for a config scope. Undetected agents and
-// unsupported scopes carry no SafeDep state, so they render as a plain dash.
+// unsupported scopes carry no SafeDep state, so they render as a plain dash. A
+// failed probe renders as "error" rather than "not configured", which would
+// misreport an unreadable config as a clean absence.
 func scopeBadge(detected bool, sc scopeStatus) string {
 	if !detected || !sc.Supported {
 		return "-"
+	}
+	if sc.Err != nil {
+		return drytui.Badge(theme.RoleError, "error")
 	}
 	if sc.Configured {
 		return drytui.Badge(theme.RoleSuccess, "configured")
@@ -138,6 +158,9 @@ func scopeBadge(detected bool, sc scopeStatus) string {
 func scopePlain(detected bool, sc scopeStatus) string {
 	if !detected || !sc.Supported {
 		return "-"
+	}
+	if sc.Err != nil {
+		return "error"
 	}
 	if sc.Configured {
 		return "configured"

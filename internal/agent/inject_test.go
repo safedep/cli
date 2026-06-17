@@ -136,6 +136,46 @@ func TestInjectAll(t *testing.T) {
 		a := &fakeAgent{name: "x", detected: true, global: nil}
 		require.NoError(t, InjectAll([]Agent{a}, cfg, ""))
 	})
+
+	t.Run("stamps X-Agent-Name from the agent's Name into global config", func(t *testing.T) {
+		gi := &fakeGlobalInjector{}
+		a := &fakeAgent{name: "claude-code", detected: true, global: gi}
+
+		require.NoError(t, InjectAll([]Agent{a}, cfg, ""))
+		require.NotNil(t, gi.injected)
+		assert.Equal(t, "claude-code", gi.injected.Headers[AgentNameHeader])
+	})
+
+	t.Run("stamps X-Agent-Name into workspace config", func(t *testing.T) {
+		wi := &fakeWorkspaceInjector{}
+		a := &fakeAgent{name: "cursor", detected: true, workspace: wi}
+
+		require.NoError(t, InjectAll([]Agent{a}, cfg, "/project"))
+		require.NotNil(t, wi.injected)
+		assert.Equal(t, "cursor", wi.injected.Headers[AgentNameHeader])
+	})
+
+	t.Run("each agent gets its own name, not a shared one", func(t *testing.T) {
+		gi1, gi2 := &fakeGlobalInjector{}, &fakeGlobalInjector{}
+		a1 := &fakeAgent{name: "claude-code", detected: true, global: gi1}
+		a2 := &fakeAgent{name: "cursor", detected: true, global: gi2}
+
+		require.NoError(t, InjectAll([]Agent{a1, a2}, cfg, ""))
+		assert.Equal(t, "claude-code", gi1.injected.Headers[AgentNameHeader])
+		assert.Equal(t, "cursor", gi2.injected.Headers[AgentNameHeader])
+	})
+
+	t.Run("does not mutate the caller's shared headers map", func(t *testing.T) {
+		shared := MCPConfig{URL: "https://mcp.safedep.io", Headers: map[string]string{"X-Tenant-ID": "t1"}}
+		gi := &fakeGlobalInjector{}
+		a := &fakeAgent{name: "claude-code", detected: true, global: gi}
+
+		require.NoError(t, InjectAll([]Agent{a}, shared, ""))
+		assert.Equal(t, "t1", gi.injected.Headers["X-Tenant-ID"], "original headers preserved")
+		assert.Equal(t, "claude-code", gi.injected.Headers[AgentNameHeader])
+		_, leaked := shared.Headers[AgentNameHeader]
+		assert.False(t, leaked, "per-agent header must not leak into the shared config")
+	})
 }
 
 func TestRemoveAll(t *testing.T) {

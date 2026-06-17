@@ -1,6 +1,13 @@
 package agent
 
-import "errors"
+import (
+	"errors"
+	"maps"
+)
+
+// AgentNameHeader carries the agent slug (e.g. "claude-code") to the MCP
+// server, which uses it to attribute requests to a specific agent.
+const AgentNameHeader = "X-Agent-Name"
 
 // InjectAll injects the SafeDep MCP config into every detected agent.
 // workspaceDir="" skips workspace injection. Best-effort: all agents
@@ -13,15 +20,19 @@ func InjectAll(agents []Agent, cfg MCPConfig, workspaceDir string) error {
 			continue
 		}
 
+		// Clone the headers so each agent gets its own name without mutating
+		// the caller's shared map.
+		ac := withAgentName(cfg, a.Name())
+
 		if inj, ok := a.AsGlobalInjector(); ok {
-			if err := inj.InjectGlobal(cfg); err != nil {
+			if err := inj.InjectGlobal(ac); err != nil {
 				errs = append(errs, err)
 			}
 		}
 
 		if workspaceDir != "" {
 			if inj, ok := a.AsWorkspaceInjector(); ok {
-				if err := inj.InjectWorkspace(workspaceDir, cfg); err != nil {
+				if err := inj.InjectWorkspace(workspaceDir, ac); err != nil {
 					errs = append(errs, err)
 				}
 			}
@@ -29,6 +40,16 @@ func InjectAll(agents []Agent, cfg MCPConfig, workspaceDir string) error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// withAgentName returns a copy of cfg with AgentNameHeader set to name,
+// cloning Headers so the caller's map is never mutated.
+func withAgentName(cfg MCPConfig, name string) MCPConfig {
+	h := make(map[string]string, len(cfg.Headers)+1)
+	maps.Copy(h, cfg.Headers)
+	h[AgentNameHeader] = name
+	cfg.Headers = h
+	return cfg
 }
 
 // RemoveAll removes the SafeDep MCP config from every detected agent.

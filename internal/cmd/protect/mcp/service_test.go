@@ -116,6 +116,7 @@ func TestMCPServiceInstall(t *testing.T) {
 		assert.Equal(t, "Bearer key123", gi.injected.Headers["Authorization"])
 		assert.Equal(t, "tenant-1", gi.injected.Headers["X-Tenant-ID"])
 		assert.NotEmpty(t, gi.injected.Headers["X-Endpoint-ID"])
+		assert.Equal(t, "claude-code", gi.injected.Headers[agent.AgentNameHeader])
 	})
 
 	t.Run("skips undetected agents", func(t *testing.T) {

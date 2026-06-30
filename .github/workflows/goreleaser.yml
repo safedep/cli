@@ -42,7 +42,7 @@ jobs:
           cache: "pnpm"
 
       - name: Install and configure PMG
-        uses: safedep/pmg@7b13b6bfb3cdb8cde1212e7a0e8788b22bf2081e # v0.21.2
+        uses: safedep/pmg@5ac0f275b83d9d5a9342c6aae977ec32fa330daa # v1
         with:
           server-mode: true
           api-key: ${{ secrets.SAFEDEP_CLOUD_API_KEY }}

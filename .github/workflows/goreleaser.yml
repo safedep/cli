@@ -42,8 +42,9 @@ jobs:
           cache: "pnpm"
 
       - name: Install and configure PMG
-        uses: safedep/pmg@46cc70db535107183c9e752bb55d1d5c5f1a9290 # v0.14.0
+        uses: safedep/pmg@5ac0f275b83d9d5a9342c6aae977ec32fa330daa # v1
         with:
+          server-mode: true
           api-key: ${{ secrets.SAFEDEP_CLOUD_API_KEY }}
           tenant-id: ${{ secrets.SAFEDEP_CLOUD_TENANT_DOMAIN }}
           endpoint-id: CICD_GHA_SAFEDEP_CLI
@@ -78,10 +79,13 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Sync PMG events
+      # Limitation: runs after publish, so it alerts but cannot stop a
+      # release. A required dep block already fails the earlier install step. The
+      # gap is an optional dep: pnpm skips the block and exits 0, reaching
+      # publish.
+      - name: Stop PMG proxy
         if: always()
-        continue-on-error: true
-        run: pmg cloud sync
+        run: pmg proxy stop --fail-on-violation
 
   test-installation:
     needs: release

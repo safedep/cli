@@ -9,6 +9,7 @@ import (
 	"github.com/safedep/cli/internal/agent"
 	"github.com/safedep/cli/internal/app"
 	drytui "github.com/safedep/dry/tui"
+	"github.com/safedep/dry/tui/section"
 	"github.com/safedep/dry/tui/table"
 	"github.com/safedep/dry/tui/theme"
 	"github.com/spf13/cobra"
@@ -113,7 +114,7 @@ func (r *statusResult) RenderTable() string {
 		headers = append(headers, "Workspace")
 	}
 
-	t := table.New().Headers(headers...)
+	t := table.New().Title("AI agent MCP status").Headers(headers...)
 	for _, st := range r.statuses {
 		row := []string{st.Name, detectedBadge(st.Detected), scopeBadge(st.Detected, st.Global)}
 		if withWorkspace {
@@ -121,7 +122,29 @@ func (r *statusResult) RenderTable() string {
 		}
 		t = t.Row(row...)
 	}
+	if unconfigured := r.unconfiguredCount(); unconfigured > 0 {
+		return section.Join(t.Render(),
+			section.Hint("Run 'safedep protect mcp install' to configure detected agents."))
+	}
 	return t.Render()
+}
+
+// unconfiguredCount counts detected agents with at least one supported,
+// readable scope that lacks SafeDep configuration.
+func (r *statusResult) unconfiguredCount() int {
+	n := 0
+	for _, st := range r.statuses {
+		if !st.Detected {
+			continue
+		}
+		for _, sc := range []scopeStatus{st.Global, st.Workspace} {
+			if sc.Supported && sc.Err == nil && !sc.Configured {
+				n++
+				break
+			}
+		}
+	}
+	return n
 }
 
 func yesNo(b bool) string {

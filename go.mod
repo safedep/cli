@@ -4,14 +4,14 @@ go 1.26.2
 
 require (
 	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260524054719-9c47eb06a4aa.1
-	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260524054719-9c47eb06a4aa.1
+	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260620084912-77c7bb923ddb.1
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/cli/browser v1.0.0
 	github.com/cli/oauth v1.2.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/oklog/ulid/v2 v2.1.1
-	github.com/safedep/dry v0.0.0-20260504122816-5c551221f38b
+	github.com/safedep/dry v0.0.0-20260711152302-1656e44cf84e
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
@@ -24,7 +24,7 @@ require (
 )
 
 require (
-	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20240508200655-46a4cf4ba109.1 // indirect
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260415201107-50325440f8f2.1 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/brunoga/deep v1.3.1 // indirect

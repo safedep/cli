@@ -10,6 +10,8 @@ import (
 
 	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	"github.com/safedep/cli/internal/app"
+	"github.com/safedep/dry/tui/humanize"
+	"github.com/safedep/dry/tui/section"
 	"github.com/safedep/dry/tui/table"
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
@@ -295,18 +297,25 @@ func (r *activityResult) RenderPlain() string {
 }
 
 func (r *activityResult) RenderTable() string {
-	if len(r.rows) == 0 {
-		return "no activity"
-	}
+	now := time.Now()
 	rows := make([][]string, 0, len(r.rows))
 	ids := make([]string, 0, len(r.rows))
 	for _, row := range r.rows {
-		rows = append(rows, []string{formatTime(row.Timestamp), endpointLabel(row.EndpointID, r.endpointLabels), row.Type, row.Tool, row.Summary})
+		rows = append(rows, []string{humanize.Time(row.Timestamp, now), endpointLabel(row.EndpointID, r.endpointLabels), row.Type, row.Tool, row.Summary})
 		ids = append(ids, row.InvocationID)
 	}
-	rendered := table.New().Headers("Time", "Endpoint", "Type", "Tool", "Summary").Rows(rows...).Render()
+	t := table.New().
+		Title("Endpoint activity").
+		Headers("Time", "Endpoint", "Type", "Tool", "Summary").
+		Rows(rows...).
+		EmptyMessage("No activity found. Try a wider --since window or fewer filters.")
+	if len(rows) == 0 {
+		return t.Render()
+	}
 	runs := distinctInvocations(ids)
-	return rendered + fmt.Sprintf("\n%d %s across %d tool %s. Use --output json for invocation_id, drill in with --invocation <id>.",
+	t = t.Footer(fmt.Sprintf("%d %s across %d tool %s",
 		len(rows), plural(len(rows), "event", "events"),
-		runs, plural(runs, "run", "runs"))
+		runs, plural(runs, "run", "runs")))
+	return section.Join(t.Render(),
+		section.Hint("Use --output json for invocation_id, drill in with --invocation <id>."))
 }

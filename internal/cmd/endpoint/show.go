@@ -10,6 +10,9 @@ import (
 	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/dry/log"
+	"github.com/safedep/dry/tui/humanize"
+	"github.com/safedep/dry/tui/panel"
+	"github.com/safedep/dry/tui/section"
 	"github.com/safedep/dry/tui/table"
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
@@ -210,13 +213,13 @@ func runShow(ctx context.Context, svc showSvc, dir *Directory, in showInput) (*s
 // action filter so users see what filter produced the rows.
 func (r *showResult) guardSectionTitle() string {
 	if len(r.guardActions) == 0 {
-		return fmt.Sprintf("Recent guard events (all actions, %s)", r.windowLabel())
+		return fmt.Sprintf("Recent guard events (all actions, %s)", humanWindowLabel(r.window))
 	}
 	parts := make([]string, len(r.guardActions))
 	for i, a := range r.guardActions {
 		parts[i] = string(a)
 	}
-	return fmt.Sprintf("Recent guard events (%s, %s)", strings.Join(parts, ","), r.windowLabel())
+	return fmt.Sprintf("Recent guard events (%s, %s)", strings.Join(parts, ","), humanWindowLabel(r.window))
 }
 
 func (r *showResult) RenderJSON() ([]byte, error) {
@@ -297,50 +300,46 @@ func (r *showResult) RenderPlain() string {
 }
 
 func (r *showResult) RenderTable() string {
-	var sections []string
-
-	header := table.New().Headers("Field", "Value").Rows(
-		[]string{"ID", r.endpoint.ID},
-		[]string{"Hostname", r.endpoint.Hostname},
-		[]string{"Identifier", r.endpoint.Identifier},
-		[]string{"OS/Arch", r.endpoint.OS + "/" + r.endpoint.Arch},
-		[]string{"Last Sync", formatTime(r.endpoint.LastSync)},
-		[]string{fmt.Sprintf("Inventory items (%s)", r.windowLabel()), fmt.Sprint(r.inventoryCount)},
-	).Render()
-	sections = append(sections, header)
+	now := time.Now()
+	parts := []string{r.renderHeaderPanel(now)}
 
 	if len(r.endpoint.PerToolVolumes) > 0 {
 		rows := make([][]string, 0, len(r.endpoint.PerToolVolumes))
 		for _, v := range r.endpoint.PerToolVolumes {
 			rows = append(rows, []string{v.Tool, fmt.Sprint(v.Count)})
 		}
-		sections = append(sections, fmt.Sprintf("Per-tool events (%s):\n", r.windowLabel())+table.New().Headers("Tool", "Events").Rows(rows...).Render())
+		parts = append(parts, table.New().
+			Title(fmt.Sprintf("Per-tool events (%s)", humanWindowLabel(r.window))).
+			Headers("Tool", "Events").Rows(rows...).Render())
 	}
 
-	if r.endpoint.LastInvocation != nil {
-		inv := r.endpoint.LastInvocation
-		sections = append(sections, "Last invocation:\n"+table.New().Headers("Field", "Value").Rows(
-			[]string{"Command", inv.Command},
-			[]string{"Working dir", inv.WorkingDir},
-			[]string{"CI context", yesNo(inv.HasCI)},
-			[]string{"Agent context", yesNo(inv.HasAgent)},
-		).Render())
+	if inv := r.endpoint.LastInvocation; inv != nil {
+		parts = append(parts, panel.New("Last invocation").
+			Field("Command", inv.Command).
+			Field("Working dir", inv.WorkingDir).
+			Field("CI context", yesNo(inv.HasCI)).
+			Field("Agent context", yesNo(inv.HasAgent)).
+			Render())
 	}
 
 	if len(r.guardEvents) > 0 {
 		rows := make([][]string, 0, len(r.guardEvents))
 		ids := make([]string, 0, len(r.guardEvents))
 		for _, b := range r.guardEvents {
-			rows = append(rows, []string{formatTime(b.Timestamp), verdictCell(b), string(b.Action), b.PackageName, b.PackageVersion, b.Ecosystem})
+			rows = append(rows, []string{humanize.Time(b.Timestamp, now), verdictCell(b), string(b.Action), b.PackageName, b.PackageVersion, b.Ecosystem})
 			ids = append(ids, b.InvocationID)
 		}
 		runs := distinctInvocations(ids)
-		section := r.guardSectionTitle() + ":\n" +
-			table.New().Headers("Time", "Verdict", "Action", "Package", "Version", "Ecosystem").Rows(rows...).Render() +
-			fmt.Sprintf("\n%d %s across %d tool %s. Use --output json for invocation_id then drill in with `safedep endpoint activity list --invocation <id>`.",
-				len(rows), plural(len(rows), "event", "events"),
-				runs, plural(runs, "run", "runs"))
-		sections = append(sections, section)
+		parts = append(parts,
+			table.New().
+				Title(r.guardSectionTitle()).
+				Headers("Time", "Verdict", "Action", "Package", "Version", "Ecosystem").
+				Rows(rows...).
+				Footer(fmt.Sprintf("%d %s across %d tool %s",
+					len(rows), plural(len(rows), "event", "events"),
+					runs, plural(runs, "run", "runs"))).
+				Render(),
+			section.Hint("Use --output json for invocation_id then drill in with `safedep endpoint activity list --invocation <id>`."))
 	}
 
 	if len(r.inventoryItems) > 0 {
@@ -348,16 +347,33 @@ func (r *showResult) RenderTable() string {
 		for _, e := range r.inventoryItems {
 			rows = append(rows, []string{
 				inventoryKindLabel(e.Kind), inventoryDisplayName(e),
-				e.App, inventoryScopeLabel(e.Scope), formatTime(e.Timestamp),
+				e.App, inventoryScopeLabel(e.Scope), humanize.Time(e.Timestamp, now),
 			})
 		}
-		section := fmt.Sprintf("Inventory (%s):\n", r.windowLabel()) +
-			table.New().Headers("Kind", "Name", "App", "Scope", "Last Seen").Rows(rows...).Render() +
-			fmt.Sprintf("\n%d distinct inventory %s.", len(rows), plural(len(rows), "item", "items"))
-		sections = append(sections, section)
+		parts = append(parts, table.New().
+			Title(fmt.Sprintf("Inventory (%s)", humanWindowLabel(r.window))).
+			Headers("Kind", "Name", "App", "Scope", "Last Seen").
+			Rows(rows...).
+			Footer(fmt.Sprintf("%d distinct inventory %s", len(rows), plural(len(rows), "item", "items"))).
+			Render())
 	}
 
-	return strings.Join(sections, "\n\n")
+	return section.Join(parts...)
+}
+
+func (r *showResult) renderHeaderPanel(now time.Time) string {
+	title := "Endpoint"
+	if r.endpoint.Hostname != "" {
+		title = "Endpoint " + r.endpoint.Hostname
+	}
+	return panel.New(title).
+		Field("ID", r.endpoint.ID).
+		Field("Hostname", r.endpoint.Hostname).
+		Field("Identifier", r.endpoint.Identifier).
+		Field("OS/Arch", r.endpoint.OS+"/"+r.endpoint.Arch).
+		Field("Last Sync", humanize.Time(r.endpoint.LastSync, now)).
+		Field(fmt.Sprintf("Inventory items (%s)", humanWindowLabel(r.window)), fmt.Sprint(r.inventoryCount)).
+		Render()
 }
 
 func yesNo(b bool) string {

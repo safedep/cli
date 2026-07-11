@@ -9,6 +9,7 @@ import (
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/safedep/cli/internal/app"
+	"github.com/safedep/dry/tui/humanize"
 	"github.com/safedep/dry/tui/table"
 	"github.com/spf13/cobra"
 )
@@ -214,20 +215,30 @@ func (r *listResult) RenderPlain() string {
 }
 
 func (r *listResult) RenderTable() string {
-	if len(r.endpoints) == 0 {
-		return "no endpoints"
-	}
+	now := time.Now()
 	rows := make([][]string, 0, len(r.endpoints))
 	for _, e := range r.endpoints {
 		rows = append(rows, []string{
 			shortID(e.ID), e.Hostname, e.OS + "/" + e.Arch,
 			strings.Join(capabilityNames(e.Capabilities), ","),
-			formatTime(e.LastSync),
+			humanize.Time(e.LastSync, now),
 			fmt.Sprint(e.PMGBlockedEvents),
 			fmt.Sprint(e.InventoryEvents),
 		})
 	}
-	return table.New().Headers("ID", "Hostname", "OS/Arch", "Capabilities", "Last Sync", "Blocked", "Inventory").Rows(rows...).Render()
+	t := table.New().
+		Title("Endpoints").
+		Headers("ID", "Hostname", "OS/Arch", "Capabilities", "Last Sync", "Blocked", "Inventory").
+		Rows(rows...).
+		EmptyMessage("No endpoints found. Endpoints appear after a SafeDep tool syncs. Try a wider --since window.")
+	if len(rows) > 0 {
+		footer := fmt.Sprintf("%d %s", len(rows), plural(len(rows), "endpoint", "endpoints"))
+		if r.nextPage != "" {
+			footer += fmt.Sprintf(". More available: --page-token %s", r.nextPage)
+		}
+		t = t.Footer(footer)
+	}
+	return t.Render()
 }
 
 // shortID returns a display-friendly prefix of an endpoint ULID. The

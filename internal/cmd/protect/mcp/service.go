@@ -7,6 +7,7 @@ import (
 	"github.com/safedep/cli/internal/endpoint"
 	"github.com/safedep/dry/cloud/endpointsync"
 	"github.com/safedep/dry/tui"
+	"github.com/safedep/dry/tui/steps"
 )
 
 type installInput struct {
@@ -63,15 +64,16 @@ func (s *mcpService) install(in installInput) error {
 		return nil
 	}
 
+	flow := steps.New(len(configurable))
 	for _, a := range configurable {
-		tui.Info("Configuring %s", a.Name())
+		flow.Step("Configuring %s", a.Name())
 	}
 
 	if err := agent.InjectAll(configurable, cfg, in.WorkspaceDir); err != nil {
 		return err
 	}
 
-	tui.Success("SafeDep MCP server configured for %d agent(s).", len(configurable))
+	flow.Done("SafeDep MCP server configured for %d agent(s).", len(configurable))
 	return nil
 }
 

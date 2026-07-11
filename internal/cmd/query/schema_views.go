@@ -10,6 +10,7 @@ import (
 
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/cloudquery"
+	"github.com/safedep/dry/tui/section"
 	"github.com/safedep/dry/tui/table"
 	"github.com/spf13/cobra"
 )
@@ -86,18 +87,21 @@ func (r *schemaListResult) RenderPlain() string {
 
 func (r *schemaListResult) RenderTable() string {
 	if len(r.data.Tables) == 0 {
-		return "no tables"
+		return section.Empty("no tables")
 	}
-	t := table.New().Headers("Table", "Columns", "Description")
 	rows := make([][]string, 0, len(r.data.Tables))
 	for _, tbl := range r.data.Tables {
 		rows = append(rows, []string{tbl.Name, fmt.Sprintf("%d", len(tbl.Columns)), tbl.Description})
 	}
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "%d tables\n", len(r.data.Tables))
-	sb.WriteString(t.Rows(rows...).Render())
-	sb.WriteString("\n\nUse 'safedep query schema show <table>' to inspect one table.")
-	return sb.String()
+	return section.Join(
+		table.New().
+			Title("Query schema").
+			Headers("Table", "Columns", "Description").
+			Rows(rows...).
+			Footer(fmt.Sprintf("%d tables", len(r.data.Tables))).
+			Render(),
+		section.Hint("Use 'safedep query schema show <table>' to inspect one table."),
+	)
 }
 
 // schemaShowCmd renders a single table in depth, including joins that
@@ -226,17 +230,17 @@ func (r *schemaShowResult) RenderPlain() string {
 }
 
 func (r *schemaShowResult) RenderTable() string {
-	var sb strings.Builder
-	sb.WriteString(renderSchemaTable(r.table))
+	parts := []string{renderSchemaTable(r.table)}
 	if len(r.edges) > 0 {
-		sb.WriteString("\n\nJoins")
+		var sb strings.Builder
 		for _, e := range r.edges {
 			if e.Cardinality != "" {
-				fmt.Fprintf(&sb, "\n- %s -> %s (%s)", e.From, e.To, e.Cardinality)
+				fmt.Fprintf(&sb, "- %s -> %s (%s)\n", e.From, e.To, e.Cardinality)
 				continue
 			}
-			fmt.Fprintf(&sb, "\n- %s -> %s", e.From, e.To)
+			fmt.Fprintf(&sb, "- %s -> %s\n", e.From, e.To)
 		}
+		parts = append(parts, section.Titled("Joins", strings.TrimRight(sb.String(), "\n")))
 	}
-	return sb.String()
+	return section.Join(parts...)
 }

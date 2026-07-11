@@ -9,7 +9,8 @@ import (
 	"github.com/safedep/cli/internal/app"
 	cliauth "github.com/safedep/cli/internal/auth"
 	drytui "github.com/safedep/dry/tui"
-	"github.com/safedep/dry/tui/table"
+	"github.com/safedep/dry/tui/humanize"
+	"github.com/safedep/dry/tui/panel"
 	"github.com/safedep/dry/tui/theme"
 	"github.com/spf13/cobra"
 )
@@ -69,15 +70,14 @@ func (r *statusResult) RenderPlain() string {
 }
 
 func (r *statusResult) RenderTable() string {
-	t := table.New().
-		Row("Profile", r.st.Profile).
-		Row("Tenant", emptyDash(r.st.Tenant)).
-		Row("API key", yesNoBadge(r.st.APIKey)).
-		Row("OAuth token", yesNoBadge(r.st.OAuth))
-	if !r.st.OAuthExpiresAt.IsZero() {
-		t = t.Row("OAuth expires", r.st.OAuthExpiresAt.UTC().Format(time.RFC3339))
-	}
-	return t.Render()
+	return panel.New("Authentication").
+		Field("Profile", r.st.Profile).
+		Field("Tenant", emptyDash(r.st.Tenant)).
+		Field("API key", yesNoBadge(r.st.APIKey)).
+		Field("OAuth token", yesNoBadge(r.st.OAuth)).
+		FieldIf(!r.st.OAuthExpiresAt.IsZero(), "OAuth expires",
+			humanize.Time(r.st.OAuthExpiresAt, time.Now())).
+		Render()
 }
 
 func yesNo(b bool) string {

@@ -11,6 +11,7 @@ import (
 	drytui "github.com/safedep/dry/tui"
 	"github.com/safedep/dry/tui/humanize"
 	"github.com/safedep/dry/tui/panel"
+	"github.com/safedep/dry/tui/section"
 	"github.com/safedep/dry/tui/theme"
 	"github.com/spf13/cobra"
 )
@@ -70,7 +71,8 @@ func (r *statusResult) RenderPlain() string {
 }
 
 func (r *statusResult) RenderTable() string {
-	return panel.New("Authentication").
+	card := panel.New("Authentication").
+		Field("Status", overallStatusBadge(r.st)).
 		Field("Profile", r.st.Profile).
 		Field("Tenant", emptyDash(r.st.Tenant)).
 		Field("API key", yesNoBadge(r.st.APIKey)).
@@ -78,6 +80,37 @@ func (r *statusResult) RenderTable() string {
 		FieldIf(!r.st.OAuthExpiresAt.IsZero(), "OAuth expires",
 			humanize.Time(r.st.OAuthExpiresAt, time.Now())).
 		Render()
+	if hint := nextStepHint(r.st); hint != "" {
+		return section.Join(card, section.Hint(hint))
+	}
+	return card
+}
+
+// overallStatusBadge summarises the credential state in one badge so users
+// do not have to reason over the per-credential rows.
+func overallStatusBadge(st cliauth.Status) string {
+	switch {
+	case st.APIKey && st.OAuth:
+		return drytui.Badge(theme.RoleSuccess, "authenticated")
+	case st.APIKey || st.OAuth:
+		return drytui.Badge(theme.RoleMedium, "partially authenticated")
+	default:
+		return drytui.Badge(theme.RoleWarning, "not authenticated")
+	}
+}
+
+// nextStepHint returns table-mode guidance for reaching a fully
+// authenticated state. Empty when both credentials are present.
+func nextStepHint(st cliauth.Status) string {
+	switch {
+	case !st.APIKey && !st.OAuth:
+		return "Run 'safedep auth login' to authenticate with SafeDep Cloud."
+	case !st.APIKey:
+		return "Data plane API key missing. Run 'safedep auth login' to create one."
+	case !st.OAuth:
+		return "Control plane OAuth token missing. Run 'safedep auth login' to complete setup."
+	}
+	return ""
 }
 
 func yesNo(b bool) string {

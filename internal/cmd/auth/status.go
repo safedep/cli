@@ -71,26 +71,32 @@ func (r *statusResult) RenderPlain() string {
 }
 
 func (r *statusResult) RenderTable() string {
+	now := time.Now()
+	expiryLabel := "OAuth expires"
+	if r.st.OAuth && !r.st.OAuthValid(now) {
+		expiryLabel = "OAuth expired"
+	}
 	card := panel.New("Authentication").
-		Field("Status", overallStatusBadge(r.st)).
+		Field("Status", overallStatusBadge(r.st, now)).
 		Field("Profile", r.st.Profile).
 		Field("Tenant", emptyDash(r.st.Tenant)).
 		Field("API key", yesNoBadge(r.st.APIKey)).
-		Field("OAuth token", yesNoBadge(r.st.OAuth)).
-		FieldIf(!r.st.OAuthExpiresAt.IsZero(), "OAuth expires",
-			humanize.Time(r.st.OAuthExpiresAt, time.Now())).
+		Field("OAuth token", oauthBadge(r.st, now)).
+		FieldIf(!r.st.OAuthExpiresAt.IsZero(), expiryLabel,
+			humanize.Time(r.st.OAuthExpiresAt, now)).
 		Render()
-	if hint := nextStepHint(r.st); hint != "" {
+	if hint := nextStepHint(r.st, now); hint != "" {
 		return section.Join(card, section.Hint(hint))
 	}
 	return card
 }
 
 // overallStatusBadge summarises the credential state in one badge so users
-// do not have to reason over the per-credential rows.
-func overallStatusBadge(st cliauth.Status) string {
+// do not have to reason over the per-credential rows. An expired OAuth
+// token does not count as authenticated.
+func overallStatusBadge(st cliauth.Status, now time.Time) string {
 	switch {
-	case st.APIKey && st.OAuth:
+	case st.APIKey && st.OAuthValid(now):
 		return drytui.Badge(theme.RoleSuccess, "authenticated")
 	case st.APIKey || st.OAuth:
 		return drytui.Badge(theme.RoleMedium, "partially authenticated")
@@ -99,12 +105,25 @@ func overallStatusBadge(st cliauth.Status) string {
 	}
 }
 
+func oauthBadge(st cliauth.Status, now time.Time) string {
+	switch {
+	case !st.OAuth:
+		return drytui.Badge(theme.RoleWarning, "not configured")
+	case !st.OAuthValid(now):
+		return drytui.Badge(theme.RoleError, "expired")
+	default:
+		return drytui.Badge(theme.RoleSuccess, "configured")
+	}
+}
+
 // nextStepHint returns table-mode guidance for reaching a fully
-// authenticated state. Empty when both credentials are present.
-func nextStepHint(st cliauth.Status) string {
+// authenticated state. Empty when all credentials are present and valid.
+func nextStepHint(st cliauth.Status, now time.Time) string {
 	switch {
 	case !st.APIKey && !st.OAuth:
 		return "Run 'safedep auth login' to authenticate with SafeDep Cloud."
+	case st.OAuth && !st.OAuthValid(now):
+		return "OAuth token expired. Run 'safedep auth login' to re-authenticate."
 	case !st.APIKey:
 		return "Data plane API key missing. Run 'safedep auth login' to create one."
 	case !st.OAuth:

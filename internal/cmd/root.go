@@ -3,8 +3,17 @@ package cmd
 import (
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/tui"
+	"github.com/safedep/cli/internal/version"
+	"github.com/safedep/dry/tui/banner"
+	tuioutput "github.com/safedep/dry/tui/output"
 	"github.com/spf13/cobra"
 )
+
+const bannerArt = ` ___  __ _ / _| ___  __| | ___ _ __
+/ __|/ _' | |_ / _ \/ _' |/ _ \ '_ \
+\__ \ (_| |  _|  __/ (_| |  __/ |_) |
+|___/\__,_|_|  \___|\__,_|\___| .__/
+                              |_|`
 
 var (
 	outputFlag                   string
@@ -37,6 +46,21 @@ func NewRootCommand(a *app.App) *cobra.Command {
 		a.SetInsecureKeychainFallback(insecureKeychainFallbackFlag)
 		return nil
 	}
+
+	// Rich-only banner on the root help so interactive first contact has
+	// identity. Plain and agent modes keep cobra's unmodified help output.
+	defaultHelp := root.HelpFunc()
+	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		if cmd == root && tuioutput.CurrentMode() == tuioutput.Rich {
+			banner.Banner{
+				Art:     bannerArt,
+				Name:    "cli",
+				Version: version.Version,
+				Tagline: "The unified CLI for the SafeDep platform",
+			}.Print()
+		}
+		defaultHelp(cmd, args)
+	})
 
 	return root
 }

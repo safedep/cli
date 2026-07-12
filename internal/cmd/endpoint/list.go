@@ -220,7 +220,7 @@ func (r *listResult) RenderTable() string {
 	for _, e := range r.endpoints {
 		rows = append(rows, []string{
 			shortID(e.ID), e.Hostname, e.OS + "/" + e.Arch,
-			strings.Join(capabilityNames(e.Capabilities), ","),
+			emptyDash(strings.Join(capabilityNames(e.Capabilities), ",")),
 			humanize.Time(e.LastSync, now),
 			fmt.Sprint(e.PMGBlockedEvents),
 			fmt.Sprint(e.InventoryEvents),

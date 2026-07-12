@@ -198,9 +198,13 @@ func columnNames(cols []cloudquery.Column) []string {
 // renderExecFooter returns the D2 footer: one summary line, and a second
 // line advertising the next-page cursor when present.
 func renderExecFooter(r *cloudquery.ExecResult) string {
+	rows := "rows"
+	if len(r.Rows) == 1 {
+		rows = "row"
+	}
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "%d rows | ~%g cost | %dms",
-		len(r.Rows), r.Stats.EstimatedCost, r.Stats.ElapsedMs)
+	fmt.Fprintf(&sb, "%d %s | ~%g cost | %dms",
+		len(r.Rows), rows, r.Stats.EstimatedCost, r.Stats.ElapsedMs)
 	if r.NextPage != "" {
 		fmt.Fprintf(&sb, "\nnext page: --page-token %s", r.NextPage)
 	}

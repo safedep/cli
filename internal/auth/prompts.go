@@ -13,6 +13,8 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/tui"
 	tuiout "github.com/safedep/dry/tui/output"
+	"github.com/safedep/dry/tui/panel"
+	"github.com/safedep/dry/tui/theme"
 )
 
 // NewRegistrationPrompter returns a BootstrapInput-compatible RegistrationPrompter
@@ -136,18 +138,26 @@ func PromptTenantPicker(tenants []string) (string, error) {
 }
 
 // PrintVerification prints device-flow verification details and, in rich mode,
-// attempts to open the browser automatically.
+// attempts to open the browser automatically. Rich mode renders a panel with
+// the code emphasised. Plain and agent modes keep the terse Info lines.
 func PrintVerification(verificationURL, userCode string) {
-	tui.Info("Open the following URL to complete authentication:")
-	tui.Info("  %s", verificationURL)
-	tui.Info("Verification code: %s", userCode)
+	if tuiout.CurrentMode() != tuiout.Rich {
+		tui.Info("Open the following URL to complete authentication:")
+		tui.Info("  %s", verificationURL)
+		tui.Info("Verification code: %s", userCode)
+		return
+	}
 
-	switch tuiout.CurrentMode() {
-	case tuiout.Rich:
-		if err := browser.OpenURL(verificationURL); err != nil {
-			log.Warnf("auth: open browser: %v", err)
-		}
-	default:
+	card := panel.New("Device login").
+		Field("URL", verificationURL).
+		Field("Code", tui.Badge(theme.RoleInfo, userCode)).
+		Render()
+	_, _ = fmt.Fprintln(tuiout.Stderr(), card)
+	tui.Info("Confirm the code in your browser to continue. Waiting for approval...")
+
+	if err := browser.OpenURL(verificationURL); err != nil {
+		log.Warnf("auth: open browser: %v", err)
+		tui.Info("Could not open the browser automatically. Use the URL above.")
 	}
 }
 

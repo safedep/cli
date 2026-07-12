@@ -13,6 +13,14 @@ func isULID(s string) bool {
 	return err == nil
 }
 
+// emptyDash keeps table cells scannable when a value is absent.
+func emptyDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
+}
+
 // humanWindowLabel is the table-mode variant of TimeWindow.Label with a
 // compact duration ("last 7d" instead of "last 168h0m0s"). Plain and JSON
 // renderings keep Label() unchanged.

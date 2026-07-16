@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"github.com/safedep/cli/internal/app"
-	"github.com/safedep/dry/tui/table"
+	"github.com/safedep/dry/tui/stat"
+	"github.com/safedep/dry/tui/theme"
 	"github.com/spf13/cobra"
 )
 
@@ -61,12 +62,20 @@ func (r *statusResult) RenderPlain() string {
 }
 
 func (r *statusResult) RenderTable() string {
-	t := table.New().Headers("Metric", "Value").Rows(
-		[]string{"Total endpoints", fmt.Sprint(r.data.TotalEndpoints)},
-		[]string{"Active", fmt.Sprint(r.data.ActiveEndpoints)},
-		[]string{"Silent", fmt.Sprint(r.data.SilentEndpoints)},
-		[]string{"Total events", fmt.Sprint(r.data.TotalEvents)},
-		[]string{"PMG blocked", fmt.Sprint(r.data.PMGBlockedEvents)},
+	return stat.Render(
+		stat.Card{Label: "Total endpoints", Value: fmt.Sprint(r.data.TotalEndpoints)},
+		stat.Card{Label: "Active", Value: fmt.Sprint(r.data.ActiveEndpoints), Accent: accentWhen(r.data.ActiveEndpoints > 0, theme.RoleSuccess)},
+		stat.Card{Label: "Silent", Value: fmt.Sprint(r.data.SilentEndpoints), Accent: accentWhen(r.data.SilentEndpoints > 0, theme.RoleWarning)},
+		stat.Card{Label: "Total events", Value: fmt.Sprint(r.data.TotalEvents)},
+		stat.Card{Label: "PMG blocked", Value: fmt.Sprint(r.data.PMGBlockedEvents), Accent: accentWhen(r.data.PMGBlockedEvents > 0, theme.RoleError)},
 	)
-	return t.Render()
+}
+
+// accentWhen colors a stat value only when the metric is noteworthy, so a
+// zero count does not shout.
+func accentWhen(cond bool, role theme.Role) *theme.Role {
+	if !cond {
+		return nil
+	}
+	return &role
 }

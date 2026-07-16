@@ -9,7 +9,9 @@ import (
 	"github.com/safedep/cli/internal/app"
 	cliauth "github.com/safedep/cli/internal/auth"
 	drytui "github.com/safedep/dry/tui"
-	"github.com/safedep/dry/tui/table"
+	"github.com/safedep/dry/tui/humanize"
+	"github.com/safedep/dry/tui/panel"
+	"github.com/safedep/dry/tui/section"
 	"github.com/safedep/dry/tui/theme"
 	"github.com/spf13/cobra"
 )
@@ -69,15 +71,65 @@ func (r *statusResult) RenderPlain() string {
 }
 
 func (r *statusResult) RenderTable() string {
-	t := table.New().
-		Row("Profile", r.st.Profile).
-		Row("Tenant", emptyDash(r.st.Tenant)).
-		Row("API key", yesNoBadge(r.st.APIKey)).
-		Row("OAuth token", yesNoBadge(r.st.OAuth))
-	if !r.st.OAuthExpiresAt.IsZero() {
-		t = t.Row("OAuth expires", r.st.OAuthExpiresAt.UTC().Format(time.RFC3339))
+	now := time.Now()
+	expiryLabel := "OAuth expires"
+	if r.st.OAuth && !r.st.OAuthValid(now) {
+		expiryLabel = "OAuth expired"
 	}
-	return t.Render()
+	card := panel.New("Authentication").
+		Field("Status", overallStatusBadge(r.st, now)).
+		Field("Profile", r.st.Profile).
+		Field("Tenant", emptyDash(r.st.Tenant)).
+		Field("API key", yesNoBadge(r.st.APIKey)).
+		Field("OAuth token", oauthBadge(r.st, now)).
+		FieldIf(!r.st.OAuthExpiresAt.IsZero(), expiryLabel,
+			humanize.Time(r.st.OAuthExpiresAt, now)).
+		Render()
+	if hint := nextStepHint(r.st, now); hint != "" {
+		return section.Join(card, section.Hint(hint))
+	}
+	return card
+}
+
+// overallStatusBadge summarises the credential state in one badge so users
+// do not have to reason over the per-credential rows. An expired OAuth
+// token does not count as authenticated.
+func overallStatusBadge(st cliauth.Status, now time.Time) string {
+	switch {
+	case st.APIKey && st.OAuthValid(now):
+		return drytui.Badge(theme.RoleSuccess, "authenticated")
+	case st.APIKey || st.OAuth:
+		return drytui.Badge(theme.RoleMedium, "partially authenticated")
+	default:
+		return drytui.Badge(theme.RoleWarning, "not authenticated")
+	}
+}
+
+func oauthBadge(st cliauth.Status, now time.Time) string {
+	switch {
+	case !st.OAuth:
+		return drytui.Badge(theme.RoleWarning, "not configured")
+	case !st.OAuthValid(now):
+		return drytui.Badge(theme.RoleError, "expired")
+	default:
+		return drytui.Badge(theme.RoleSuccess, "configured")
+	}
+}
+
+// nextStepHint returns table-mode guidance for reaching a fully
+// authenticated state. Empty when all credentials are present and valid.
+func nextStepHint(st cliauth.Status, now time.Time) string {
+	switch {
+	case !st.APIKey && !st.OAuth:
+		return "Run 'safedep auth login' to authenticate with SafeDep Cloud."
+	case st.OAuth && !st.OAuthValid(now):
+		return "OAuth token expired. Run 'safedep auth login' to re-authenticate."
+	case !st.APIKey:
+		return "Data plane API key missing. Run 'safedep auth login' to create one."
+	case !st.OAuth:
+		return "Control plane OAuth token missing. Run 'safedep auth login' to complete setup."
+	}
+	return ""
 }
 
 func yesNo(b bool) string {

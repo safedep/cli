@@ -11,6 +11,7 @@ import (
 	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/dry/tui"
+	"github.com/safedep/dry/tui/humanize"
 	"github.com/safedep/dry/tui/table"
 	"github.com/spf13/cobra"
 )
@@ -309,12 +310,24 @@ func (r *inventoryResult) RenderPlain() string {
 }
 
 func (r *inventoryResult) RenderTable() string {
-	if len(r.items) == 0 {
-		return fmt.Sprintf("no inventory in %s. Try a wider window with --since.", r.windowLabel())
-	}
+	now := time.Now()
 	rows := make([][]string, 0, len(r.items))
 	for _, e := range r.items {
-		rows = append(rows, r.itemRow(e))
+		row := r.itemRow(e)
+		row[len(row)-1] = humanize.Time(e.Timestamp, now)
+		rows = append(rows, row)
 	}
-	return table.New().Headers("Endpoint", "Kind", "Name", "App", "Scope", "Last Seen").Rows(rows...).Render()
+	t := table.New().
+		Title(fmt.Sprintf("Inventory (%s)", humanWindowLabel(r.window))).
+		Headers("Endpoint", "Kind", "Name", "App", "Scope", "Last Seen").
+		Rows(rows...).
+		EmptyMessage(fmt.Sprintf("No inventory in %s. Try a wider window with --since.", humanWindowLabel(r.window)))
+	if len(rows) > 0 {
+		footer := fmt.Sprintf("%d distinct %s", len(rows), plural(len(rows), "item", "items"))
+		if r.nextPage != "" {
+			footer += fmt.Sprintf(". More available: --page-token %s", r.nextPage)
+		}
+		t = t.Footer(footer)
+	}
+	return t.Render()
 }

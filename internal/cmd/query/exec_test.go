@@ -166,7 +166,7 @@ func TestExecResult_RenderTable_Footer(t *testing.T) {
 		Stats:   cloudquery.Stats{EstimatedCost: 12.5, ElapsedMs: 7},
 	}}
 	out := r.RenderTable()
-	assert.Contains(t, out, "1 rows | ~12.5 cost | 7ms")
+	assert.Contains(t, out, "1 row | ~12.5 cost | 7ms")
 	assert.NotContains(t, out, "next page:")
 }
 

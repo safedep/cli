@@ -9,6 +9,8 @@ import (
 
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/cloudquery"
+	"github.com/safedep/dry/tui/section"
+	"github.com/safedep/dry/tui/style"
 	"github.com/safedep/dry/tui/table"
 	"github.com/spf13/cobra"
 )
@@ -276,57 +278,62 @@ const enumPreviewLimit = 3
 func (r *schemaResult) RenderTable() string {
 	if len(r.data.Tables) == 0 && len(r.data.Edges) == 0 &&
 		len(r.data.Usage.Rules) == 0 && len(r.data.Usage.ExampleQueries) == 0 {
-		return "no tables"
+		return section.Empty("no tables")
 	}
 
-	var sb strings.Builder
-
-	for i, tbl := range r.data.Tables {
-		if i > 0 {
-			sb.WriteString("\n\n")
-		}
-		sb.WriteString(renderSchemaTable(tbl))
+	parts := make([]string, 0, len(r.data.Tables)+3)
+	for _, tbl := range r.data.Tables {
+		parts = append(parts, renderSchemaTable(tbl))
 	}
 
 	if len(r.data.Edges) > 0 {
-		sb.WriteString("\n\nJoins\n")
-		t := table.New().Headers("From", "To", "Cardinality")
 		rows := make([][]string, 0, len(r.data.Edges))
 		for _, e := range r.data.Edges {
 			rows = append(rows, []string{e.From, e.To, e.Cardinality})
 		}
-		sb.WriteString(t.Rows(rows...).Render())
+		parts = append(parts, table.New().
+			Title("Joins").
+			Headers("From", "To", "Cardinality").
+			Rows(rows...).
+			Render())
 	}
 
 	if len(r.data.Usage.Rules) > 0 || len(r.data.Usage.ExampleQueries) > 0 {
-		sb.WriteString("\n\nUsage")
+		var rules strings.Builder
 		for _, rule := range r.data.Usage.Rules {
-			fmt.Fprintf(&sb, "\n- %s", rule)
+			fmt.Fprintf(&rules, "- %s\n", rule)
 		}
+		parts = append(parts, section.Titled("Usage", strings.TrimRight(rules.String(), "\n")))
+
 		if len(r.data.Usage.ExampleQueries) > 0 {
-			sb.WriteString("\n\nExamples")
+			var examples strings.Builder
 			for _, q := range r.data.Usage.ExampleQueries {
-				fmt.Fprintf(&sb, "\n  %s", q)
+				fmt.Fprintf(&examples, "  %s\n", q)
 			}
+			parts = append(parts, section.Titled("Examples", strings.TrimRight(examples.String(), "\n")))
 		}
 	}
 
-	return strings.TrimRight(sb.String(), "\n")
+	return section.Join(parts...)
 }
 
 func renderSchemaTable(tbl cloudquery.SchemaTable) string {
-	var sb strings.Builder
-	sb.WriteString(tbl.Name)
+	var header strings.Builder
+	header.WriteString(style.Heading(tbl.Name))
 	if tbl.Description != "" {
-		fmt.Fprintf(&sb, "  %s", tbl.Description)
+		header.WriteString("  " + style.Faint(tbl.Description))
 	}
 	if tbl.TimeColumn != "" {
-		fmt.Fprintf(&sb, "  [time: %s", tbl.TimeColumn)
+		annotation := fmt.Sprintf("[time: %s", tbl.TimeColumn)
 		if tbl.TimeWindowMaxDays > 0 {
-			fmt.Fprintf(&sb, ", max %dd", tbl.TimeWindowMaxDays)
+			annotation += fmt.Sprintf(", max %dd", tbl.TimeWindowMaxDays)
 		}
-		sb.WriteString("]")
+		annotation += "]"
+		header.WriteString("  " + style.Faint(annotation))
 	}
+
+	var sb strings.Builder
+	sb.WriteString(header.String())
 	sb.WriteString("\n")
 
 	t := table.New().Headers("Column", "Type", "Caps", "Notes")
@@ -338,9 +345,9 @@ func renderSchemaTable(tbl cloudquery.SchemaTable) string {
 
 	refs := referenceFootnotes(tbl)
 	if len(refs) > 0 {
-		sb.WriteString("\nrefs:")
+		sb.WriteString("\n" + style.Faint("refs:"))
 		for _, line := range refs {
-			fmt.Fprintf(&sb, "\n  %s", line)
+			sb.WriteString("\n" + style.Faint("  "+line))
 		}
 	}
 	return sb.String()

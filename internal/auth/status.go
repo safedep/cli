@@ -18,6 +18,14 @@ type Status struct {
 	OAuthExpiresAt time.Time
 }
 
+// OAuthValid reports whether the profile holds an OAuth access token that
+// has not expired at now. A token with unknown expiry counts as valid. An
+// expired token may still refresh silently on next use, so callers should
+// treat invalid as "stale", not "absent".
+func (s Status) OAuthValid(now time.Time) bool {
+	return s.OAuth && (s.OAuthExpiresAt.IsZero() || s.OAuthExpiresAt.After(now))
+}
+
 // BuildStatus inspects the keychain via two resolvers (one per credential
 // type) and returns what the active profile holds. Missing-credentials
 // errors are treated as "not configured" rather than failures.

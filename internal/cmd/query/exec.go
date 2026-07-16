@@ -9,6 +9,7 @@ import (
 
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/cloudquery"
+	"github.com/safedep/dry/tui/section"
 	"github.com/safedep/dry/tui/table"
 	"github.com/spf13/cobra"
 )
@@ -166,11 +167,10 @@ func (r *execResult) RenderPlain() string {
 
 func (r *execResult) RenderTable() string {
 	if len(r.data.Rows) == 0 {
-		return "no rows"
+		return section.Empty("no rows")
 	}
 
 	names := columnNames(r.data.Columns)
-	t := table.New().Headers(names...)
 	rows := make([][]string, 0, len(r.data.Rows))
 	for _, row := range r.data.Rows {
 		cells := make([]string, len(names))
@@ -180,11 +180,11 @@ func (r *execResult) RenderTable() string {
 		rows = append(rows, cells)
 	}
 
-	var sb strings.Builder
-	sb.WriteString(t.Rows(rows...).Render())
-	sb.WriteString("\n")
-	sb.WriteString(renderExecFooter(r.data))
-	return strings.TrimRight(sb.String(), "\n")
+	return table.New().
+		Headers(names...).
+		Rows(rows...).
+		Footer(renderExecFooter(r.data)).
+		Render()
 }
 
 func columnNames(cols []cloudquery.Column) []string {
@@ -198,9 +198,13 @@ func columnNames(cols []cloudquery.Column) []string {
 // renderExecFooter returns the D2 footer: one summary line, and a second
 // line advertising the next-page cursor when present.
 func renderExecFooter(r *cloudquery.ExecResult) string {
+	rows := "rows"
+	if len(r.Rows) == 1 {
+		rows = "row"
+	}
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "%d rows | ~%g cost | %dms",
-		len(r.Rows), r.Stats.EstimatedCost, r.Stats.ElapsedMs)
+	fmt.Fprintf(&sb, "%d %s | ~%g cost | %dms",
+		len(r.Rows), rows, r.Stats.EstimatedCost, r.Stats.ElapsedMs)
 	if r.NextPage != "" {
 		fmt.Fprintf(&sb, "\nnext page: --page-token %s", r.NextPage)
 	}

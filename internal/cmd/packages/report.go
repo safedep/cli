@@ -102,10 +102,8 @@ func reportBody(r *Report) string {
 			}
 			rows = append(rows, []string{loc, dash(e.Title), dash(e.Confidence), dash(e.Details)})
 		}
-		parts = append(parts, table.New().
-			Title("File evidence").
-			Headers("Location", "Signal", "Confidence", "Detail").
-			Rows(rows...).Render())
+		parts = append(parts, evidenceTable("File evidence",
+			[]string{"Location", "Signal", "Confidence", "Detail"}, rows))
 	}
 
 	if len(r.ProjectEvidences) > 0 {
@@ -113,10 +111,8 @@ func reportBody(r *Report) string {
 		for _, e := range r.ProjectEvidences {
 			rows = append(rows, []string{dash(e.Project), dash(e.Title), dash(e.Confidence), dash(e.Details)})
 		}
-		parts = append(parts, table.New().
-			Title("Project evidence").
-			Headers("Project", "Signal", "Confidence", "Detail").
-			Rows(rows...).Render())
+		parts = append(parts, evidenceTable("Project evidence",
+			[]string{"Project", "Signal", "Confidence", "Detail"}, rows))
 	}
 
 	if len(r.Warnings) > 0 {
@@ -128,6 +124,26 @@ func reportBody(r *Report) string {
 	}
 
 	return section.Join(parts...)
+}
+
+// maxEvidenceRows caps how many evidence rows the decorated table view
+// renders. Reports can carry a very large file list; the table stays
+// readable and points at --output json for the complete set. plain and json
+// are never truncated.
+const maxEvidenceRows = 20
+
+// evidenceTable renders an evidence table, truncating to maxEvidenceRows
+// with a footer that advertises the full count and how to get it.
+func evidenceTable(title string, headers []string, rows [][]string) string {
+	total := len(rows)
+	t := table.New().Title(title).Headers(headers...)
+	if total > maxEvidenceRows {
+		t = t.Rows(rows[:maxEvidenceRows]...).
+			Footer(fmt.Sprintf("showing %d of %d. Use --output json for the full list.", maxEvidenceRows, total))
+	} else {
+		t = t.Rows(rows...)
+	}
+	return t.Render()
 }
 
 func humanTime(t, now time.Time) string {

@@ -19,6 +19,10 @@ Address the scan either by package-ref (a PURL, a GitHub URL, or the
 `--ecosystem`/`--name`/`--version` triple), in which case the newest scan for
 that package is used, or directly by `--scan-id`.
 
+Reports can carry a large amount of file evidence. The `table` view truncates
+long evidence lists and prints how many rows were omitted; use `--output json`
+for the complete report.
+
 The report is available only once the scan has completed. If the scan is still
 in progress, the command reports the current status and exits non-zero.
 

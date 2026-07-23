@@ -2,6 +2,7 @@ package packages
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -111,6 +112,29 @@ func TestRunShow_NotCompleted(t *testing.T) {
 	_, err := runShow(context.Background(), svc, showInput{ScanID: "scn_5"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no report yet")
+}
+
+func TestShowResult_TableCapsFileEvidenceButJSONKeepsAll(t *testing.T) {
+	t.Parallel()
+	files := make([]FileEvidence, maxEvidenceRows+15)
+	for i := range files {
+		files[i] = FileEvidence{File: fmt.Sprintf("src/file_%d.js", i), Title: "signal"}
+	}
+	res := &showResult{report: &Report{
+		Scan:          Scan{ScanID: "scn_1", Ecosystem: "npm", Name: "big", Version: "1.0", Status: "completed", Verdict: verdictMalware},
+		IsMalware:     true,
+		FileEvidences: files,
+	}}
+
+	table := res.RenderTable()
+	assert.Contains(t, table, fmt.Sprintf("showing %d of %d", maxEvidenceRows, len(files)))
+	assert.Contains(t, table, "--output json")
+	assert.Contains(t, table, "file_0.js")
+	assert.NotContains(t, table, "file_34.js", "rows beyond the cap are omitted from the table")
+
+	js, err := res.RenderJSON()
+	require.NoError(t, err)
+	assert.Contains(t, string(js), "file_34.js", "json keeps the full list")
 }
 
 func TestShowResult_RenderSkipsEmptySections(t *testing.T) {

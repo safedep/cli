@@ -82,6 +82,10 @@ and drill into package inventory and recent activity.
 Run SQL against SafeDep Cloud's query service. Inspect packages, events, and findings
 across your entire fleet.
 
+**On-demand package scanning**: `safedep package scan`
+Submit a package version (OSS library, editor extension, and more) for malware
+scanning via SafeDep Cloud, then track the verdict and read the full report.
+
 **AI agent protection**: `safedep protect mcp`
 Inject or remove the SafeDep MCP server from detected AI coding agents. Supports
 Claude Code, Cursor, Gemini CLI, and more.
@@ -113,6 +117,10 @@ Push SafeDep malware findings to external security tools. JFrog XRay is supporte
 | [`safedep query schema list`](./docs/cmd/query-schema-list.md) | List tables in the query schema |
 | [`safedep query schema show`](./docs/cmd/query-schema-show.md) | Show one table from the query schema |
 | [`safedep query schema get`](./docs/cmd/query-schema-get.md) | Get the full schema in one call (for AI agents and scripts) |
+| [`safedep package scan run`](./docs/cmd/package-scan-run.md) | Submit a package for on-demand scanning |
+| [`safedep package scan get`](./docs/cmd/package-scan-get.md) | Get the status and verdict of a scan |
+| [`safedep package scan list`](./docs/cmd/package-scan-list.md) | List package scans |
+| [`safedep package scan show`](./docs/cmd/package-scan-show.md) | Show the full report of a completed scan |
 | [`safedep protect mcp status`](./docs/cmd/protect-mcp-status.md) | Show SafeDep MCP integration status for detected AI agents |
 | [`safedep protect mcp install`](./docs/cmd/protect-mcp-install.md) | Inject SafeDep MCP server config into detected AI agents |
 | [`safedep protect mcp uninstall`](./docs/cmd/protect-mcp-uninstall.md) | Remove SafeDep MCP server config from detected AI agents |

@@ -24,10 +24,11 @@ const (
 )
 
 func statusCmd(a *app.App) *cobra.Command {
-	return &cobra.Command{
+	var showEntitlements bool
+	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show subscription status",
-		Long:  "Show the tenant account's subscription status, tier, trial, on-demand billing, and entitlements.",
+		Long:  "Show the tenant account's subscription status, tier, trial, and on-demand billing. Pass --entitlements to also list the account's entitlements.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, err := a.ControlPlane()
@@ -38,9 +39,11 @@ func statusCmd(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.Output.Print(&statusResult{acct: acct})
+			return a.Output.Print(&statusResult{acct: acct, showEntitlements: showEntitlements})
 		},
 	}
+	cmd.Flags().BoolVar(&showEntitlements, "entitlements", false, "also list the account's entitlements")
+	return cmd
 }
 
 func runStatus(ctx context.Context, svc StatusGetter) (*AccountStatus, error) {
@@ -91,13 +94,18 @@ func onDemandSummary(s *OnDemandState) string {
 	return fmt.Sprintf("enabled (%s, %s)", detail, s.Posture)
 }
 
-type statusResult struct{ acct *AccountStatus }
+type statusResult struct {
+	acct             *AccountStatus
+	showEntitlements bool
+}
 
 func (r *statusResult) RenderJSON() ([]byte, error) {
 	out := map[string]any{
-		"status":       r.acct.Status,
-		"tier":         r.acct.Tier,
-		"entitlements": r.acct.Entitlements,
+		"status": r.acct.Status,
+		"tier":   r.acct.Tier,
+	}
+	if r.showEntitlements {
+		out["entitlements"] = r.acct.Entitlements
 	}
 	if r.acct.Trial != nil {
 		out["trial"] = map[string]any{
@@ -122,8 +130,10 @@ func (r *statusResult) RenderPlain() string {
 		fmt.Fprintf(&b, "trial_days_remaining\t%d\n", r.acct.Trial.DaysRemaining)
 	}
 	fmt.Fprintf(&b, "on_demand\t%s\n", onDemandSummary(r.acct.OnDemand))
-	for _, e := range r.acct.Entitlements {
-		fmt.Fprintf(&b, "entitlement\t%s\n", e)
+	if r.showEntitlements {
+		for _, e := range r.acct.Entitlements {
+			fmt.Fprintf(&b, "entitlement\t%s\n", e)
+		}
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -138,7 +148,7 @@ func (r *statusResult) RenderTable() string {
 	p = p.Field("On-demand", onDemandSummary(r.acct.OnDemand))
 
 	parts := []string{p.Render()}
-	if len(r.acct.Entitlements) > 0 {
+	if r.showEntitlements && len(r.acct.Entitlements) > 0 {
 		rows := make([][]string, 0, len(r.acct.Entitlements))
 		for _, e := range r.acct.Entitlements {
 			rows = append(rows, []string{e})

@@ -211,15 +211,23 @@ func TestStatusResult_Render(t *testing.T) {
 		Entitlements: []string{"tool-sync", "sql-query"},
 		OnDemand:     &OnDemandState{Enabled: false},
 	}
-	r := &statusResult{acct: acct}
-	tbl := r.RenderTable()
+	// Default: entitlements are hidden.
+	def := &statusResult{acct: acct}
+	tbl := def.RenderTable()
 	assert.Contains(t, tbl, "ACTIVE-TRIAL")
-	assert.Contains(t, tbl, "tool-sync")
 	assert.Contains(t, tbl, "Subscribe anytime")
-
-	js, err := r.RenderJSON()
+	assert.NotContains(t, tbl, "tool-sync", "entitlements are opt-in")
+	js, err := def.RenderJSON()
 	require.NoError(t, err)
 	assert.Contains(t, string(js), "\"days_remaining\": 14")
+	assert.NotContains(t, string(js), "entitlements")
+
+	// Opt-in: --entitlements surfaces them in table and json.
+	on := &statusResult{acct: acct, showEntitlements: true}
+	assert.Contains(t, on.RenderTable(), "tool-sync")
+	js2, err := on.RenderJSON()
+	require.NoError(t, err)
+	assert.Contains(t, string(js2), "tool-sync")
 }
 
 func TestOndemandResult_Render(t *testing.T) {

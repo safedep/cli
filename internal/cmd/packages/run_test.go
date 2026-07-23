@@ -101,6 +101,31 @@ func TestRunScan_MalwareFetchesReport(t *testing.T) {
 	assert.True(t, res.report.IsMalware)
 }
 
+func TestRunScan_FailedStatusReturnsError(t *testing.T) {
+	t.Parallel()
+	svc := &fakeService{
+		submitFn: func(_ context.Context, _ SubmitInput) (*SubmitResult, error) {
+			return &SubmitResult{ScanID: "scn_1", Status: "queued"}, nil
+		},
+		getFn: func(_ context.Context, _ string) (*Scan, error) {
+			return &Scan{ScanID: "scn_1", Status: "failed", Failure: "registry fetch error"}, nil
+		},
+	}
+	_, err := runScan(context.Background(), svc, runInput{Target: testTarget(t), Wait: true, Timeout: time.Minute}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed")
+	assert.Contains(t, err.Error(), "registry fetch error")
+}
+
+func TestValidateRunFlags(t *testing.T) {
+	t.Parallel()
+	require.NoError(t, validateRunFlags("", false))
+	require.NoError(t, validateRunFlags("report.json", true))
+	err := validateRunFlags("report.json", false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--save requires waiting")
+}
+
 func TestRunScan_Timeout(t *testing.T) {
 	t.Parallel()
 	svc := &fakeService{

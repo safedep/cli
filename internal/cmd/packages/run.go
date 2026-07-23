@@ -52,6 +52,9 @@ func runCmd(a *app.App) *cobra.Command {
 			"URL, or the explicit --ecosystem/--name/--version triple.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateRunFlags(save, wait); err != nil {
+				return err
+			}
 			client, err := a.ControlPlane()
 			if err != nil {
 				return err
@@ -83,7 +86,7 @@ func runCmd(a *app.App) *cobra.Command {
 	f.BoolVar(&wait, "wait", true, "wait for the scan to reach a terminal state")
 	f.DurationVar(&timeout, "timeout", 5*time.Minute, "maximum time to wait for a verdict")
 	f.BoolVar(&rescan, "rescan", false, "force a fresh scan instead of reusing an existing one")
-	f.StringVar(&save, "save", "", "write the completed report JSON to this path")
+	f.StringVar(&save, "save", "", "write the completed report JSON to this path (requires waiting)")
 	return cmd
 }
 
@@ -113,6 +116,16 @@ func runScan(ctx context.Context, svc runSvc, in runInput, onStatus progressFn) 
 	scan, err := pollUntilTerminal(ctx, svc, sub.ScanID, in.Timeout, onStatus)
 	if err != nil {
 		return nil, err
+	}
+
+	// A FAILED scan is an operational failure, not a verdict. Surface it as an
+	// error so `run --wait` exits non-zero, matching the documented contract.
+	if scan.Status == statusFailed {
+		reason := scan.Failure
+		if reason == "" {
+			reason = "no reason provided"
+		}
+		return nil, fmt.Errorf("scan %s failed: %s", scan.ScanID, reason)
 	}
 
 	res := &runResult{scan: *scan}
@@ -158,7 +171,17 @@ func pollUntilTerminal(ctx context.Context, svc ScanGetter, scanID string, timeo
 }
 
 func isTerminal(status string) bool {
-	return status == "completed" || status == "failed"
+	return status == statusCompleted || status == statusFailed
+}
+
+// validateRunFlags rejects incompatible flag combinations. --save needs a
+// completed report, which only exists when the command waits, so pairing it
+// with --wait=false would silently produce neither a file nor an error.
+func validateRunFlags(save string, wait bool) error {
+	if save != "" && !wait {
+		return fmt.Errorf("--save requires waiting for the scan: drop --wait=false or remove --save")
+	}
+	return nil
 }
 
 // newSpinnerProgress returns a progress callback backed by a dry/tui

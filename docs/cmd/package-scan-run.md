@@ -45,7 +45,7 @@ the same regardless of verdict.
 | `--wait` | `true` | Wait for the scan to reach a terminal state. Use `--wait=false` to submit and return immediately. |
 | `--timeout` | `5m` | Maximum time to wait for a verdict. |
 | `--rescan` | `false` | Force a fresh scan instead of reusing an existing one. |
-| `--save` | - | Write the completed report JSON to this path. |
+| `--save` | - | Write the completed report JSON to this path. Requires waiting (incompatible with `--wait=false`). |
 
 ## Examples
 

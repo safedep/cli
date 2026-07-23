@@ -33,6 +33,12 @@ type ScanReportGetter interface {
 	GetReport(ctx context.Context, scanID string) (*Report, error)
 }
 
+// Terminal scan status tokens (see statusToken).
+const (
+	statusCompleted = "completed"
+	statusFailed    = "failed"
+)
+
 type Service struct {
 	client malysisv1grpc.PackageScanServiceClient
 }

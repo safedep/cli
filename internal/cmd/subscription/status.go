@@ -74,9 +74,9 @@ func nextStepHint(acct *AccountStatus) string {
 	case statusActiveTrial:
 		return "Trial active. Subscribe anytime: safedep subscription create"
 	case statusPastDue:
-		return "Payment past due. Update billing: safedep subscription portal"
+		return "Payment past due. Update billing: safedep subscription portal open"
 	default:
-		return "Manage billing: safedep subscription portal"
+		return "Manage billing: safedep subscription portal open"
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/cli/browser"
+	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/tui"
 )
 
@@ -29,8 +30,12 @@ const (
 // headless or agent session can follow it manually.
 func openInBrowser(url, prompt string) {
 	tui.Info("%s\n  %s", prompt, url)
-	if interactive() {
-		_ = browser.OpenURL(url)
+	if !interactive() {
+		return
+	}
+	if err := browser.OpenURL(url); err != nil {
+		log.Warnf("subscription: could not open browser automatically: %v", err)
+		tui.Info("Open the URL above manually to continue.")
 	}
 }
 

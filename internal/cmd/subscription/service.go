@@ -305,7 +305,7 @@ func mapOnDemandEnableError(err error) error {
 	case errorv1.ErrorReason_ERROR_REASON_ENTITLEMENT_NOT_AVAILABLE:
 		return errors.New("on-demand billing needs a paid plan: subscribe first with `safedep subscription create`")
 	case errorv1.ErrorReason_ERROR_REASON_PAYMENT_METHOD_REQUIRED:
-		return errors.New("no payment method on file: add one via `safedep subscription portal`, then retry")
+		return errors.New("no payment method on file: add one via `safedep subscription portal open`, then retry")
 	default:
 		return fmt.Errorf("subscription: enable on-demand: %w", err)
 	}

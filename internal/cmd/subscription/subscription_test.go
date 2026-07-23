@@ -143,10 +143,24 @@ func TestRunTrialEnable_NoWait(t *testing.T) {
 		activateFn: func(context.Context) error { activated = true; return nil },
 		statusFn:   func(context.Context) (*AccountStatus, error) { return &AccountStatus{Status: statusActiveTrial}, nil },
 	}
-	acct, err := runTrialEnable(context.Background(), svc, customerForm{}, false, time.Minute)
+	acct, confirmed, err := runTrialEnable(context.Background(), svc, customerForm{}, false, time.Minute)
 	require.NoError(t, err)
 	assert.True(t, activated)
+	assert.True(t, confirmed, "observed trial status confirms activation")
 	assert.Equal(t, statusActiveTrial, acct.Status)
+}
+
+func TestRunTrialEnable_NotConfirmedWhenStillFree(t *testing.T) {
+	t.Parallel()
+	svc := &fakeSvc{
+		getCustFn:  customerExists(nil),
+		activateFn: func(context.Context) error { return nil },
+		statusFn:   func(context.Context) (*AccountStatus, error) { return &AccountStatus{Status: statusFree}, nil },
+	}
+	acct, confirmed, err := runTrialEnable(context.Background(), svc, customerForm{}, false, time.Minute)
+	require.NoError(t, err)
+	assert.False(t, confirmed, "still-free account is not a confirmed activation")
+	assert.Equal(t, statusFree, acct.Status)
 }
 
 func TestRunCreate_AlreadyActive(t *testing.T) {

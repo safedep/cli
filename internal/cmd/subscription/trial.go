@@ -43,11 +43,15 @@ func trialEnableCmd(a *app.App) *cobra.Command {
 				return err
 			}
 			svc := NewService(client.Connection())
-			acct, err := runTrialEnable(cmd.Context(), svc, form, wait, timeout)
+			acct, confirmed, err := runTrialEnable(cmd.Context(), svc, form, wait, timeout)
 			if err != nil {
 				return err
 			}
-			tui.Success("Trial activated.")
+			if confirmed {
+				tui.Success("Trial activated.")
+			} else {
+				tui.Warning("Trial requested. Activation is still syncing - re-check with `safedep subscription status`.")
+			}
 			return a.Output.Print(&statusResult{acct: acct})
 		},
 	}
@@ -57,19 +61,28 @@ func trialEnableCmd(a *app.App) *cobra.Command {
 	return cmd
 }
 
-func runTrialEnable(ctx context.Context, svc trialSvc, form customerForm, wait bool, timeout time.Duration) (*AccountStatus, error) {
+// runTrialEnable activates the trial and reports whether the account was
+// observed in a trial/active state. confirmed is false when activation is
+// still syncing (--wait=false, or a wait that timed out), so the caller does
+// not claim success prematurely.
+func runTrialEnable(ctx context.Context, svc trialSvc, form customerForm, wait bool, timeout time.Duration) (*AccountStatus, bool, error) {
 	if err := ensureCustomer(ctx, svc, form); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := svc.ActivateTrial(ctx); err != nil {
-		return nil, err
+		return nil, false, err
 	}
+	want := map[string]bool{statusActiveTrial: true, statusActive: true}
 	if !wait {
-		return svc.Status(ctx)
+		acct, err := svc.Status(ctx)
+		if err != nil {
+			return nil, false, err
+		}
+		return acct, want[acct.Status], nil
 	}
-	acct, _, err := pollUntilStatus(ctx, svc, map[string]bool{statusActiveTrial: true, statusActive: true}, timeout)
+	acct, ok, err := pollUntilStatus(ctx, svc, want, timeout)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return acct, nil
+	return acct, ok, nil
 }

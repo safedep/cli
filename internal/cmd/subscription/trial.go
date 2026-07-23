@@ -80,9 +80,9 @@ func runTrialEnable(ctx context.Context, svc trialSvc, form customerForm, wait b
 		}
 		return acct, want[acct.Status], nil
 	}
-	acct, ok, err := pollUntilStatus(ctx, svc, want, timeout)
+	acct, err := pollUntilStatus(ctx, svc, want, timeout)
 	if err != nil {
 		return nil, false, err
 	}
-	return acct, ok, nil
+	return acct, true, nil
 }

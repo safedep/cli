@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -13,6 +14,7 @@ import (
 	tuioutput "github.com/safedep/dry/tui/output"
 	"github.com/safedep/dry/tui/panel"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 // customerForm holds the billing-customer flag values shared by the
@@ -42,10 +44,16 @@ func addCustomerFlags(cmd *cobra.Command, f *customerForm) {
 	fl.StringVar(&f.TaxID, "tax-id", "", "tax ID (optional)")
 }
 
-// interactive reports whether we can prompt the user. Rich mode implies a
-// human at a TTY; agent/plain/CI modes must supply values via flags.
+// interactive reports whether we can prompt the user and open a browser. It
+// keys off the actual terminal state (stdin is a TTY, which huh needs to read
+// input) rather than the presentation mode, which is user-overridable via
+// --output/SAFEDEP_OUTPUT and does not reflect whether a human is present.
+// Agent mode is excluded outright so tool-driven runs never block on stdin.
 func interactive() bool {
-	return tuioutput.CurrentMode() == tuioutput.Rich
+	if tuioutput.CurrentMode() == tuioutput.Agent {
+		return false
+	}
+	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
 // resolveCustomerInput turns the form into a CustomerInput, prompting for

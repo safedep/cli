@@ -2,6 +2,8 @@ package subscription
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/cli/browser"
@@ -39,29 +41,41 @@ func openInBrowser(url, prompt string) {
 	}
 }
 
-// pollUntilStatus polls the account status until it reaches one of want or
-// the timeout elapses. Returns the last observed status on timeout.
-func pollUntilStatus(ctx context.Context, svc StatusGetter, want map[string]bool, timeout time.Duration) (*AccountStatus, bool, error) {
-	deadline := time.Now().Add(timeout)
+// pollUntilStatus polls the account status until it reaches one of want, or
+// the timeout elapses. The timeout is enforced as a hard deadline on the whole
+// operation, including each status RPC (so a stalled control-plane call cannot
+// outlast --timeout), and a timeout is returned as an error: a waited operation
+// that does not confirm is a failure, not a silent success.
+func pollUntilStatus(ctx context.Context, svc StatusGetter, want map[string]bool, timeout time.Duration) (*AccountStatus, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	backoff := pollInitial
 	for {
 		acct, err := svc.Status(ctx)
 		if err != nil {
-			return nil, false, err
+			if errors.Is(err, context.DeadlineExceeded) {
+				return nil, timeoutError(timeout)
+			}
+			return nil, err
 		}
 		if want[acct.Status] {
-			return acct, true, nil
-		}
-		if time.Now().Add(backoff).After(deadline) {
-			return acct, false, nil
+			return acct, nil
 		}
 		select {
 		case <-ctx.Done():
-			return nil, false, ctx.Err()
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return nil, timeoutError(timeout)
+			}
+			return nil, ctx.Err()
 		case <-time.After(backoff):
 		}
 		if backoff = time.Duration(float64(backoff) * pollFactor); backoff > pollMax {
 			backoff = pollMax
 		}
 	}
+}
+
+func timeoutError(d time.Duration) error {
+	return fmt.Errorf("timed out after %s waiting for the account to update: re-check with `safedep subscription status`", d)
 }

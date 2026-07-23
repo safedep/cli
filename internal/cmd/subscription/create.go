@@ -87,12 +87,9 @@ func runCreate(ctx context.Context, svc createSvc, form customerForm, seats uint
 	}
 
 	tui.Info("Waiting for checkout to complete...")
-	acct, ok, err := pollUntilStatus(ctx, svc, map[string]bool{statusActive: true}, timeout)
+	acct, err := pollUntilStatus(ctx, svc, map[string]bool{statusActive: true}, timeout)
 	if err != nil {
 		return nil, err
-	}
-	if !ok {
-		return &createResult{checkoutURL: checkout.URL, timedOut: true}, nil
 	}
 	return &createResult{acct: acct}, nil
 }
@@ -100,19 +97,14 @@ func runCreate(ctx context.Context, svc createSvc, form customerForm, seats uint
 type createResult struct {
 	acct          *AccountStatus
 	alreadyActive bool
-	checkoutURL   string // set when not waited / timed out
-	timedOut      bool
+	checkoutURL   string // set only with --wait=false
 }
 
 func (r *createResult) RenderJSON() ([]byte, error) {
 	if r.acct != nil {
 		return (&statusResult{acct: r.acct}).RenderJSON()
 	}
-	outcome := "need_checkout_completion"
-	if r.timedOut {
-		outcome = "timed_out"
-	}
-	return json.MarshalIndent(map[string]any{"status": outcome, "checkout_url": r.checkoutURL}, "", "  ")
+	return json.MarshalIndent(map[string]any{"status": "need_checkout_completion", "checkout_url": r.checkoutURL}, "", "  ")
 }
 
 func (r *createResult) RenderPlain() string {
@@ -125,9 +117,6 @@ func (r *createResult) RenderPlain() string {
 func (r *createResult) RenderTable() string {
 	if r.acct != nil {
 		return (&statusResult{acct: r.acct}).RenderTable()
-	}
-	if r.timedOut {
-		return "Checkout still pending. Re-check with: safedep subscription status\n  " + r.checkoutURL
 	}
 	return "Complete checkout in your browser, then check: safedep subscription status\n  " + r.checkoutURL
 }

@@ -191,6 +191,44 @@ func TestRunCreate_CheckoutError(t *testing.T) {
 	assert.Contains(t, err.Error(), "declined")
 }
 
+func TestRunTrialEnable_WaitTimeoutErrors(t *testing.T) {
+	t.Parallel()
+	svc := &fakeSvc{
+		getCustFn:  customerExists(nil),
+		activateFn: func(context.Context) error { return nil },
+		statusFn:   func(context.Context) (*AccountStatus, error) { return &AccountStatus{Status: statusFree}, nil },
+	}
+	_, _, err := runTrialEnable(context.Background(), svc, customerForm{}, true, time.Nanosecond)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "timed out")
+}
+
+func TestRunCreate_WaitTimeoutErrors(t *testing.T) {
+	t.Parallel()
+	svc := &fakeSvc{
+		getCustFn: customerExists(nil),
+		checkoutFn: func(context.Context, CheckoutInput) (*CheckoutResult, error) {
+			return &CheckoutResult{Outcome: checkoutNeeded, URL: "u"}, nil
+		},
+		statusFn: func(context.Context) (*AccountStatus, error) { return &AccountStatus{Status: statusFree}, nil },
+	}
+	_, err := runCreate(context.Background(), svc, customerForm{}, 5, true, time.Nanosecond)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "timed out")
+}
+
+func TestPollUntilStatus_BoundsRPCWithDeadline(t *testing.T) {
+	t.Parallel()
+	var sawDeadline bool
+	svc := &fakeSvc{statusFn: func(ctx context.Context) (*AccountStatus, error) {
+		_, sawDeadline = ctx.Deadline()
+		return &AccountStatus{Status: statusActive}, nil
+	}}
+	_, err := pollUntilStatus(context.Background(), svc, map[string]bool{statusActive: true}, time.Minute)
+	require.NoError(t, err)
+	assert.True(t, sawDeadline, "each status RPC must receive the timeout-bounded context")
+}
+
 func TestRunCreate_NeedsCheckoutNoWait(t *testing.T) {
 	t.Parallel()
 	svc := &fakeSvc{

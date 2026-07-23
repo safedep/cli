@@ -86,6 +86,18 @@ func (f *fakeMalysisClient) InternalPublishDomainEvent(_ context.Context, _ *mal
 	return nil, errors.New("not implemented in fake")
 }
 
+func (f *fakeMalysisClient) InternalEnqueueAnalysis(_ context.Context, _ *malysisv1.InternalEnqueueAnalysisRequest, _ ...grpc.CallOption) (*malysisv1.InternalEnqueueAnalysisResponse, error) {
+	return nil, errors.New("not implemented in fake")
+}
+
+func (f *fakeMalysisClient) InternalGetAnalysisReport(_ context.Context, _ *malysisv1.InternalGetAnalysisReportRequest, _ ...grpc.CallOption) (*malysisv1.InternalGetAnalysisReportResponse, error) {
+	return nil, errors.New("not implemented in fake")
+}
+
+func (f *fakeMalysisClient) InternalQueryPackageAnalysis(_ context.Context, _ *malysisv1.InternalQueryPackageAnalysisRequest, _ ...grpc.CallOption) (*malysisv1.InternalQueryPackageAnalysisResponse, error) {
+	return nil, errors.New("not implemented in fake")
+}
+
 // makePage builds an analysis-records response. Each (name, version) pair
 // becomes one record with a created_at offset by its index from baseTime.
 // nextToken sets the pagination's next_page_token.

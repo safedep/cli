@@ -86,6 +86,10 @@ across your entire fleet.
 Submit a package version (OSS library, editor extension, and more) for malware
 scanning via SafeDep Cloud, then track the verdict and read the full report.
 
+**Subscription and plan**: `safedep subscription`
+Check your plan status, start a free trial, subscribe, and manage on-demand
+(usage-based) billing. Low-level billing is handled in the hosted portal.
+
 **AI agent protection**: `safedep protect mcp`
 Inject or remove the SafeDep MCP server from detected AI coding agents. Supports
 Claude Code, Cursor, Gemini CLI, and more.
@@ -121,6 +125,15 @@ Push SafeDep malware findings to external security tools. JFrog XRay is supporte
 | [`safedep package scan get`](./docs/cmd/package-scan-get.md) | Get the status and verdict of a scan |
 | [`safedep package scan list`](./docs/cmd/package-scan-list.md) | List package scans |
 | [`safedep package scan show`](./docs/cmd/package-scan-show.md) | Show the full report of a completed scan |
+| [`safedep subscription status`](./docs/cmd/subscription-status.md) | Show subscription status |
+| [`safedep subscription trial enable`](./docs/cmd/subscription-trial-enable.md) | Activate the free trial |
+| [`safedep subscription create`](./docs/cmd/subscription-create.md) | Subscribe to the Professional plan |
+| [`safedep subscription ondemand enable`](./docs/cmd/subscription-ondemand-enable.md) | Enable on-demand (overage) billing |
+| [`safedep subscription ondemand disable`](./docs/cmd/subscription-ondemand-disable.md) | Disable on-demand (overage) billing |
+| [`safedep subscription ondemand status`](./docs/cmd/subscription-ondemand-status.md) | Show on-demand billing state |
+| [`safedep subscription customer create`](./docs/cmd/subscription-customer-create.md) | Create the billing customer profile |
+| [`safedep subscription customer show`](./docs/cmd/subscription-customer-show.md) | Show the billing customer profile |
+| [`safedep subscription portal open`](./docs/cmd/subscription-portal-open.md) | Open the billing portal |
 | [`safedep protect mcp status`](./docs/cmd/protect-mcp-status.md) | Show SafeDep MCP integration status for detected AI agents |
 | [`safedep protect mcp install`](./docs/cmd/protect-mcp-install.md) | Inject SafeDep MCP server config into detected AI agents |
 | [`safedep protect mcp uninstall`](./docs/cmd/protect-mcp-uninstall.md) | Remove SafeDep MCP server config from detected AI agents |

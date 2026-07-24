@@ -14,7 +14,7 @@ subscription with a payment method on file, and explicit acceptance of the on-de
 terms (https://safedep.io/terms/) via `--accept-terms`.
 
 If prerequisites are not met, the command routes you to the next step: subscribe
-first (`subscription create`) or add a payment method (`subscription portal`).
+first (`subscription create`) or add a payment method (`subscription portal open`).
 
 ## Flags
 

@@ -2,6 +2,7 @@ package subscription
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -135,32 +136,35 @@ func TestEnsureCustomer_CreatesFromFlags(t *testing.T) {
 	assert.Equal(t, "US", got.Country)
 }
 
-func TestRunTrialEnable_NoWait(t *testing.T) {
+func TestRunTrialEnable_NoWaitDoesNotReadStatus(t *testing.T) {
 	t.Parallel()
 	activated := false
 	svc := &fakeSvc{
 		getCustFn:  customerExists(nil),
 		activateFn: func(context.Context) error { activated = true; return nil },
-		statusFn:   func(context.Context) (*AccountStatus, error) { return &AccountStatus{Status: statusActiveTrial}, nil },
+		statusFn: func(context.Context) (*AccountStatus, error) {
+			t.Fatal("no-wait must not depend on a post-activation status read")
+			return nil, nil
+		},
 	}
 	acct, confirmed, err := runTrialEnable(context.Background(), svc, customerForm{}, false, time.Minute)
 	require.NoError(t, err)
 	assert.True(t, activated)
-	assert.True(t, confirmed, "observed trial status confirms activation")
-	assert.Equal(t, statusActiveTrial, acct.Status)
+	assert.False(t, confirmed, "no-wait reports pending, not confirmed")
+	assert.Nil(t, acct)
 }
 
-func TestRunTrialEnable_NotConfirmedWhenStillFree(t *testing.T) {
+func TestRunTrialEnable_WaitConfirmsOnTrialStatus(t *testing.T) {
 	t.Parallel()
 	svc := &fakeSvc{
 		getCustFn:  customerExists(nil),
 		activateFn: func(context.Context) error { return nil },
-		statusFn:   func(context.Context) (*AccountStatus, error) { return &AccountStatus{Status: statusFree}, nil },
+		statusFn:   func(context.Context) (*AccountStatus, error) { return &AccountStatus{Status: statusActiveTrial}, nil },
 	}
-	acct, confirmed, err := runTrialEnable(context.Background(), svc, customerForm{}, false, time.Minute)
+	acct, confirmed, err := runTrialEnable(context.Background(), svc, customerForm{}, true, time.Minute)
 	require.NoError(t, err)
-	assert.False(t, confirmed, "still-free account is not a confirmed activation")
-	assert.Equal(t, statusFree, acct.Status)
+	assert.True(t, confirmed)
+	assert.Equal(t, statusActiveTrial, acct.Status)
 }
 
 func TestRunCreate_AlreadyActive(t *testing.T) {
@@ -217,6 +221,10 @@ func TestRunCreate_WaitTimeoutErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "timed out")
 }
 
+func activeWaiter() statusWaiter {
+	return statusWaiter{Done: map[string]bool{statusActive: true}}
+}
+
 func TestPollUntilStatus_BoundsRPCWithDeadline(t *testing.T) {
 	t.Parallel()
 	var sawDeadline bool
@@ -224,9 +232,58 @@ func TestPollUntilStatus_BoundsRPCWithDeadline(t *testing.T) {
 		_, sawDeadline = ctx.Deadline()
 		return &AccountStatus{Status: statusActive}, nil
 	}}
-	_, err := pollUntilStatus(context.Background(), svc, map[string]bool{statusActive: true}, time.Minute)
+	_, err := pollUntilStatus(context.Background(), svc, activeWaiter(), time.Minute)
 	require.NoError(t, err)
 	assert.True(t, sawDeadline, "each status RPC must receive the timeout-bounded context")
+}
+
+func TestPollUntilStatus_RetriesTransientThenSucceeds(t *testing.T) {
+	t.Parallel()
+	calls := 0
+	svc := &fakeSvc{statusFn: func(context.Context) (*AccountStatus, error) {
+		calls++
+		if calls == 1 {
+			return nil, status.Error(codes.Unavailable, "temporary")
+		}
+		return &AccountStatus{Status: statusActive}, nil
+	}}
+	acct, err := pollUntilStatus(context.Background(), svc, activeWaiter(), time.Minute)
+	require.NoError(t, err)
+	assert.Equal(t, statusActive, acct.Status)
+	assert.Equal(t, 2, calls, "a transient Unavailable is retried, not returned")
+}
+
+func TestPollUntilStatus_NonTransientErrorReturned(t *testing.T) {
+	t.Parallel()
+	svc := &fakeSvc{statusFn: func(context.Context) (*AccountStatus, error) {
+		return nil, status.Error(codes.PermissionDenied, "nope")
+	}}
+	_, err := pollUntilStatus(context.Background(), svc, activeWaiter(), time.Minute)
+	require.Error(t, err)
+	assert.Equal(t, codes.PermissionDenied, status.Code(err), "non-transient errors surface as-is")
+}
+
+func TestPollUntilStatus_GRPCDeadlineMapsToTimeout(t *testing.T) {
+	t.Parallel()
+	svc := &fakeSvc{statusFn: func(context.Context) (*AccountStatus, error) {
+		return nil, status.Error(codes.DeadlineExceeded, "deadline")
+	}}
+	_, err := pollUntilStatus(context.Background(), svc, activeWaiter(), time.Minute)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "timed out")
+}
+
+func TestPollUntilStatus_TerminalFailureState(t *testing.T) {
+	t.Parallel()
+	svc := &fakeSvc{statusFn: func(context.Context) (*AccountStatus, error) {
+		return &AccountStatus{Status: statusPastDue}, nil
+	}}
+	_, err := pollUntilStatus(context.Background(), svc, statusWaiter{
+		Done: map[string]bool{statusActive: true},
+		Fail: map[string]error{statusPastDue: errors.New("past due: add a payment method")},
+	}, time.Minute)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "past due")
 }
 
 func TestRunCreate_NeedsCheckoutNoWait(t *testing.T) {

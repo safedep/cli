@@ -49,10 +49,13 @@ func trialEnableCmd(a *app.App) *cobra.Command {
 			}
 			if confirmed {
 				tui.Success("Trial activated.")
-			} else {
-				tui.Warning("Trial requested. Activation is still syncing - re-check with `safedep subscription status`.")
+				return a.Output.Print(&statusResult{acct: acct})
 			}
-			return a.Output.Print(&statusResult{acct: acct})
+			tui.Warning("Trial requested. Activation is still syncing - re-check with `safedep subscription status`.")
+			if acct != nil {
+				return a.Output.Print(&statusResult{acct: acct})
+			}
+			return nil
 		},
 	}
 	addCustomerFlags(cmd, &form)
@@ -72,15 +75,15 @@ func runTrialEnable(ctx context.Context, svc trialSvc, form customerForm, wait b
 	if err := svc.ActivateTrial(ctx); err != nil {
 		return nil, false, err
 	}
-	want := map[string]bool{statusActiveTrial: true, statusActive: true}
+	// No-wait is fire-and-forget: the activation request was accepted, so do
+	// not depend on a follow-up status read (a transient failure there would
+	// wrongly fail the command and a retry would hit the one-trial guard).
 	if !wait {
-		acct, err := svc.Status(ctx)
-		if err != nil {
-			return nil, false, err
-		}
-		return acct, want[acct.Status], nil
+		return nil, false, nil
 	}
-	acct, err := pollUntilStatus(ctx, svc, want, timeout)
+	acct, err := pollUntilStatus(ctx, svc, statusWaiter{
+		Done: map[string]bool{statusActiveTrial: true, statusActive: true},
+	}, timeout)
 	if err != nil {
 		return nil, false, err
 	}

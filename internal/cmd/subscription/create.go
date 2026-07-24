@@ -87,7 +87,12 @@ func runCreate(ctx context.Context, svc createSvc, form customerForm, seats uint
 	}
 
 	tui.Info("Waiting for checkout to complete...")
-	acct, err := pollUntilStatus(ctx, svc, map[string]bool{statusActive: true}, timeout)
+	acct, err := pollUntilStatus(ctx, svc, statusWaiter{
+		Done: map[string]bool{statusActive: true},
+		Fail: map[string]error{
+			statusPastDue: errors.New("checkout completed but the subscription is past due: add or update a payment method via `safedep subscription portal open`"),
+		},
+	}, timeout)
 	if err != nil {
 		return nil, err
 	}

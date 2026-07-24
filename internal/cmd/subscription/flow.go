@@ -9,6 +9,8 @@ import (
 	"github.com/cli/browser"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/tui"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Web app billing pages reused as checkout/portal return targets, matching
@@ -41,27 +43,49 @@ func openInBrowser(url, prompt string) {
 	}
 }
 
-// pollUntilStatus polls the account status until it reaches one of want, or
-// the timeout elapses. The timeout is enforced as a hard deadline on the whole
-// operation, including each status RPC (so a stalled control-plane call cannot
-// outlast --timeout), and a timeout is returned as an error: a waited operation
-// that does not confirm is a failure, not a silent success.
-func pollUntilStatus(ctx context.Context, svc StatusGetter, want map[string]bool, timeout time.Duration) (*AccountStatus, error) {
+// statusWaiter classifies observed account statuses during a wait. A status
+// in Done ends the wait successfully; a status in Fail ends it with that
+// status's error (e.g. a terminal payment failure with remediation); anything
+// else keeps polling. Kept as data so new desired/terminal states are a
+// one-line addition, not new control flow.
+type statusWaiter struct {
+	Done map[string]bool
+	Fail map[string]error
+}
+
+// pollUntilStatus polls the account status until the waiter resolves it, or the
+// timeout elapses. The timeout is a hard deadline on the whole operation,
+// including each status RPC (so a stalled control-plane call cannot outlast
+// --timeout). A timeout returns an error: a waited operation that never
+// confirms is a failure, not a silent success. Transient read failures
+// (network blips) are retried within the deadline rather than failing the
+// command, since the underlying mutation may already have succeeded.
+func pollUntilStatus(ctx context.Context, svc StatusGetter, w statusWaiter, timeout time.Duration) (*AccountStatus, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	backoff := pollInitial
 	for {
 		acct, err := svc.Status(ctx)
-		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				return nil, timeoutError(timeout)
+		switch {
+		case err == nil:
+			if w.Done[acct.Status] {
+				return acct, nil
 			}
+			if ferr, ok := w.Fail[acct.Status]; ok {
+				return nil, ferr
+			}
+			// Not a resolved state yet: keep waiting.
+		case isDeadlineExceeded(ctx, err):
+			return nil, timeoutError(timeout)
+		case isTransient(err):
+			// A temporary read failure: the mutation may already have
+			// succeeded, so retry within the overall deadline.
+			log.Warnf("subscription: transient error reading status, retrying: %v", err)
+		default:
 			return nil, err
 		}
-		if want[acct.Status] {
-			return acct, nil
-		}
+
 		select {
 		case <-ctx.Done():
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -73,6 +97,25 @@ func pollUntilStatus(ctx context.Context, svc StatusGetter, want map[string]bool
 		if backoff = time.Duration(float64(backoff) * pollFactor); backoff > pollMax {
 			backoff = pollMax
 		}
+	}
+}
+
+// isDeadlineExceeded reports whether err is our overall-timeout expiring,
+// covering both the context sentinel and a gRPC status carrying
+// codes.DeadlineExceeded (the two do not satisfy errors.Is each other).
+func isDeadlineExceeded(ctx context.Context, err error) bool {
+	return errors.Is(ctx.Err(), context.DeadlineExceeded) ||
+		errors.Is(err, context.DeadlineExceeded) ||
+		status.Code(err) == codes.DeadlineExceeded
+}
+
+// isTransient reports whether a gRPC error is worth retrying within the wait.
+func isTransient(err error) bool {
+	switch status.Code(err) {
+	case codes.Unavailable, codes.Aborted:
+		return true
+	default:
+		return false
 	}
 }
 

@@ -5,16 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/charmbracelet/huh"
 	"github.com/safedep/cli/internal/app"
+	clitui "github.com/safedep/cli/internal/tui"
 	"github.com/safedep/dry/tui"
-	tuioutput "github.com/safedep/dry/tui/output"
 	"github.com/safedep/dry/tui/panel"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 // customerForm holds the billing-customer flag values shared by the
@@ -44,24 +42,12 @@ func addCustomerFlags(cmd *cobra.Command, f *customerForm) {
 	fl.StringVar(&f.TaxID, "tax-id", "", "tax ID (optional)")
 }
 
-// interactive reports whether we can prompt the user and open a browser. It
-// keys off the actual terminal state (stdin is a TTY, which huh needs to read
-// input) rather than the presentation mode, which is user-overridable via
-// --output/SAFEDEP_OUTPUT and does not reflect whether a human is present.
-// Agent mode is excluded outright so tool-driven runs never block on stdin.
-func interactive() bool {
-	if tuioutput.CurrentMode() == tuioutput.Agent {
-		return false
-	}
-	return term.IsTerminal(int(os.Stdin.Fd()))
-}
-
 // resolveCustomerInput turns the form into a CustomerInput, prompting for
 // any missing required field when interactive, or erroring with the missing
 // flags otherwise.
 func resolveCustomerInput(f customerForm) (CustomerInput, error) {
 	in := CustomerInput(f)
-	if interactive() {
+	if clitui.IsInteractive() {
 		if err := promptCustomer(&in); err != nil {
 			return CustomerInput{}, err
 		}
@@ -131,7 +117,7 @@ func ensureCustomer(ctx context.Context, svc customerSvc, f customerForm) error 
 	if exists {
 		return nil
 	}
-	if interactive() {
+	if clitui.IsInteractive() {
 		tui.Info("No billing profile yet - let's set one up (required to continue).")
 	}
 	in, err := resolveCustomerInput(f)

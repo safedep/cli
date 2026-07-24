@@ -3,7 +3,6 @@ package packages
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	malysisv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
@@ -11,6 +10,7 @@ import (
 	malysismsgv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/malysis/v1"
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
+	"github.com/safedep/cli/internal/tui"
 	"google.golang.org/grpc"
 )
 
@@ -264,34 +264,25 @@ func reportFromProto(ps *malysisv1.PackageScan, r *malysismsgv1.Report) *Report 
 	return out
 }
 
-// Enum -> display token helpers. All are generic prefix-trims so new enum
+// Enum -> display token helpers, via the shared tui.EnumToken so new enum
 // values render without code changes.
 
 func statusToken(s malysisv1.AnalysisStatus) string {
-	t := prettyEnum(s.String(), "ANALYSIS_STATUS_")
-	return strings.ReplaceAll(t, "_", "-")
+	return tui.EnumToken(s.String(), "ANALYSIS_STATUS_")
 }
 
 func verdictToken(v malysisv1.AnalysisVerdict) string {
-	return prettyEnum(v.String(), "ANALYSIS_VERDICT_")
+	return tui.EnumToken(v.String(), "ANALYSIS_VERDICT_")
 }
 
 func ecosystemToken(e packagev1.Ecosystem) string {
-	return prettyEnum(e.String(), "ECOSYSTEM_")
+	return tui.EnumToken(e.String(), "ECOSYSTEM_")
 }
 
 func confidenceToken(c malysismsgv1.Report_Evidence_Confidence) string {
-	t := prettyEnum(c.String(), "CONFIDENCE_")
+	t := tui.EnumToken(c.String(), "CONFIDENCE_")
 	if t == "unknown" {
 		return ""
 	}
 	return t
-}
-
-func prettyEnum(name, prefix string) string {
-	s := strings.TrimPrefix(name, prefix)
-	if s == "" || s == "UNSPECIFIED" {
-		return "unknown"
-	}
-	return strings.ToLower(s)
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cli/browser"
+	clitui "github.com/safedep/cli/internal/tui"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/tui"
 	"google.golang.org/grpc/codes"
@@ -34,7 +35,7 @@ const (
 // headless or agent session can follow it manually.
 func openInBrowser(url, prompt string) {
 	tui.Info("%s\n  %s", prompt, url)
-	if !interactive() {
+	if !clitui.IsInteractive() {
 		return
 	}
 	if err := browser.OpenURL(url); err != nil {

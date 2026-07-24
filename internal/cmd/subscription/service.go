@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	ctv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
 	msgv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	errorv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/error/v1"
 	ctv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
+	"github.com/safedep/cli/internal/tui"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -350,29 +350,21 @@ func onDemandFromProto(s *msgv1.TenantOnDemandBillingState) *OnDemandState {
 	}
 }
 
-// Enum -> display token helpers. Generic prefix trims so new enum values
-// render without code changes.
+// Enum -> display token helpers, via the shared tui.EnumToken so new enum
+// values render without code changes.
 
 func statusToken(s msgv1.SubscriptionAccountStatus) string {
-	return strings.ReplaceAll(prettyEnum(s.String(), "SUBSCRIPTION_ACCOUNT_STATUS_"), "_", "-")
+	return tui.EnumToken(s.String(), "SUBSCRIPTION_ACCOUNT_STATUS_")
 }
 
 func tierToken(t msgv1.BillingTier) string {
-	return prettyEnum(t.String(), "BILLING_TIER_")
+	return tui.EnumToken(t.String(), "BILLING_TIER_")
 }
 
 func featureToken(f msgv1.Feature) string {
-	return strings.ReplaceAll(prettyEnum(f.String(), "FEATURE_"), "_", "-")
+	return tui.EnumToken(f.String(), "FEATURE_")
 }
 
 func postureToken(p msgv1.PaymentPosture) string {
-	return strings.ReplaceAll(prettyEnum(p.String(), "PAYMENT_POSTURE_"), "_", "-")
-}
-
-func prettyEnum(name, prefix string) string {
-	v := strings.TrimPrefix(name, prefix)
-	if v == "" || v == "UNSPECIFIED" {
-		return "unknown"
-	}
-	return strings.ToLower(v)
+	return tui.EnumToken(p.String(), "PAYMENT_POSTURE_")
 }

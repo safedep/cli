@@ -82,5 +82,8 @@ safedep package scan run pkg:npm/left-pad@1.3.0 --rescan --save report.json
 
 A scan that failed because the target does not exist in the registry reports
 `package not found in registry` with the target triple: check the package name
-and version. Other failures surface the server-provided reason. JSON output
-carries the typed classification as `failure_code` alongside `failure_reason`.
+and version. Other failures surface the server-provided reason. A failed run
+always exits through this error path, so it emits no JSON: scripts that need
+the machine-readable `failure_code` alongside `failure_reason` should query
+the scan with `safedep package scan get`, `list` or `show`, whose JSON output
+carries both fields.

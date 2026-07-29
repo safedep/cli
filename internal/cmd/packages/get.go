@@ -95,18 +95,20 @@ type scanJSONObj struct {
 	Verdict     string     `json:"verdict,omitempty"`
 	Confidence  float64    `json:"confidence"`
 	Failure     string     `json:"failure_reason,omitempty"`
+	FailureCode string     `json:"failure_code,omitempty"`
 	CreatedAt   string     `json:"created_at,omitempty"`
 	CompletedAt string     `json:"completed_at,omitempty"`
 }
 
 func scanJSON(s Scan) scanJSONObj {
 	o := scanJSONObj{
-		ScanID:     s.ScanID,
-		Target:     targetJSON{Ecosystem: s.Ecosystem, Name: s.Name, Version: s.Version},
-		Status:     s.Status,
-		Verdict:    s.Verdict,
-		Confidence: s.Confidence,
-		Failure:    s.Failure,
+		ScanID:      s.ScanID,
+		Target:      targetJSON{Ecosystem: s.Ecosystem, Name: s.Name, Version: s.Version},
+		Status:      s.Status,
+		Verdict:     s.Verdict,
+		Confidence:  s.Confidence,
+		Failure:     s.Failure,
+		FailureCode: s.FailureCode,
 	}
 	if !s.CreatedAt.IsZero() {
 		o.CreatedAt = s.CreatedAt.UTC().Format(time.RFC3339)

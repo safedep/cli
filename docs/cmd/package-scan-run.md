@@ -79,3 +79,8 @@ safedep package scan run pkg:npm/left-pad@1.3.0 --rescan --save report.json
 |------|---------|
 | `0` | The scan was submitted (with `--wait=false`) or reached a terminal state. |
 | non-zero | An RPC error, a `FAILED` scan, or a `--timeout` expiry. The verdict does not affect the exit code. |
+
+A scan that failed because the target does not exist in the registry reports
+`package not found in registry` with the target triple: check the package name
+and version. Other failures surface the server-provided reason. JSON output
+carries the typed classification as `failure_code` alongside `failure_reason`.

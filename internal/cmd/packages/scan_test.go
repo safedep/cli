@@ -90,6 +90,13 @@ func TestListResult_Render(t *testing.T) {
 	assert.Contains(t, string(js), "\"next_page_token\": \"tok\"")
 }
 
+func TestScanJSON_FailureFields(t *testing.T) {
+	t.Parallel()
+	o := scanJSON(Scan{ScanID: "scn_1", Status: statusFailed, Failure: "artifact not found in registry", FailureCode: failurePackageNotFound})
+	assert.Equal(t, "artifact not found in registry", o.Failure)
+	assert.Equal(t, failurePackageNotFound, o.FailureCode)
+}
+
 func TestRunShow_ByScanID(t *testing.T) {
 	t.Parallel()
 	svc := &fakeService{

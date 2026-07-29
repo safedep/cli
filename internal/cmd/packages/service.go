@@ -39,6 +39,9 @@ const (
 	statusFailed    = "failed"
 )
 
+// Typed failure classification tokens (see failureCodeToken).
+const failurePackageNotFound = "package-not-found"
+
 type Service struct {
 	client malysisv1grpc.PackageScanServiceClient
 }
@@ -90,6 +93,7 @@ type Scan struct {
 	Verdict     string
 	Confidence  float64
 	Failure     string
+	FailureCode string
 	CreatedAt   time.Time
 	CompletedAt time.Time
 }
@@ -204,13 +208,14 @@ func scanFromProto(ps *malysisv1.PackageScan) Scan {
 	pv := ps.GetTarget().GetPackageVersion()
 	pkg := pv.GetPackage()
 	scan := Scan{
-		ScanID:     ps.GetScanId(),
-		Ecosystem:  ecosystemToken(pkg.GetEcosystem()),
-		Name:       pkg.GetName(),
-		Version:    pv.GetVersion(),
-		Status:     statusToken(ps.GetStatus()),
-		Confidence: ps.GetConfidence(),
-		Failure:    ps.GetFailureReason(),
+		ScanID:      ps.GetScanId(),
+		Ecosystem:   ecosystemToken(pkg.GetEcosystem()),
+		Name:        pkg.GetName(),
+		Version:     pv.GetVersion(),
+		Status:      statusToken(ps.GetStatus()),
+		Confidence:  ps.GetConfidence(),
+		Failure:     ps.GetFailureReason(),
+		FailureCode: failureCodeToken(ps.GetFailureCode()),
 	}
 	// Verdict is meaningful only once the scan has completed.
 	if ps.GetStatus() == malysisv1.AnalysisStatus_ANALYSIS_STATUS_COMPLETED {
@@ -281,6 +286,16 @@ func ecosystemToken(e packagev1.Ecosystem) string {
 
 func confidenceToken(c malysismsgv1.Report_Evidence_Confidence) string {
 	t := tui.EnumToken(c.String(), "CONFIDENCE_")
+	if t == "unknown" {
+		return ""
+	}
+	return t
+}
+
+// failureCodeToken keeps an absent or unknown classification empty so callers
+// fall back to the human-readable failure reason.
+func failureCodeToken(r malysisv1.AnalysisFailureReason) string {
+	t := tui.EnumToken(r.String(), "ANALYSIS_FAILURE_REASON_")
 	if t == "unknown" {
 		return ""
 	}

@@ -117,6 +117,25 @@ func TestRunScan_FailedStatusReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "registry fetch error")
 }
 
+func TestRunScan_FailedPackageNotFound(t *testing.T) {
+	t.Parallel()
+	svc := &fakeService{
+		submitFn: func(_ context.Context, _ SubmitInput) (*SubmitResult, error) {
+			return &SubmitResult{ScanID: "scn_1", Status: "queued"}, nil
+		},
+		getFn: func(_ context.Context, _ string) (*Scan, error) {
+			return &Scan{
+				ScanID: "scn_1", Ecosystem: "npm", Name: "left-pad", Version: "9.9.9",
+				Status: statusFailed, Failure: "artifact not found in registry", FailureCode: failurePackageNotFound,
+			}, nil
+		},
+	}
+	_, err := runScan(context.Background(), svc, runInput{Target: testTarget(t), Wait: true, Timeout: time.Minute}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "package not found in registry")
+	assert.Contains(t, err.Error(), "left-pad@9.9.9")
+}
+
 func TestValidateRunFlags(t *testing.T) {
 	t.Parallel()
 	require.NoError(t, validateRunFlags("", false))

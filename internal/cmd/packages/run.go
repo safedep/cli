@@ -121,11 +121,7 @@ func runScan(ctx context.Context, svc runSvc, in runInput, onStatus progressFn) 
 	// A FAILED scan is an operational failure, not a verdict. Surface it as an
 	// error so `run --wait` exits non-zero, matching the documented contract.
 	if scan.Status == statusFailed {
-		reason := scan.Failure
-		if reason == "" {
-			reason = "no reason provided"
-		}
-		return nil, fmt.Errorf("scan %s failed: %s", scan.ScanID, reason)
+		return nil, failedScanError(*scan)
 	}
 
 	res := &runResult{scan: *scan}
@@ -172,6 +168,21 @@ func pollUntilTerminal(ctx context.Context, svc ScanGetter, scanID string, timeo
 
 func isTerminal(status string) bool {
 	return status == statusCompleted || status == statusFailed
+}
+
+// failedScanError prefers the typed failure classification over the free-form
+// server reason so common failures get an actionable message. Unknown codes
+// fall back to the human-readable reason.
+func failedScanError(scan Scan) error {
+	if scan.FailureCode == failurePackageNotFound {
+		return fmt.Errorf("scan %s failed: package not found in registry: check that %s %s@%s exists",
+			scan.ScanID, scan.Ecosystem, scan.Name, scan.Version)
+	}
+	reason := scan.Failure
+	if reason == "" {
+		reason = "no reason provided"
+	}
+	return fmt.Errorf("scan %s failed: %s", scan.ScanID, reason)
 }
 
 // validateRunFlags rejects incompatible flag combinations. --save needs a

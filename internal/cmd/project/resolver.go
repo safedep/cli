@@ -1,4 +1,4 @@
-package scan
+package project
 
 import (
 	"context"
@@ -90,7 +90,7 @@ func resolveProjectNames(
 		byID := matches[name]
 		switch len(byID) {
 		case 0:
-			return nil, fmt.Errorf("scan create: project %q not found", name)
+			return nil, fmt.Errorf("project scan create: project %q not found", name)
 		case 1:
 			for id := range byID {
 				resolved = append(resolved, id)
@@ -119,7 +119,7 @@ func resolveProjectNameChunk(
 		req := newListProjectsRequest(names, pageToken)
 		res, err := client.ListProjects(ctx, req)
 		if err != nil {
-			return fmt.Errorf("scan create: resolve projects: %w", err)
+			return fmt.Errorf("project scan create: resolve projects: %w", err)
 		}
 		if err := collectProjectMatches(res, requested, matches); err != nil {
 			return err
@@ -130,7 +130,7 @@ func resolveProjectNameChunk(
 			return nil
 		}
 		if _, repeated := seenTokens[next]; repeated {
-			return fmt.Errorf("scan create: resolve projects: invalid response: repeated page token")
+			return fmt.Errorf("project scan create: resolve projects: invalid response: repeated page token")
 		}
 		seenTokens[next] = struct{}{}
 		pageToken = next
@@ -160,14 +160,14 @@ func collectProjectMatches(
 		project := item.GetProject()
 		if project == nil || project.GetProjectId() == "" || project.GetName() == "" {
 			return fmt.Errorf(
-				"scan create: resolve projects: invalid response: project %d is missing identity",
+				"project scan create: resolve projects: invalid response: project %d is missing identity",
 				i+1,
 			)
 		}
 		name := project.GetName()
 		if _, ok := requested[name]; !ok {
 			return fmt.Errorf(
-				"scan create: resolve projects: invalid response: unexpected project name %q",
+				"project scan create: resolve projects: invalid response: unexpected project name %q",
 				name,
 			)
 		}
@@ -201,7 +201,7 @@ func ambiguousProjectNameError(name string, byID map[string]projectMatch) error 
 		labels = append(labels, fmt.Sprintf("%s (%s)", item.id, details))
 	}
 	return fmt.Errorf(
-		"scan create: project name %q is ambiguous: %s; use a project ID",
+		"project scan create: project name %q is ambiguous: %s; use a project ID",
 		name,
 		strings.Join(labels, ", "),
 	)

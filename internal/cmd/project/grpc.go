@@ -1,4 +1,4 @@
-package scan
+package project
 
 import (
 	"context"
@@ -34,7 +34,7 @@ func createProjectScans(
 
 	res, err := client.CreateProjectScans(ctx, newCreateRequest(projectIDs))
 	if err != nil {
-		return nil, fmt.Errorf("scan create: %w", err)
+		return nil, fmt.Errorf("project scan create: %w", err)
 	}
 	return translateCreateResponse(res, len(projectIDs))
 }
@@ -58,7 +58,7 @@ func translateCreateResponse(
 	projectScans := res.GetProjectScans()
 	if len(projectScans) != requestCount {
 		return nil, fmt.Errorf(
-			"scan create: invalid response: response count %d does not match request count %d",
+			"project scan create: invalid response: response count %d does not match request count %d",
 			len(projectScans),
 			requestCount,
 		)
@@ -68,15 +68,15 @@ func translateCreateResponse(
 	for i, projectScan := range projectScans {
 		projectID := projectScan.GetProjectId()
 		if projectID == "" {
-			return nil, fmt.Errorf("scan create: invalid response: result %d is missing project ID", i+1)
+			return nil, fmt.Errorf("project scan create: invalid response: result %d is missing project ID", i+1)
 		}
 		session := projectScan.GetScanSession()
 		if session == nil {
-			return nil, fmt.Errorf("scan create: invalid response: project %q is missing scan session", projectID)
+			return nil, fmt.Errorf("project scan create: invalid response: project %q is missing scan session", projectID)
 		}
 		sessionID := session.GetScanSessionId().GetSessionId()
 		if sessionID == "" {
-			return nil, fmt.Errorf("scan create: invalid response: project %q is missing scan session ID", projectID)
+			return nil, fmt.Errorf("project scan create: invalid response: project %q is missing scan session ID", projectID)
 		}
 
 		scan := createdScan{

@@ -1,4 +1,4 @@
-package scan
+package project
 
 import (
 	"context"
@@ -194,7 +194,7 @@ func TestResolveProjectNames_RejectsMissingName(t *testing.T) {
 
 	_, err := resolveProjectNames(context.Background(), client, []string{"missing"})
 	require.Error(t, err)
-	assert.EqualError(t, err, `scan create: project "missing" not found`)
+	assert.EqualError(t, err, `project scan create: project "missing" not found`)
 }
 
 func TestResolveProjectNames_RejectsAmbiguousName(t *testing.T) {
@@ -227,7 +227,7 @@ func TestResolveProjectNames_PreservesGRPCStatus(t *testing.T) {
 
 	_, err := resolveProjectNames(context.Background(), client, []string{"safedep/cli"})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "scan create: resolve projects")
+	assert.Contains(t, err.Error(), "project scan create: resolve projects")
 	assert.Equal(t, codes.PermissionDenied, status.Code(err))
 }
 

@@ -1,11 +1,11 @@
-# safedep scan create
+# safedep project scan create
 
-Submit on-demand scans for one or more SafeDep projects.
+Submit scans for one or more SafeDep projects to SafeDep Cloud-hosted scanners.
 
 ## Synopsis
 
 ```
-safedep scan create [PROJECT_ID...] [--project-name NAME] [--output table|plain|json]
+safedep project scan create [PROJECT_ID...] [--project-name NAME] [--output table|plain|json]
 ```
 
 ## Arguments
@@ -18,6 +18,9 @@ Supply between 1 and 100 projects in total across positional IDs and
 `--project-name` flags. The command sends the resolved batch in one atomic
 request and returns after Control Tower admits every scan. It does not wait for
 execution or read scan results.
+
+Scan execution happens remotely on SafeDep Cloud-hosted scanners. This command
+does not scan the project locally or invoke `vet`.
 
 ## Flags
 
@@ -44,19 +47,19 @@ safedep query exec --sql \
 Submit one project:
 
 ```bash
-safedep scan create project-id
+safedep project scan create project-id
 ```
 
 Submit one project by exact name:
 
 ```bash
-safedep scan create --project-name safedep/control-tower
+safedep project scan create --project-name safedep/control-tower
 ```
 
 Mix an ID with names:
 
 ```bash
-safedep scan create project-id \
+safedep project scan create project-id \
   --project-name safedep/control-tower \
   --project-name safedep/cli
 ```
@@ -64,7 +67,7 @@ safedep scan create project-id \
 Submit a batch and receive JSON:
 
 ```bash
-safedep scan create project-one project-two --output json
+safedep project scan create project-one project-two --output json
 ```
 
 ## Output

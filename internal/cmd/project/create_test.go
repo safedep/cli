@@ -1,4 +1,4 @@
-package scan
+package project
 
 import (
 	"context"
@@ -185,7 +185,7 @@ func TestCreateProjectScans_RejectsMalformedResponses(t *testing.T) {
 			client := &fakeCreateProjectScansClient{res: tt.res}
 			_, err := createProjectScans(context.Background(), client, []string{"project-1"})
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "scan create: invalid response")
+			assert.Contains(t, err.Error(), "project scan create: invalid response")
 			assert.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
@@ -202,7 +202,7 @@ func TestCreateProjectScans_PreservesGRPCStatusAndDetails(t *testing.T) {
 	client := &fakeCreateProjectScansClient{err: rpcStatus.Err()}
 	_, err = createProjectScans(context.Background(), client, []string{"project-1"})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "scan create")
+	assert.Contains(t, err.Error(), "project scan create")
 	assert.Equal(t, codes.ResourceExhausted, status.Code(err))
 
 	gotStatus, ok := status.FromError(err)

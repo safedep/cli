@@ -1,4 +1,4 @@
-package scan
+package project
 
 import (
 	"encoding/json"
@@ -45,9 +45,10 @@ func createCmd(a *app.App) *cobra.Command {
 	var in createInput
 	cmd := &cobra.Command{
 		Use:   "create [PROJECT_ID...]",
-		Short: "Submit on-demand project scans",
+		Short: "Submit project scans to SafeDep Cloud-hosted scanners",
 		Long: "Atomically submit on-demand scans for one to 100 SafeDep projects by ID or exact name " +
-			"and return after admission.",
+			"to SafeDep Cloud-hosted scanners. The command returns after cloud admission while scan " +
+			"execution continues asynchronously in SafeDep Cloud.",
 		Args: func(_ *cobra.Command, args []string) error {
 			in.ProjectIDs = args
 			return validateCreateInput(in)
@@ -83,7 +84,7 @@ func createCmd(a *app.App) *cobra.Command {
 func validateCreateInput(in createInput) error {
 	total := len(in.ProjectIDs) + len(in.ProjectNames)
 	if total < 1 || total > maxProjectScans {
-		return fmt.Errorf("scan create requires between 1 and %d projects", maxProjectScans)
+		return fmt.Errorf("project scan create requires between 1 and %d projects", maxProjectScans)
 	}
 	if err := validateUniqueValues(in.ProjectIDs, "project ID"); err != nil {
 		return err
@@ -93,7 +94,7 @@ func validateCreateInput(in createInput) error {
 
 func validateProjectIDs(projectIDs []string) error {
 	if len(projectIDs) < 1 || len(projectIDs) > maxProjectScans {
-		return fmt.Errorf("scan create requires between 1 and %d project IDs", maxProjectScans)
+		return fmt.Errorf("project scan create requires between 1 and %d project IDs", maxProjectScans)
 	}
 	return validateUniqueValues(projectIDs, "project ID")
 }

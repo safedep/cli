@@ -5,17 +5,17 @@ Submit scans for one or more SafeDep projects to SafeDep Cloud-hosted scanners.
 ## Synopsis
 
 ```
-safedep project scan create [PROJECT_ID...] [--project-name NAME] [--output table|plain|json]
+safedep project scan create [PROJECT_NAME...] [--project-id ID] [--output table|plain|json]
 ```
 
 ## Arguments
 
 | Argument | Description |
 |----------|-------------|
-| `PROJECT_ID` | SafeDep project ID to scan. IDs are submitted before projects selected by name. |
+| `PROJECT_NAME` | Exact tenant-scoped project name to scan. |
 
-Supply between 1 and 100 projects in total across positional IDs and
-`--project-name` flags. The command sends the resolved batch in one atomic
+Supply between 1 and 100 projects in total across positional names and
+`--project-id` flags. The command sends the resolved batch in one atomic
 request and returns after Control Tower admits every scan. It does not wait for
 execution or read scan results.
 
@@ -26,7 +26,7 @@ does not scan the project locally or invoke `vet`.
 
 | Flag | Description |
 |------|-------------|
-| `--project-name <name>` | Exact tenant-scoped project name to scan. Repeat the flag to select multiple projects by name. |
+| `--project-id <id>` | Project ID to scan instead of a name. Repeat the flag to select multiple projects by ID. |
 
 Inherits root flags `--output` and `--profile`.
 
@@ -44,30 +44,29 @@ safedep query exec --sql \
 
 ## Examples
 
-Submit one project:
-
-```bash
-safedep project scan create project-id
-```
-
 Submit one project by exact name:
 
 ```bash
-safedep project scan create --project-name safedep/control-tower
+safedep project scan create safedep/control-tower
 ```
 
-Mix an ID with names:
+Submit one project by ID:
 
 ```bash
-safedep project scan create project-id \
-  --project-name safedep/control-tower \
-  --project-name safedep/cli
+safedep project scan create --project-id 01K88WX3G9RGAK8T3N5YJMFQN1
+```
+
+Mix names with an ID:
+
+```bash
+safedep project scan create safedep/control-tower safedep/cli \
+  --project-id 01K88WX3G9RGAK8T3N5YJMFQN1
 ```
 
 Submit a batch and receive JSON:
 
 ```bash
-safedep project scan create project-one project-two --output json
+safedep project scan create safedep/control-tower safedep/cli --output json
 ```
 
 ## Output
@@ -108,8 +107,8 @@ the error lists their IDs, sources, and origin URLs so the caller can retry
 with a project ID.
 
 After resolution, the CLI rejects duplicate canonical project IDs and sends
-one request with positional IDs first, followed by resolved names in flag
-order. Control Tower admits the complete batch or rejects it without partially
+one request with flag-selected IDs first, followed by resolved names in
+argument order. Control Tower admits the complete batch or rejects it without partially
 admitting scans. Authentication, project access, source support, active-scan,
 and quota errors are returned without parsing or discarding their gRPC status
 details.

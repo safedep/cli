@@ -44,13 +44,13 @@ type createResultJSON struct {
 func createCmd(a *app.App) *cobra.Command {
 	var in createInput
 	cmd := &cobra.Command{
-		Use:   "create [PROJECT_ID...]",
+		Use:   "create [PROJECT_NAME...]",
 		Short: "Submit project scans to SafeDep Cloud-hosted scanners",
-		Long: "Atomically submit on-demand scans for one to 100 SafeDep projects by ID or exact name " +
+		Long: "Atomically submit on-demand scans for one to 100 SafeDep projects by exact name or ID " +
 			"to SafeDep Cloud-hosted scanners. The command returns after cloud admission while scan " +
 			"execution continues asynchronously in SafeDep Cloud.",
 		Args: func(_ *cobra.Command, args []string) error {
-			in.ProjectIDs = args
+			in.ProjectNames = args
 			return validateCreateInput(in)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -59,7 +59,7 @@ func createCmd(a *app.App) *cobra.Command {
 				return err
 			}
 
-			in.ProjectIDs = args
+			in.ProjectNames = args
 			result, err := runCreate(
 				cmd.Context(),
 				newCreateProjectScansClient(client.Connection()),
@@ -73,10 +73,10 @@ func createCmd(a *app.App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringArrayVar(
-		&in.ProjectNames,
-		"project-name",
+		&in.ProjectIDs,
+		"project-id",
 		nil,
-		"exact project name to scan; repeat for multiple projects",
+		"project ID to scan instead of a name; repeat for multiple projects",
 	)
 	return cmd
 }

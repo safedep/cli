@@ -41,6 +41,27 @@ var (
 	_ createProjectScansClient = controltowerv1grpc.ScanServiceClient(nil)
 )
 
+func TestCreateCmd_PositionalArgumentsAreProjectNames(t *testing.T) {
+	t.Parallel()
+
+	cmd := createCmd(nil)
+
+	assert.Equal(t, "create [PROJECT_NAME...]", cmd.Use)
+	err := cmd.Args(cmd, []string{"safedep/cli", "safedep/cli"})
+	assert.EqualError(t, err, `duplicate project name "safedep/cli"`)
+}
+
+func TestCreateCmd_ProjectIDFlagIsExplicitAlternative(t *testing.T) {
+	t.Parallel()
+
+	cmd := createCmd(nil)
+
+	require.NotNil(t, cmd.Flags().Lookup("project-id"))
+	assert.Nil(t, cmd.Flags().Lookup("project-name"))
+	require.NoError(t, cmd.ParseFlags([]string{"--project-id", "01K88WX3G9RGAK8T3N5YJMFQN1"}))
+	require.NoError(t, cmd.Args(cmd, cmd.Flags().Args()))
+}
+
 func TestValidateProjectIDs(t *testing.T) {
 	t.Parallel()
 

@@ -14,6 +14,11 @@ import (
 
 const maxProjectScans = 100
 
+type createInput struct {
+	ProjectIDs   []string
+	ProjectNames []string
+}
+
 type createdScan struct {
 	ProjectID     string
 	ScanSessionID string
@@ -37,12 +42,15 @@ type createResultJSON struct {
 }
 
 func createCmd(a *app.App) *cobra.Command {
-	return &cobra.Command{
-		Use:   "create PROJECT_ID [PROJECT_ID...]",
+	var in createInput
+	cmd := &cobra.Command{
+		Use:   "create [PROJECT_ID...]",
 		Short: "Submit on-demand project scans",
-		Long:  "Atomically submit on-demand scans for one to 100 SafeDep projects and return after admission.",
+		Long: "Atomically submit on-demand scans for one to 100 SafeDep projects by ID or exact name " +
+			"and return after admission.",
 		Args: func(_ *cobra.Command, args []string) error {
-			return validateProjectIDs(args)
+			in.ProjectIDs = args
+			return validateCreateInput(in)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := a.ControlPlane()
@@ -50,10 +58,12 @@ func createCmd(a *app.App) *cobra.Command {
 				return err
 			}
 
-			result, err := createProjectScans(
+			in.ProjectIDs = args
+			result, err := runCreate(
 				cmd.Context(),
 				newCreateProjectScansClient(client.Connection()),
-				args,
+				newListProjectsClient(client.Connection()),
+				in,
 			)
 			if err != nil {
 				return err
@@ -61,22 +71,43 @@ func createCmd(a *app.App) *cobra.Command {
 			return a.Output.Print(result)
 		},
 	}
+	cmd.Flags().StringArrayVar(
+		&in.ProjectNames,
+		"project-name",
+		nil,
+		"exact project name to scan; repeat for multiple projects",
+	)
+	return cmd
+}
+
+func validateCreateInput(in createInput) error {
+	total := len(in.ProjectIDs) + len(in.ProjectNames)
+	if total < 1 || total > maxProjectScans {
+		return fmt.Errorf("scan create requires between 1 and %d projects", maxProjectScans)
+	}
+	if err := validateUniqueValues(in.ProjectIDs, "project ID"); err != nil {
+		return err
+	}
+	return validateUniqueValues(in.ProjectNames, "project name")
 }
 
 func validateProjectIDs(projectIDs []string) error {
 	if len(projectIDs) < 1 || len(projectIDs) > maxProjectScans {
 		return fmt.Errorf("scan create requires between 1 and %d project IDs", maxProjectScans)
 	}
+	return validateUniqueValues(projectIDs, "project ID")
+}
 
-	seen := make(map[string]struct{}, len(projectIDs))
-	for i, projectID := range projectIDs {
-		if projectID == "" {
-			return fmt.Errorf("project ID at position %d must not be empty", i+1)
+func validateUniqueValues(values []string, label string) error {
+	seen := make(map[string]struct{}, len(values))
+	for i, value := range values {
+		if value == "" {
+			return fmt.Errorf("%s at position %d must not be empty", label, i+1)
 		}
-		if _, ok := seen[projectID]; ok {
-			return fmt.Errorf("duplicate project ID %q", projectID)
+		if _, ok := seen[value]; ok {
+			return fmt.Errorf("duplicate %s %q", label, value)
 		}
-		seen[projectID] = struct{}{}
+		seen[value] = struct{}{}
 	}
 	return nil
 }

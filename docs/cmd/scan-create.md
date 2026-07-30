@@ -5,18 +5,27 @@ Submit on-demand scans for one or more SafeDep projects.
 ## Synopsis
 
 ```
-safedep scan create PROJECT_ID [PROJECT_ID...] [--output table|plain|json]
+safedep scan create [PROJECT_ID...] [--project-name NAME] [--output table|plain|json]
 ```
 
 ## Arguments
 
 | Argument | Description |
 |----------|-------------|
-| `PROJECT_ID` | SafeDep project ID to scan. Supply between 1 and 100 unique, non-empty IDs. |
+| `PROJECT_ID` | SafeDep project ID to scan. IDs are submitted before projects selected by name. |
 
-The command sends the complete batch in one atomic request and returns after
-Control Tower admits every scan. It does not wait for execution or read scan
-results.
+Supply between 1 and 100 projects in total across positional IDs and
+`--project-name` flags. The command sends the resolved batch in one atomic
+request and returns after Control Tower admits every scan. It does not wait for
+execution or read scan results.
+
+## Flags
+
+| Flag | Description |
+|------|-------------|
+| `--project-name <name>` | Exact tenant-scoped project name to scan. Repeat the flag to select multiple projects by name. |
+
+Inherits root flags `--output` and `--profile`.
 
 ## Discover project IDs
 
@@ -36,6 +45,20 @@ Submit one project:
 
 ```bash
 safedep scan create project-id
+```
+
+Submit one project by exact name:
+
+```bash
+safedep scan create --project-name safedep/control-tower
+```
+
+Mix an ID with names:
+
+```bash
+safedep scan create project-id \
+  --project-name safedep/control-tower \
+  --project-name safedep/cli
 ```
 
 Submit a batch and receive JSON:
@@ -75,11 +98,18 @@ header and one tab-separated row per admitted scan.
 
 ## All-or-nothing admission
 
-The CLI validates batch size, empty IDs, and duplicate IDs before sending the
-request. Control Tower then admits the complete batch or rejects it without
-partially admitting scans. Authentication, project access, source support,
-active-scan, and quota errors are returned without parsing or discarding their
-gRPC status details.
+The CLI validates batch size and empty or duplicate selectors, then resolves
+every exact project name before admission. A missing or ambiguous name fails
+the command without submitting any scans. When multiple projects share a name,
+the error lists their IDs, sources, and origin URLs so the caller can retry
+with a project ID.
+
+After resolution, the CLI rejects duplicate canonical project IDs and sends
+one request with positional IDs first, followed by resolved names in flag
+order. Control Tower admits the complete batch or rejects it without partially
+admitting scans. Authentication, project access, source support, active-scan,
+and quota errors are returned without parsing or discarding their gRPC status
+details.
 
 ## Authentication
 
@@ -90,4 +120,4 @@ Requires a control-plane OAuth session. Run `safedep auth login` first.
 | Code | Meaning |
 |------|---------|
 | `0` | Control Tower admitted every requested scan. |
-| non-zero | Local validation, authentication, or batch admission failed. |
+| non-zero | Local validation, project-name resolution, authentication, or batch admission failed. |

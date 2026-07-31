@@ -1,20 +1,19 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 
-	"github.com/safedep/cli/internal/app"
-	"github.com/safedep/cli/internal/cmd"
-	"github.com/safedep/cli/internal/config"
-	"github.com/safedep/cli/internal/tui"
 	tuierrors "github.com/safedep/dry/tui/errors"
 	drytheme "github.com/safedep/dry/tui/theme"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-)
 
-var errAuthLoginRequired = errors.New("not authenticated: run `safedep auth login`")
+	"github.com/safedep/cli/internal/app"
+	cliauth "github.com/safedep/cli/internal/auth"
+	"github.com/safedep/cli/internal/cmd"
+	"github.com/safedep/cli/internal/config"
+	"github.com/safedep/cli/internal/tui"
+)
 
 func main() {
 	if err := run(); err != nil {
@@ -29,7 +28,7 @@ func normalizeRunError(err error) error {
 
 	st, ok := status.FromError(err)
 	if ok && st.Code() == codes.Unauthenticated {
-		return errAuthLoginRequired
+		return cliauth.LoginRequiredError(err)
 	}
 	return err
 }

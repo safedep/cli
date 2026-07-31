@@ -23,7 +23,7 @@ func TestNormalizeRunError(t *testing.T) {
 		assert.EqualError(t, got, "not authenticated: run `safedep auth login`")
 	})
 
-	t.Run("renders a typed grpc reason without internal details", func(t *testing.T) {
+	t.Run("preserves a typed grpc reason for the dry renderer", func(t *testing.T) {
 		err := fmt.Errorf(
 			"project scan create: %w",
 			usefulerror.NewStatus(codes.FailedPrecondition, "service execution failed").
@@ -33,33 +33,23 @@ func TestNormalizeRunError(t *testing.T) {
 
 		got := normalizeRunError(err)
 
-		assert.EqualError(
-			t,
-			got,
-			"Project not scannable\nCode: bad_request\n"+
-				"Help: The project has no supported, usable source. Refresh the project source and retry.",
-		)
-		assert.NotContains(t, got.Error(), "project scan create")
-		assert.NotContains(t, got.Error(), "service execution failed")
-		assert.NotContains(t, got.Error(), "rpc error")
+		assert.Equal(t, err, got)
+		assert.Equal(t, codes.FailedPrecondition, status.Code(got))
+		reason, ok := usefulerror.ReasonOf(got)
+		require.True(t, ok)
+		assert.Equal(t, errorv1.ErrorReason_ERROR_REASON_PROJECT_NOT_SCANNABLE, reason)
 	})
 
-	t.Run("renders a generic grpc error without internal details", func(t *testing.T) {
+	t.Run("preserves a generic grpc error for the dry renderer", func(t *testing.T) {
 		err := status.Error(codes.ResourceExhausted, "nested internal quota response")
 
 		got := normalizeRunError(err)
 
-		assert.EqualError(
-			t,
-			got,
-			"Quota exceeded\nCode: quota_exceeded\n"+
-				"Help: Reduce request frequency or increase your quota.",
-		)
-		assert.NotContains(t, got.Error(), "nested internal quota response")
-		assert.NotContains(t, got.Error(), "rpc error")
+		assert.Equal(t, err, got)
+		assert.Equal(t, codes.ResourceExhausted, status.Code(got))
 	})
 
-	t.Run("renders a package scan entitlement error without internal details", func(t *testing.T) {
+	t.Run("preserves a package scan entitlement error for the dry renderer", func(t *testing.T) {
 		rpcStatus, err := status.New(codes.ResourceExhausted, "service execution failed").WithDetails(
 			&errdetails.ErrorInfo{
 				Reason: usefulerror.ErrAppQuotaExceeded,
@@ -78,18 +68,11 @@ func TestNormalizeRunError(t *testing.T) {
 
 		got := normalizeRunError(err)
 
-		assert.EqualError(
-			t,
-			got,
-			"Feature unavailable\nCode: missing_entitlements\n"+
-				"Help: Feature not available for your subscription tier.",
-		)
-		assert.NotContains(t, got.Error(), "package scan")
-		assert.NotContains(t, got.Error(), "service execution failed")
-		assert.NotContains(t, got.Error(), "rpc error")
+		assert.Equal(t, err, got)
+		assert.Equal(t, codes.ResourceExhausted, status.Code(got))
 	})
 
-	t.Run("includes a useful error reference URL", func(t *testing.T) {
+	t.Run("preserves a useful error reference URL for the dry renderer", func(t *testing.T) {
 		err := usefulerror.NewUsefulError().
 			WithHumanError("Project not scannable").
 			WithCode("bad_request").
@@ -98,13 +81,7 @@ func TestNormalizeRunError(t *testing.T) {
 
 		got := normalizeRunError(err)
 
-		assert.EqualError(
-			t,
-			got,
-			"Project not scannable\nCode: bad_request\n"+
-				"Help: Refresh the project source and retry.\n"+
-				"More: https://docs.safedep.io/errors/project-not-scannable",
-		)
+		assert.Equal(t, err, got)
 	})
 
 	t.Run("keeps non grpc errors unchanged", func(t *testing.T) {

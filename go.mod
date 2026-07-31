@@ -11,7 +11,7 @@ require (
 	github.com/cli/oauth v1.2.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/oklog/ulid/v2 v2.1.2
-	github.com/safedep/dry v0.0.0-20260731100408-47b432527bcb
+	github.com/safedep/dry v0.0.0-20260731102022-8ecc3af4f7de
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1

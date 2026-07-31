@@ -8,6 +8,8 @@ import (
 	errorv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/error/v1"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -58,11 +60,20 @@ func TestNormalizeRunError(t *testing.T) {
 	})
 
 	t.Run("renders a package scan entitlement error without internal details", func(t *testing.T) {
-		err := fmt.Errorf(
+		rpcStatus, err := status.New(codes.ResourceExhausted, "service execution failed").WithDetails(
+			&errdetails.ErrorInfo{
+				Reason: usefulerror.ErrAppQuotaExceeded,
+				Domain: usefulerror.DefaultErrorDomain,
+				Metadata: map[string]string{
+					"reason": usefulerror.ErrAppQuotaReasonFeatureNotAvailable,
+				},
+			},
+		)
+		require.NoError(t, err)
+
+		err = fmt.Errorf(
 			"package scan: submit: %w",
-			usefulerror.NewStatus(codes.ResourceExhausted, "service execution failed").
-				WithReason(errorv1.ErrorReason_ERROR_REASON_ENTITLEMENT_NOT_AVAILABLE).
-				Err(),
+			rpcStatus.Err(),
 		)
 
 		got := normalizeRunError(err)
@@ -71,7 +82,7 @@ func TestNormalizeRunError(t *testing.T) {
 			t,
 			got,
 			"Feature unavailable\nCode: missing_entitlements\n"+
-				"Help: Access to this feature requires a SafeDep subscription. See https://safedep.io/pricing",
+				"Help: Feature not available for your subscription tier.",
 		)
 		assert.NotContains(t, got.Error(), "package scan")
 		assert.NotContains(t, got.Error(), "service execution failed")

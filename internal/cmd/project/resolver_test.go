@@ -8,6 +8,7 @@ import (
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
 	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
+	"github.com/safedep/dry/usefulerror"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -88,6 +89,46 @@ func TestValidateCreateInput(t *testing.T) {
 			}
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestValidateCreateInput_ReturnsActionableErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		in       createInput
+		wantHelp string
+	}{
+		{
+			name:     "missing selector",
+			wantHelp: "Provide between 1 and 100 project names or --project-id values.",
+		},
+		{
+			name:     "empty name",
+			in:       createInput{ProjectNames: []string{""}},
+			wantHelp: "Provide a non-empty project name at position 1.",
+		},
+		{
+			name:     "duplicate name",
+			in:       createInput{ProjectNames: []string{"safedep/cli", "safedep/cli"}},
+			wantHelp: "Remove duplicate project name \"safedep/cli\" and retry.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := validateCreateInput(tt.in)
+			requireUsefulError(
+				t,
+				err,
+				usefulerror.ErrBadRequest,
+				"Invalid project selection",
+				tt.wantHelp,
+			)
 		})
 	}
 }
@@ -195,6 +236,13 @@ func TestResolveProjectNames_RejectsMissingName(t *testing.T) {
 	_, err := resolveProjectNames(context.Background(), client, []string{"missing"})
 	require.Error(t, err)
 	assert.EqualError(t, err, `project scan create: project "missing" not found`)
+	requireUsefulError(
+		t,
+		err,
+		usefulerror.ErrNotFound,
+		"Project not found",
+		`Check that project "missing" exists in the current tenant or retry with --project-id.`,
+	)
 }
 
 func TestResolveProjectNames_RejectsAmbiguousName(t *testing.T) {
@@ -214,6 +262,14 @@ func TestResolveProjectNames_RejectsAmbiguousName(t *testing.T) {
 	assert.Contains(t, err.Error(), `project name "shared" is ambiguous`)
 	assert.Contains(t, err.Error(), "id-github (github, https://github.com/acme/shared)")
 	assert.Contains(t, err.Error(), "id-gitlab (gitlab, https://gitlab.com/acme/shared)")
+	requireUsefulError(
+		t,
+		err,
+		usefulerror.ErrBadRequest,
+		"Project name is ambiguous",
+		"Retry with one of these project IDs: id-github (github, https://github.com/acme/shared), "+
+			"id-gitlab (gitlab, https://gitlab.com/acme/shared).",
+	)
 }
 
 func TestResolveProjectNames_PreservesGRPCStatus(t *testing.T) {
@@ -276,7 +332,31 @@ func TestRunCreate_RejectsCanonicalDuplicateBeforeAdmission(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `duplicate project ID "same-id" after name resolution`)
+	requireUsefulError(
+		t,
+		err,
+		usefulerror.ErrBadRequest,
+		"Invalid project selection",
+		`Remove duplicate project ID "same-id" and retry.`,
+	)
 	assert.Zero(t, scanner.calls)
+}
+
+func requireUsefulError(
+	t *testing.T,
+	err error,
+	wantCode string,
+	wantHuman string,
+	wantHelp string,
+) {
+	t.Helper()
+	require.Error(t, err)
+
+	usefulErr, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Equal(t, wantCode, usefulErr.Code())
+	assert.Equal(t, wantHuman, usefulErr.HumanError())
+	assert.Equal(t, wantHelp, usefulErr.Help())
 }
 
 func listProjectsResponse(projects ...*controltowerv1.ProjectWithAttributes) *controltowerv1.ListProjectsResponse {

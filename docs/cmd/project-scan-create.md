@@ -115,6 +115,8 @@ admitting scans. Authentication, project access, source support, active-scan,
 and quota errors preserve their gRPC status details internally. The CLI uses
 typed SafeDep error reasons when available and prints a concise message, stable
 error code, and recovery guidance instead of raw nested gRPC text.
+Expected local selector and project-name resolution failures use the same
+presentation, including a recovery action.
 
 ## Authentication
 

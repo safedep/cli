@@ -9,6 +9,7 @@ import (
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
 	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
+	"github.com/safedep/dry/usefulerror"
 	"google.golang.org/grpc"
 
 	"github.com/safedep/cli/internal/tui"
@@ -59,7 +60,11 @@ func runCreate(
 	}
 	for _, projectID := range resolvedIDs {
 		if _, duplicate := seen[projectID]; duplicate {
-			return nil, fmt.Errorf("duplicate project ID %q after name resolution", projectID)
+			cause := fmt.Errorf("duplicate project ID %q after name resolution", projectID)
+			return nil, invalidProjectSelectionError(
+				cause,
+				fmt.Sprintf("Remove duplicate project ID %q and retry.", projectID),
+			)
 		}
 		seen[projectID] = struct{}{}
 		projectIDs = append(projectIDs, projectID)
@@ -90,7 +95,13 @@ func resolveProjectNames(
 		byID := matches[name]
 		switch len(byID) {
 		case 0:
-			return nil, fmt.Errorf("project scan create: project %q not found", name)
+			cause := fmt.Errorf("project scan create: project %q not found", name)
+			return nil, newProjectError(
+				usefulerror.ErrNotFound,
+				"Project not found",
+				fmt.Sprintf("Check that project %q exists in the current tenant or retry with --project-id.", name),
+				cause,
+			)
 		case 1:
 			for id := range byID {
 				resolved = append(resolved, id)
@@ -200,9 +211,15 @@ func ambiguousProjectNameError(name string, byID map[string]projectMatch) error 
 		}
 		labels = append(labels, fmt.Sprintf("%s (%s)", item.id, details))
 	}
-	return fmt.Errorf(
+	cause := fmt.Errorf(
 		"project scan create: project name %q is ambiguous: %s; use a project ID",
 		name,
 		strings.Join(labels, ", "),
+	)
+	return newProjectError(
+		usefulerror.ErrBadRequest,
+		"Project name is ambiguous",
+		"Retry with one of these project IDs: "+strings.Join(labels, ", ")+".",
+		cause,
 	)
 }

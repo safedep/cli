@@ -88,7 +88,11 @@ func createCmd(a *app.App) *cobra.Command {
 func validateCreateInput(in createInput) error {
 	total := len(in.ProjectIDs) + len(in.ProjectNames)
 	if total < 1 || total > maxProjectScans {
-		return fmt.Errorf("project scan create requires between 1 and %d projects", maxProjectScans)
+		cause := fmt.Errorf("project scan create requires between 1 and %d projects", maxProjectScans)
+		return invalidProjectSelectionError(
+			cause,
+			fmt.Sprintf("Provide between 1 and %d project names or --project-id values.", maxProjectScans),
+		)
 	}
 	if err := validateUniqueValues(in.ProjectIDs, "project ID"); err != nil {
 		return err
@@ -98,7 +102,11 @@ func validateCreateInput(in createInput) error {
 
 func validateProjectIDs(projectIDs []string) error {
 	if len(projectIDs) < 1 || len(projectIDs) > maxProjectScans {
-		return fmt.Errorf("project scan create requires between 1 and %d project IDs", maxProjectScans)
+		cause := fmt.Errorf("project scan create requires between 1 and %d project IDs", maxProjectScans)
+		return invalidProjectSelectionError(
+			cause,
+			fmt.Sprintf("Provide between 1 and %d project IDs.", maxProjectScans),
+		)
 	}
 	return validateUniqueValues(projectIDs, "project ID")
 }
@@ -107,10 +115,18 @@ func validateUniqueValues(values []string, label string) error {
 	seen := make(map[string]struct{}, len(values))
 	for i, value := range values {
 		if value == "" {
-			return fmt.Errorf("%s at position %d must not be empty", label, i+1)
+			cause := fmt.Errorf("%s at position %d must not be empty", label, i+1)
+			return invalidProjectSelectionError(
+				cause,
+				fmt.Sprintf("Provide a non-empty %s at position %d.", label, i+1),
+			)
 		}
 		if _, ok := seen[value]; ok {
-			return fmt.Errorf("duplicate %s %q", label, value)
+			cause := fmt.Errorf("duplicate %s %q", label, value)
+			return invalidProjectSelectionError(
+				cause,
+				fmt.Sprintf("Remove duplicate %s %q and retry.", label, value),
+			)
 		}
 		seen[value] = struct{}{}
 	}

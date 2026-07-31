@@ -3,12 +3,12 @@ package main
 import (
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/cmd"
 	"github.com/safedep/cli/internal/config"
 	"github.com/safedep/cli/internal/tui"
+	tuierrors "github.com/safedep/dry/tui/errors"
 	drytheme "github.com/safedep/dry/tui/theme"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -18,8 +18,7 @@ var errAuthLoginRequired = errors.New("not authenticated: run `safedep auth logi
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", normalizeRunError(err))
-		os.Exit(1)
+		tuierrors.ErrorExit(normalizeRunError(err))
 	}
 }
 
@@ -32,7 +31,6 @@ func normalizeRunError(err error) error {
 	if ok && st.Code() == codes.Unauthenticated {
 		return errAuthLoginRequired
 	}
-
 	return err
 }
 

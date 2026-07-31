@@ -1,6 +1,7 @@
 package cmd_test
 
 import (
+	"bytes"
 	"go/parser"
 	"go/token"
 	"os"
@@ -126,6 +127,47 @@ func TestConventions_ShortAndLongPresent(t *testing.T) {
 			assert.NotEmpty(t, c.Long, "%q: Long must be non-empty", full)
 		})
 	})
+}
+
+func TestProjectScanCommandTree(t *testing.T) {
+	root := newTree(t)
+
+	project := requireSubcommand(t, root, "project")
+	scan := requireSubcommand(t, project, "scan")
+	create := requireSubcommand(t, scan, "create")
+
+	assert.Equal(t, "Work with SafeDep projects", project.Short)
+	assert.Contains(t, project.Long, "SafeDep projects")
+	assert.Equal(t, "Manage project scans performed by SafeDep Cloud-hosted scanners", scan.Short)
+	assert.Contains(t, scan.Long, "SafeDep Cloud-hosted scanners")
+	assert.Equal(t, "Submit project scans to SafeDep Cloud-hosted scanners", create.Short)
+	assert.Contains(t, create.Long, "asynchronously")
+	assert.Contains(t, create.Long, "cloud admission")
+
+	for _, command := range []*cobra.Command{project, scan, create} {
+		var output bytes.Buffer
+		command.SetOut(&output)
+		require.NoError(t, command.Help())
+		assert.Contains(t, output.String(), "SafeDep Cloud-hosted scanners")
+	}
+
+	assert.Nil(t, findSubcommand(root, "scan"), "top-level scan command must not exist")
+}
+
+func requireSubcommand(t *testing.T, parent *cobra.Command, name string) *cobra.Command {
+	t.Helper()
+	command := findSubcommand(parent, name)
+	require.NotNilf(t, command, "expected %q under %q", name, parent.CommandPath())
+	return command
+}
+
+func findSubcommand(parent *cobra.Command, name string) *cobra.Command {
+	for _, command := range parent.Commands() {
+		if command.Name() == name {
+			return command
+		}
+	}
+	return nil
 }
 
 func TestConventions_LeafDocPagesExist(t *testing.T) {

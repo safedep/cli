@@ -6,12 +6,11 @@ import (
 	"fmt"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/cli/browser"
 	clitui "github.com/safedep/cli/internal/tui"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/tui"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // Web app billing pages reused as checkout/portal return targets, matching
@@ -102,18 +101,18 @@ func pollUntilStatus(ctx context.Context, svc StatusGetter, w statusWaiter, time
 }
 
 // isDeadlineExceeded reports whether err is our overall-timeout expiring,
-// covering both the context sentinel and a gRPC status carrying
-// codes.DeadlineExceeded (the two do not satisfy errors.Is each other).
+// covering both the context sentinel and a Connect error carrying
+// CodeDeadlineExceeded (the two do not satisfy errors.Is each other).
 func isDeadlineExceeded(ctx context.Context, err error) bool {
 	return errors.Is(ctx.Err(), context.DeadlineExceeded) ||
 		errors.Is(err, context.DeadlineExceeded) ||
-		status.Code(err) == codes.DeadlineExceeded
+		connect.CodeOf(err) == connect.CodeDeadlineExceeded
 }
 
-// isTransient reports whether a gRPC error is worth retrying within the wait.
+// isTransient reports whether a Connect error is worth retrying within the wait.
 func isTransient(err error) bool {
-	switch status.Code(err) {
-	case codes.Unavailable, codes.Aborted:
+	switch connect.CodeOf(err) {
+	case connect.CodeUnavailable, connect.CodeAborted:
 		return true
 	default:
 		return false

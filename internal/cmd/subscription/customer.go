@@ -159,11 +159,10 @@ func createCustomerCmd(a *app.App) *cobra.Command {
 		Long:  "Create the billing customer profile for the tenant account. Prompts interactively on a terminal; requires flags otherwise.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			client, err := a.ControlPlane()
+			svc, err := serviceFor(a)
 			if err != nil {
 				return err
 			}
-			svc := NewService(client.Connection())
 			if _, exists, err := svc.GetCustomer(cmd.Context()); err != nil {
 				return err
 			} else if exists {
@@ -194,11 +193,11 @@ func showCustomerCmd(a *app.App) *cobra.Command {
 		Long:  "Show the billing customer profile linked to the tenant account.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			client, err := a.ControlPlane()
+			svc, err := serviceFor(a)
 			if err != nil {
 				return err
 			}
-			cust, exists, err := NewService(client.Connection()).GetCustomer(cmd.Context())
+			cust, exists, err := svc.GetCustomer(cmd.Context())
 			if err != nil {
 				return err
 			}

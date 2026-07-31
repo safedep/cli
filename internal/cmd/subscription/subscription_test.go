@@ -7,13 +7,12 @@ import (
 	"time"
 
 	errorv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/error/v1"
+	"connectrpc.com/connect"
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/config"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // fakeSvc satisfies every subscription interface; tests wire only the funcs
@@ -92,16 +91,18 @@ func TestMapOnDemandEnableError(t *testing.T) {
 			t.Parallel()
 			detail := &errorv1.ErrorDetail{}
 			detail.SetReason(tt.reason)
-			st, err := status.New(codes.FailedPrecondition, "denied").WithDetails(detail)
-			require.NoError(t, err)
-			assert.Contains(t, mapOnDemandEnableError(st.Err()).Error(), tt.want)
+			cerr := connect.NewError(connect.CodeFailedPrecondition, errors.New("denied"))
+			d, derr := connect.NewErrorDetail(detail)
+			require.NoError(t, derr)
+			cerr.AddDetail(d)
+			assert.Contains(t, mapOnDemandEnableError(cerr).Error(), tt.want)
 		})
 	}
 }
 
 func TestMapOnDemandEnableError_UntypedPassthrough(t *testing.T) {
 	t.Parallel()
-	err := status.Error(codes.Unavailable, "boom")
+	err := connect.NewError(connect.CodeUnavailable, errors.New("boom"))
 	assert.Contains(t, mapOnDemandEnableError(err).Error(), "enable on-demand")
 }
 
@@ -243,7 +244,7 @@ func TestPollUntilStatus_RetriesTransientThenSucceeds(t *testing.T) {
 	svc := &fakeSvc{statusFn: func(context.Context) (*AccountStatus, error) {
 		calls++
 		if calls == 1 {
-			return nil, status.Error(codes.Unavailable, "temporary")
+			return nil, connect.NewError(connect.CodeUnavailable, errors.New("temporary"))
 		}
 		return &AccountStatus{Status: statusActive}, nil
 	}}
@@ -256,17 +257,17 @@ func TestPollUntilStatus_RetriesTransientThenSucceeds(t *testing.T) {
 func TestPollUntilStatus_NonTransientErrorReturned(t *testing.T) {
 	t.Parallel()
 	svc := &fakeSvc{statusFn: func(context.Context) (*AccountStatus, error) {
-		return nil, status.Error(codes.PermissionDenied, "nope")
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("nope"))
 	}}
 	_, err := pollUntilStatus(context.Background(), svc, activeWaiter(), time.Minute)
 	require.Error(t, err)
-	assert.Equal(t, codes.PermissionDenied, status.Code(err), "non-transient errors surface as-is")
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err), "non-transient errors surface as-is")
 }
 
-func TestPollUntilStatus_GRPCDeadlineMapsToTimeout(t *testing.T) {
+func TestPollUntilStatus_DeadlineMapsToTimeout(t *testing.T) {
 	t.Parallel()
 	svc := &fakeSvc{statusFn: func(context.Context) (*AccountStatus, error) {
-		return nil, status.Error(codes.DeadlineExceeded, "deadline")
+		return nil, connect.NewError(connect.CodeDeadlineExceeded, errors.New("deadline"))
 	}}
 	_, err := pollUntilStatus(context.Background(), svc, activeWaiter(), time.Minute)
 	require.Error(t, err)

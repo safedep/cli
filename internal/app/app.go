@@ -241,6 +241,43 @@ func (a *App) ControlPlane() (*cloud.Client, error) {
 	return a.controlPlane, nil
 }
 
+// ControlPlaneCredentials resolves and, if expired, silently refreshes the
+// control-plane credentials, returning the raw access token and tenant
+// domain. Used to build a ConnectRPC client for the control plane, whose
+// error responses (and rich ErrorDetail) travel in the response body rather
+// than HTTP/2 trailers.
+func (a *App) ControlPlaneCredentials() (token, tenant string, err error) {
+	resolver, err := a.TokenResolver()
+	if err != nil {
+		return "", "", err
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	creds, err := resolver.Resolve()
+	if err != nil {
+		return "", "", errors.New("not authenticated for control plane: run `safedep auth login`")
+	}
+
+	creds, err = a.refreshIfExpiredLocked(creds)
+	if err != nil {
+		return "", "", err
+	}
+
+	token, err = creds.GetToken()
+	if err != nil {
+		return "", "", err
+	}
+
+	tenant, err = creds.GetTenantDomain()
+	if err != nil {
+		return "", "", err
+	}
+
+	return token, tenant, nil
+}
+
 // refreshIfExpiredLocked silently refreshes the access token when it is
 // expired. It must be called with a.mu held. On success it returns new
 // credentials backed by the freshly-saved keychain entry. On refresh

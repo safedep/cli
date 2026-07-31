@@ -36,11 +36,11 @@ func ondemandEnableCmd(a *app.App) *cobra.Command {
 				tui.Info("Terms: %s", termsURL)
 				return errors.New("re-run with --accept-terms to confirm")
 			}
-			client, err := a.ControlPlane()
+			svc, err := serviceFor(a)
 			if err != nil {
 				return err
 			}
-			state, err := NewService(client.Connection()).EnableOnDemand(cmd.Context(), termsVersion)
+			state, err := svc.EnableOnDemand(cmd.Context(), termsVersion)
 			if err != nil {
 				return err
 			}
@@ -59,11 +59,11 @@ func ondemandDisableCmd(a *app.App) *cobra.Command {
 		Long:  "Opt out of usage-based overage billing. Included seat limits continue to apply.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			client, err := a.ControlPlane()
+			svc, err := serviceFor(a)
 			if err != nil {
 				return err
 			}
-			state, err := NewService(client.Connection()).DisableOnDemand(cmd.Context())
+			state, err := svc.DisableOnDemand(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -80,11 +80,11 @@ func ondemandStatusCmd(a *app.App) *cobra.Command {
 		Long:  "Show the tenant account's on-demand billing state: opt-in, payment method, and dunning posture.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			client, err := a.ControlPlane()
+			svc, err := serviceFor(a)
 			if err != nil {
 				return err
 			}
-			state, err := NewService(client.Connection()).OnDemandState(cmd.Context())
+			state, err := svc.OnDemandState(cmd.Context())
 			if err != nil {
 				return err
 			}

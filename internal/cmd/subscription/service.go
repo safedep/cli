@@ -6,14 +6,12 @@ import (
 	"fmt"
 	"time"
 
-	ctv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
+	ctconnect "buf.build/gen/go/safedep/api/connectrpc/go/safedep/services/controltower/v1/controltowerv1connect"
 	msgv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	errorv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/error/v1"
 	ctv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
+	"connectrpc.com/connect"
 	"github.com/safedep/cli/internal/tui"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // termsVersion is the on-demand billing terms version the CLI records as
@@ -22,7 +20,7 @@ import (
 const termsVersion = "2026-07-23"
 
 // One narrow interface per operation so commands and tests depend only on
-// what they use. Service is the single gRPC-backed implementation over both
+// what they use. Service is the single Connect-backed implementation over both
 // the subscription and billing service clients.
 
 type StatusGetter interface {
@@ -64,15 +62,8 @@ type OnDemandDisabler interface {
 }
 
 type Service struct {
-	sub     ctv1grpc.SubscriptionServiceClient
-	billing ctv1grpc.BillingServiceClient
-}
-
-func NewService(conn *grpc.ClientConn) *Service {
-	return &Service{
-		sub:     ctv1grpc.NewSubscriptionServiceClient(conn),
-		billing: ctv1grpc.NewBillingServiceClient(conn),
-	}
+	sub     ctconnect.SubscriptionServiceClient
+	billing ctconnect.BillingServiceClient
 }
 
 var (
@@ -161,21 +152,22 @@ type ProviderError struct {
 }
 
 func (s *Service) Status(ctx context.Context) (*AccountStatus, error) {
-	res, err := s.sub.GetSubscriptionAccountStatus(ctx, &ctv1.GetSubscriptionAccountStatusRequest{})
+	res, err := s.sub.GetSubscriptionAccountStatus(ctx, connect.NewRequest(&ctv1.GetSubscriptionAccountStatusRequest{}))
 	if err != nil {
 		return nil, fmt.Errorf("subscription: status: %w", err)
 	}
-	out := &AccountStatus{Status: statusToken(res.GetStatus())}
-	if info := res.GetSubscriptionAccountInfo(); info != nil {
+	msg := res.Msg
+	out := &AccountStatus{Status: statusToken(msg.GetStatus())}
+	if info := msg.GetSubscriptionAccountInfo(); info != nil {
 		out.Tier = tierToken(info.GetBillingTier())
 	}
-	if t := res.GetTrialStatus(); t != nil {
+	if t := msg.GetTrialStatus(); t != nil {
 		out.Trial = &TrialInfo{DaysRemaining: t.GetDaysRemaining()}
 		if t.GetExpiresAt() != nil {
 			out.Trial.ExpiresAt = t.GetExpiresAt().AsTime()
 		}
 	}
-	for _, e := range res.GetEntitlements() {
+	for _, e := range msg.GetEntitlements() {
 		out.Entitlements = append(out.Entitlements, featureToken(e.GetEntitlement().GetFeature()))
 	}
 	// On-demand summary is best-effort: a failure here must not fail status.
@@ -186,7 +178,7 @@ func (s *Service) Status(ctx context.Context) (*AccountStatus, error) {
 }
 
 func (s *Service) ActivateTrial(ctx context.Context) error {
-	_, err := s.sub.ActivateTrialSubscription(ctx, &ctv1.ActivateTrialSubscriptionRequest{})
+	_, err := s.sub.ActivateTrialSubscription(ctx, connect.NewRequest(&ctv1.ActivateTrialSubscriptionRequest{}))
 	if err != nil {
 		return fmt.Errorf("subscription: activate trial: %w", err)
 	}
@@ -194,14 +186,14 @@ func (s *Service) ActivateTrial(ctx context.Context) error {
 }
 
 func (s *Service) GetCustomer(ctx context.Context) (*Customer, bool, error) {
-	res, err := s.billing.GetBillingCustomer(ctx, &ctv1.GetBillingCustomerRequest{})
+	res, err := s.billing.GetBillingCustomer(ctx, connect.NewRequest(&ctv1.GetBillingCustomerRequest{}))
 	if err != nil {
-		if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
+		if connect.CodeOf(err) == connect.CodeNotFound {
 			return nil, false, nil
 		}
 		return nil, false, fmt.Errorf("subscription: get customer: %w", err)
 	}
-	return customerFromProto(res.GetBillingCustomer()), true, nil
+	return customerFromProto(res.Msg.GetBillingCustomer()), true, nil
 }
 
 func (s *Service) CreateCustomer(ctx context.Context, in CustomerInput) (*Customer, []ProviderError, error) {
@@ -219,15 +211,15 @@ func (s *Service) CreateCustomer(ctx context.Context, in CustomerInput) (*Custom
 	if in.TaxID != "" {
 		req.SetCustomerTaxId(in.TaxID)
 	}
-	res, err := s.billing.CreateBillingCustomer(ctx, req)
+	res, err := s.billing.CreateBillingCustomer(ctx, connect.NewRequest(req))
 	if err != nil {
 		return nil, nil, fmt.Errorf("subscription: create customer: %w", err)
 	}
 	var perr []ProviderError
-	for _, e := range res.GetErrors() {
+	for _, e := range res.Msg.GetErrors() {
 		perr = append(perr, ProviderError{Type: e.GetType(), Param: e.GetParam(), Message: e.GetMessage()})
 	}
-	return customerFromProto(res.GetBillingCustomer()), perr, nil
+	return customerFromProto(res.Msg.GetBillingCustomer()), perr, nil
 }
 
 func (s *Service) Checkout(ctx context.Context, in CheckoutInput) (*CheckoutResult, error) {
@@ -241,12 +233,12 @@ func (s *Service) Checkout(ctx context.Context, in CheckoutInput) (*CheckoutResu
 	if in.Seats > 0 {
 		req.SetQuantity(in.Seats)
 	}
-	res, err := s.billing.CreateBillingSubscriptionCheckoutSession(ctx, req)
+	res, err := s.billing.CreateBillingSubscriptionCheckoutSession(ctx, connect.NewRequest(req))
 	if err != nil {
 		return nil, fmt.Errorf("subscription: checkout: %w", err)
 	}
-	info := res.GetStatusInfo()
-	out := &CheckoutResult{URL: res.GetCheckoutSessionUrl()}
+	info := res.Msg.GetStatusInfo()
+	out := &CheckoutResult{URL: res.Msg.GetCheckoutSessionUrl()}
 	switch info.GetStatus() {
 	case ctv1.CreateBillingSubscriptionCheckoutSessionResponse_STATUS_SUCCESS:
 		out.Outcome = checkoutSuccess
@@ -265,37 +257,37 @@ func (s *Service) Portal(ctx context.Context, returnURL string) (string, error) 
 	flow.SetReturnUrl(returnURL)
 	req := &ctv1.CreateBillingCustomerPortalSessionRequest{}
 	req.SetFlowInfo(flow)
-	res, err := s.billing.CreateBillingCustomerPortalSession(ctx, req)
+	res, err := s.billing.CreateBillingCustomerPortalSession(ctx, connect.NewRequest(req))
 	if err != nil {
 		return "", fmt.Errorf("subscription: portal: %w", err)
 	}
-	return res.GetCustomerPortalUrl(), nil
+	return res.Msg.GetCustomerPortalUrl(), nil
 }
 
 func (s *Service) OnDemandState(ctx context.Context) (*OnDemandState, error) {
-	res, err := s.billing.GetOnDemandBillingState(ctx, &ctv1.GetOnDemandBillingStateRequest{})
+	res, err := s.billing.GetOnDemandBillingState(ctx, connect.NewRequest(&ctv1.GetOnDemandBillingStateRequest{}))
 	if err != nil {
 		return nil, fmt.Errorf("subscription: on-demand state: %w", err)
 	}
-	return onDemandFromProto(res.GetState()), nil
+	return onDemandFromProto(res.Msg.GetState()), nil
 }
 
 func (s *Service) EnableOnDemand(ctx context.Context, terms string) (*OnDemandState, error) {
 	req := &ctv1.EnableOnDemandBillingRequest{}
 	req.SetTermsVersion(terms)
-	res, err := s.billing.EnableOnDemandBilling(ctx, req)
+	res, err := s.billing.EnableOnDemandBilling(ctx, connect.NewRequest(req))
 	if err != nil {
 		return nil, mapOnDemandEnableError(err)
 	}
-	return onDemandFromProto(res.GetState()), nil
+	return onDemandFromProto(res.Msg.GetState()), nil
 }
 
 func (s *Service) DisableOnDemand(ctx context.Context) (*OnDemandState, error) {
-	res, err := s.billing.DisableOnDemandBilling(ctx, &ctv1.DisableOnDemandBillingRequest{})
+	res, err := s.billing.DisableOnDemandBilling(ctx, connect.NewRequest(&ctv1.DisableOnDemandBillingRequest{}))
 	if err != nil {
 		return nil, fmt.Errorf("subscription: disable on-demand: %w", err)
 	}
-	return onDemandFromProto(res.GetState()), nil
+	return onDemandFromProto(res.Msg.GetState()), nil
 }
 
 // mapOnDemandEnableError routes the typed ErrorReason to an actionable
@@ -311,15 +303,20 @@ func mapOnDemandEnableError(err error) error {
 	}
 }
 
-// errorReason extracts the typed business ErrorReason from a gRPC status
-// error's details, or UNSPECIFIED when none is present.
+// errorReason extracts the typed business ErrorReason from a Connect error's
+// details, or UNSPECIFIED when none is present. Connect carries these details
+// in the response body, so they survive proxy hops that drop HTTP/2 trailers.
 func errorReason(err error) errorv1.ErrorReason {
-	st, ok := status.FromError(err)
-	if !ok {
+	var cerr *connect.Error
+	if !errors.As(err, &cerr) {
 		return errorv1.ErrorReason_ERROR_REASON_UNSPECIFIED
 	}
-	for _, d := range st.Details() {
-		if detail, ok := d.(*errorv1.ErrorDetail); ok {
+	for _, d := range cerr.Details() {
+		msg, verr := d.Value()
+		if verr != nil {
+			continue
+		}
+		if detail, ok := msg.(*errorv1.ErrorDetail); ok {
 			return detail.GetReason()
 		}
 	}

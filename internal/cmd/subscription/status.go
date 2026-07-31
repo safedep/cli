@@ -31,11 +31,11 @@ func statusCmd(a *app.App) *cobra.Command {
 		Long:  "Show the tenant account's subscription status, tier, trial, and on-demand billing. Pass --entitlements to also list the account's entitlements.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			client, err := a.ControlPlane()
+			svc, err := serviceFor(a)
 			if err != nil {
 				return err
 			}
-			acct, err := runStatus(cmd.Context(), NewService(client.Connection()))
+			acct, err := runStatus(cmd.Context(), svc)
 			if err != nil {
 				return err
 			}

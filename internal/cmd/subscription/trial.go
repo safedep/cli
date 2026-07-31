@@ -38,11 +38,10 @@ func trialEnableCmd(a *app.App) *cobra.Command {
 		Long:  "Activate the free trial subscription. Creates a billing profile first if none exists (interactive on a terminal, flags otherwise).",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			client, err := a.ControlPlane()
+			svc, err := serviceFor(a)
 			if err != nil {
 				return err
 			}
-			svc := NewService(client.Connection())
 			acct, confirmed, err := runTrialEnable(cmd.Context(), svc, form, wait, timeout)
 			if err != nil {
 				return err

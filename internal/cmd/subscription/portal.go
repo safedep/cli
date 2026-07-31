@@ -24,11 +24,11 @@ func portalOpenCmd(a *app.App) *cobra.Command {
 			"cancellation for the tenant account.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			client, err := a.ControlPlane()
+			svc, err := serviceFor(a)
 			if err != nil {
 				return err
 			}
-			url, err := NewService(client.Connection()).Portal(cmd.Context(), portalReturnURL)
+			url, err := svc.Portal(cmd.Context(), portalReturnURL)
 			if err != nil {
 				return err
 			}

@@ -38,11 +38,10 @@ func createCmd(a *app.App) *cobra.Command {
 			if seats < 1 {
 				return errors.New("--seats must be at least 1")
 			}
-			client, err := a.ControlPlane()
+			svc, err := serviceFor(a)
 			if err != nil {
 				return err
 			}
-			svc := NewService(client.Connection())
 			res, err := runCreate(cmd.Context(), svc, form, seats, wait, timeout)
 			if err != nil {
 				return err

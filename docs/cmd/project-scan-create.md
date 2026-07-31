@@ -77,6 +77,7 @@ Every output mode includes these fields in server response order:
 |-------|-------------|
 | `project_id` | The admitted project's ID. |
 | `scan_session_id` | The newly admitted scan session's ID. |
+| `scan_url` | URL for the admitted scan in the SafeDep web application. |
 | `status` | Lowercase scan status, such as `queued`. |
 | `created_at` | Admission time in UTC RFC 3339 format. Empty in table and plain output, and omitted from JSON, when the server does not supply it. |
 
@@ -88,6 +89,7 @@ JSON shape:
     {
       "project_id": "project-id",
       "scan_session_id": "session-id",
+      "scan_url": "https://app.safedep.io/scans/session-id",
       "status": "queued",
       "created_at": "2026-07-30T10:00:00Z"
     }
@@ -110,8 +112,9 @@ After resolution, the CLI rejects duplicate canonical project IDs and sends
 one request with flag-selected IDs first, followed by resolved names in
 argument order. Control Tower admits the complete batch or rejects it without partially
 admitting scans. Authentication, project access, source support, active-scan,
-and quota errors are returned without parsing or discarding their gRPC status
-details.
+and quota errors preserve their gRPC status details internally. The CLI uses
+typed SafeDep error reasons when available and prints a concise message, stable
+error code, and recovery guidance instead of raw nested gRPC text.
 
 ## Authentication
 

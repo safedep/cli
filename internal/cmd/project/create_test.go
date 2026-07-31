@@ -253,6 +253,7 @@ func TestCreateResult_RenderJSON(t *testing.T) {
 	require.Len(t, parsed.Scans, 2)
 	assert.Equal(t, "project-1", parsed.Scans[0]["project_id"])
 	assert.Equal(t, "session-1", parsed.Scans[0]["scan_session_id"])
+	assert.Equal(t, "https://app.safedep.io/scans/session-1", parsed.Scans[0]["scan_url"])
 	assert.Equal(t, "queued", parsed.Scans[0]["status"])
 	assert.Equal(t, "2026-07-30T10:00:00Z", parsed.Scans[0]["created_at"])
 	assert.NotContains(t, parsed.Scans[1], "created_at")
@@ -268,8 +269,12 @@ func TestCreateResult_RenderPlain(t *testing.T) {
 
 	lines := strings.Split(result.RenderPlain(), "\n")
 	require.Len(t, lines, 2)
-	assert.Equal(t, "project_id\tscan_session_id\tstatus\tcreated_at", lines[0])
-	assert.Equal(t, "project-1\tsession-1\tqueued\t2026-07-30T10:00:00Z", lines[1])
+	assert.Equal(t, "project_id\tscan_session_id\tscan_url\tstatus\tcreated_at", lines[0])
+	assert.Equal(
+		t,
+		"project-1\tsession-1\thttps://app.safedep.io/scans/session-1\tqueued\t2026-07-30T10:00:00Z",
+		lines[1],
+	)
 }
 
 func TestCreateResult_RenderTable(t *testing.T) {
@@ -283,10 +288,12 @@ func TestCreateResult_RenderTable(t *testing.T) {
 	got := result.RenderTable()
 	assert.Contains(t, got, "PROJECT ID")
 	assert.Contains(t, got, "SCAN SESSION ID")
+	assert.Contains(t, got, "SCAN URL")
 	assert.Contains(t, got, "STATUS")
 	assert.Contains(t, got, "CREATED AT")
 	assert.Contains(t, got, "project-1")
 	assert.Contains(t, got, "session-1")
+	assert.Contains(t, got, "https://app.safedep.io/scans/session-1")
 	assert.Contains(t, got, "queued")
 	assert.Contains(t, got, "2026-07-30T10:00:00Z")
 }

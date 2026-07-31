@@ -12,7 +12,10 @@ import (
 	"github.com/safedep/cli/internal/app"
 )
 
-const maxProjectScans = 100
+const (
+	maxProjectScans = 100
+	scanURLBase     = "https://app.safedep.io/scans/"
+)
 
 type createInput struct {
 	ProjectIDs   []string
@@ -33,6 +36,7 @@ type createResult struct {
 type createdScanJSON struct {
 	ProjectID     string `json:"project_id"`
 	ScanSessionID string `json:"scan_session_id"`
+	ScanURL       string `json:"scan_url"`
 	Status        string `json:"status"`
 	CreatedAt     string `json:"created_at,omitempty"`
 }
@@ -119,6 +123,7 @@ func (r *createResult) RenderJSON() ([]byte, error) {
 		item := createdScanJSON{
 			ProjectID:     scan.ProjectID,
 			ScanSessionID: scan.ScanSessionID,
+			ScanURL:       scanURL(scan.ScanSessionID),
 			Status:        scan.Status,
 		}
 		if scan.CreatedAt != nil {
@@ -131,7 +136,7 @@ func (r *createResult) RenderJSON() ([]byte, error) {
 
 func (r *createResult) RenderPlain() string {
 	var output strings.Builder
-	output.WriteString("project_id\tscan_session_id\tstatus\tcreated_at")
+	output.WriteString("project_id\tscan_session_id\tscan_url\tstatus\tcreated_at")
 	for _, scan := range r.scans {
 		output.WriteByte('\n')
 		output.WriteString(strings.Join(scanCells(scan), "\t"))
@@ -145,7 +150,7 @@ func (r *createResult) RenderTable() string {
 		rows = append(rows, scanCells(scan))
 	}
 	return table.New().
-		Headers("PROJECT ID", "SCAN SESSION ID", "STATUS", "CREATED AT").
+		Headers("PROJECT ID", "SCAN SESSION ID", "SCAN URL", "STATUS", "CREATED AT").
 		Rows(rows...).
 		Render()
 }
@@ -155,5 +160,15 @@ func scanCells(scan createdScan) []string {
 	if scan.CreatedAt != nil {
 		createdAt = scan.CreatedAt.UTC().Format(time.RFC3339)
 	}
-	return []string{scan.ProjectID, scan.ScanSessionID, scan.Status, createdAt}
+	return []string{
+		scan.ProjectID,
+		scan.ScanSessionID,
+		scanURL(scan.ScanSessionID),
+		scan.Status,
+		createdAt,
+	}
+}
+
+func scanURL(scanSessionID string) string {
+	return scanURLBase + scanSessionID
 }

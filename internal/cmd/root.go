@@ -1,12 +1,13 @@
 package cmd
 
 import (
-	"github.com/safedep/cli/internal/app"
-	"github.com/safedep/cli/internal/tui"
-	"github.com/safedep/cli/internal/version"
 	"github.com/safedep/dry/tui/banner"
 	tuioutput "github.com/safedep/dry/tui/output"
 	"github.com/spf13/cobra"
+
+	"github.com/safedep/cli/internal/app"
+	"github.com/safedep/cli/internal/tui"
+	"github.com/safedep/cli/internal/version"
 )
 
 const bannerArt = ` ___  __ _ / _| ___  __| | ___ _ __
@@ -19,6 +20,7 @@ var (
 	outputFlag                   string
 	profileFlag                  string
 	insecureKeychainFallbackFlag bool
+	verboseFlag                  bool
 )
 
 // NewRootCommand creates the root cobra command. Persistent flags are
@@ -35,6 +37,7 @@ func NewRootCommand(a *app.App) *cobra.Command {
 	root.PersistentFlags().StringVarP(&outputFlag, "output", "o", "", "output mode: table, plain, json (auto-detected when empty)")
 	root.PersistentFlags().StringVar(&profileFlag, "profile", "", "credential profile (overrides SAFEDEP_PROFILE; defaults to \"default\")")
 	root.PersistentFlags().BoolVar(&insecureKeychainFallbackFlag, "insecure-keychain-fallback", false, "store credentials in a plaintext file when no OS keychain is available (insecure)")
+	root.PersistentFlags().BoolVarP(&verboseFlag, "verbose", "v", false, "show verbose error diagnostics")
 
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		mode, err := tui.ParseMode(outputFlag)
@@ -44,6 +47,11 @@ func NewRootCommand(a *app.App) *cobra.Command {
 		a.Output = tui.NewPrinter(mode)
 		a.SetProfile(profileFlag)
 		a.SetInsecureKeychainFallback(insecureKeychainFallbackFlag)
+		if verboseFlag {
+			tuioutput.SetVerbosity(tuioutput.Verbose)
+		} else {
+			tuioutput.SetVerbosity(tuioutput.Normal)
+		}
 		return nil
 	}
 

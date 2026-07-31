@@ -20,7 +20,12 @@ func TestNormalizeRunError(t *testing.T) {
 
 		got := normalizeRunError(err)
 
-		assert.EqualError(t, got, "not authenticated: run `safedep auth login`")
+		usefulErr, ok := usefulerror.AsUsefulError(got)
+		require.True(t, ok)
+		assert.Equal(t, usefulerror.ErrAuthenticationFailed, usefulErr.Code())
+		assert.Equal(t, "Authentication required", usefulErr.HumanError())
+		assert.Equal(t, "Run `safedep auth login` and retry.", usefulErr.Help())
+		assert.Equal(t, codes.Unauthenticated, status.Code(got))
 	})
 
 	t.Run("preserves a typed grpc reason for the dry renderer", func(t *testing.T) {

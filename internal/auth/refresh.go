@@ -26,7 +26,7 @@ func RefreshAndPersistIfExpired(ctx context.Context, store cloud.CredentialStore
 
 	refreshToken, err := creds.GetRefreshToken()
 	if err != nil || refreshToken == "" {
-		return nil, errors.New("session expired: run `safedep auth login` to re-authenticate")
+		return nil, LoginRequiredError(errors.New("session expired"))
 	}
 
 	tenant, err := creds.GetTenantDomain()
@@ -38,7 +38,7 @@ func RefreshAndPersistIfExpired(ctx context.Context, store cloud.CredentialStore
 
 	result, err := RefreshTokens(ctx, token, refreshToken)
 	if err != nil {
-		return nil, err
+		return nil, LoginRequiredError(err)
 	}
 
 	if err := store.SaveTokenCredential(result.AccessToken, result.RefreshToken, tenant); err != nil {

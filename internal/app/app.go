@@ -5,18 +5,18 @@ package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
 
+	"github.com/safedep/dry/cloud"
+	"github.com/safedep/dry/log"
+
 	cliauth "github.com/safedep/cli/internal/auth"
 	"github.com/safedep/cli/internal/config"
 	"github.com/safedep/cli/internal/storage"
 	"github.com/safedep/cli/internal/tui"
-	"github.com/safedep/dry/cloud"
-	"github.com/safedep/dry/log"
 )
 
 const (
@@ -193,7 +193,7 @@ func (a *App) DataPlane() (*cloud.Client, error) {
 
 	creds, err := resolver.Resolve()
 	if err != nil {
-		return nil, errors.New("not authenticated: run `safedep auth login` first")
+		return nil, cliauth.LoginRequiredError(err)
 	}
 
 	client, err := cloud.NewDataPlaneClient(cliauth.GRPCAppName, creds)
@@ -224,7 +224,7 @@ func (a *App) ControlPlane() (*cloud.Client, error) {
 
 	creds, err := resolver.Resolve()
 	if err != nil {
-		return nil, errors.New("not authenticated for control plane: run `safedep auth login`")
+		return nil, cliauth.LoginRequiredError(err)
 	}
 
 	creds, err = a.refreshIfExpiredLocked(creds)

@@ -106,6 +106,33 @@ type OnDemandState struct {
 	Enabled             bool
 	PaymentMethodOnFile bool
 	Posture             string
+	Usage               []FeatureUsage
+}
+
+// FeatureUsage is the CLI-side view of one metered feature's usage. Numbers are
+// copied from the API as-is; the CLI performs no billing math.
+type FeatureUsage struct {
+	FeatureKey        string
+	DisplayName       string
+	UnitLabel         string
+	IncludedLimit     int64 // -1 unlimited, 0 not-available, >0 finite
+	Consumed          int64
+	Seats             int64
+	Tier              string
+	PeriodEnd         time.Time
+	Provisional       bool // enforcement == PROVISIONAL
+	Overage           *FeatureOverage
+	OverageUsed       int64
+	OverageUsedMinor  int64
+	SettlementPending bool // settlement_status == PENDING
+}
+
+type FeatureOverage struct {
+	CapKind        string // "units" | "monetary"
+	CapUnits       int64
+	UnitPriceMinor int64
+	CapAmountMinor int64
+	Currency       string
 }
 
 type CheckoutInput struct {
@@ -277,7 +304,9 @@ func (s *Service) OnDemandState(ctx context.Context) (*OnDemandState, error) {
 	if err != nil {
 		return nil, fmt.Errorf("subscription: on-demand state: %w", err)
 	}
-	return onDemandFromProto(res.GetState()), nil
+	st := onDemandFromProto(res.GetState())
+	st.Usage = featureUsageFromProto(res.GetFeatureUsage())
+	return st, nil
 }
 
 func (s *Service) EnableOnDemand(ctx context.Context, terms string) (*OnDemandState, error) {
@@ -348,6 +377,46 @@ func onDemandFromProto(s *msgv1.TenantOnDemandBillingState) *OnDemandState {
 		PaymentMethodOnFile: s.GetPaymentMethodOnFile(),
 		Posture:             postureToken(s.GetPaymentPosture()),
 	}
+}
+
+func featureUsageFromProto(in []*msgv1.MeteredFeatureUsage) []FeatureUsage {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]FeatureUsage, 0, len(in))
+	for _, u := range in {
+		fu := FeatureUsage{
+			FeatureKey:        u.GetFeatureKey(),
+			DisplayName:       u.GetDisplayName(),
+			UnitLabel:         u.GetUnitLabel(),
+			IncludedLimit:     u.GetIncludedLimit(),
+			Consumed:          u.GetConsumed(),
+			Seats:             u.GetSeats(),
+			Tier:              tierToken(u.GetTier()),
+			Provisional:       u.GetEnforcement() == msgv1.MeteredLimitEnforcement_METERED_LIMIT_ENFORCEMENT_PROVISIONAL,
+			OverageUsed:       u.GetOverageUsed(),
+			OverageUsedMinor:  u.GetOverageUsedAmountMinor(),
+			SettlementPending: u.GetSettlementStatus() == msgv1.OverageSettlementStatus_OVERAGE_SETTLEMENT_STATUS_PENDING,
+		}
+		if u.GetPeriodEnd() != nil {
+			fu.PeriodEnd = u.GetPeriodEnd().AsTime()
+		}
+		if ov := u.GetOverage(); ov != nil {
+			fu.Overage = &FeatureOverage{
+				CapKind:        capKindToken(ov.GetCapKind()),
+				CapUnits:       ov.GetCapUnits(),
+				UnitPriceMinor: ov.GetUnitPriceMinor(),
+				CapAmountMinor: ov.GetCapAmountMinor(),
+				Currency:       ov.GetCurrency(),
+			}
+		}
+		out = append(out, fu)
+	}
+	return out
+}
+
+func capKindToken(k msgv1.OverageCapKind) string {
+	return tui.EnumToken(k.String(), "OVERAGE_CAP_KIND_")
 }
 
 // Enum -> display token helpers, via the shared tui.EnumToken so new enum

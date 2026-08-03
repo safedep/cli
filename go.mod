@@ -3,15 +3,15 @@ module github.com/safedep/cli
 go 1.26.2
 
 require (
-	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260729065101-65a78c3a5c24.1
-	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260729065101-65a78c3a5c24.1
+	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260803155936-491295faeae2.1
+	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260803155936-491295faeae2.1
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/cli/browser v1.3.0
 	github.com/cli/oauth v1.2.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/oklog/ulid/v2 v2.1.2
-	github.com/safedep/dry v0.0.0-20260731122402-e6c6031bf5d9
+	github.com/safedep/dry v0.0.0-20260803165841-24c8ea6d6a3f
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1

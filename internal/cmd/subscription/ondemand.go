@@ -243,7 +243,8 @@ func overageBar(fu FeatureUsage, enabled bool) (meter.Bar, bool) {
 	if ov == nil {
 		return meter.Bar{}, false
 	}
-	if fu.OverageUsed <= 0 && !(enabled && fu.Consumed >= fu.IncludedLimit) {
+	show := fu.OverageUsed > 0 || (enabled && fu.Consumed >= fu.IncludedLimit)
+	if !show {
 		return meter.Bar{}, false
 	}
 

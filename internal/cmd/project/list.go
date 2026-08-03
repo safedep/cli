@@ -138,9 +138,6 @@ func (r *listResult) RenderPlain() string {
 		output.WriteByte('\n')
 		output.WriteString(strings.Join(cells, "\t"))
 	}
-	if r.nextPageToken != "" {
-		output.WriteString("\nnext_page_token\t" + r.nextPageToken)
-	}
 	return output.String()
 }
 

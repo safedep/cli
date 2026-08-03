@@ -318,7 +318,7 @@ func TestListResult_RenderPlain(t *testing.T) {
 	}
 
 	lines := strings.Split(result.RenderPlain(), "\n")
-	require.Len(t, lines, 3)
+	require.Len(t, lines, 2, "plain output is a header plus one line per scan, nothing else")
 	assert.Equal(
 		t,
 		"scan_session_id\tproject_name\tproject_version\tstatus\ttrigger\t"+
@@ -331,17 +331,28 @@ func TestListResult_RenderPlain(t *testing.T) {
 			"https://app.safedep.io/scans/session-1",
 		lines[1],
 	)
-	assert.Equal(t, "next_page_token\tnext", lines[2])
 }
 
-func TestListResult_RenderPlainOmitsPageTokenRowWhenExhausted(t *testing.T) {
+// Every plain row must carry the same field count so a shell pipeline can cut
+// columns. The continuation token lives in table and JSON output only.
+func TestListResult_RenderPlainRowsAreUniformlyShaped(t *testing.T) {
 	t.Parallel()
 
-	result := &listResult{scans: []listedScan{{ScanSessionID: "session-1", Status: "queued", Trigger: "manual"}}}
+	result := &listResult{
+		scans: []listedScan{
+			{ScanSessionID: "session-1", Status: "queued", Trigger: "manual"},
+			{ScanSessionID: "session-2", Status: "success", Trigger: "push"},
+		},
+		nextPageToken: "next",
+	}
 
 	lines := strings.Split(result.RenderPlain(), "\n")
-	require.Len(t, lines, 2)
-	assert.NotContains(t, lines[1], "next_page_token")
+	require.Len(t, lines, 3)
+	want := strings.Count(lines[0], "\t")
+	for i, line := range lines {
+		assert.Equal(t, want, strings.Count(line, "\t"), "line %d field count", i)
+		assert.NotContains(t, line, "next_page_token")
+	}
 }
 
 func TestListResult_RenderTable(t *testing.T) {

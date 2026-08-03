@@ -168,7 +168,6 @@ func (r *syncResult) RenderPlain() string {
 		output.WriteByte('\n')
 		output.WriteString(strings.Join(syncedProjectCells(project), "\t"))
 	}
-	output.WriteString("\nlink_id\t" + r.linkID)
 	return output.String()
 }
 

@@ -108,9 +108,10 @@ JSON shape:
 ```
 
 `table` renders one row per scan and reports the continuation token in the
-footer when more pages exist. `plain` renders a tab-separated header, one
-tab-separated row per scan, and a trailing `next_page_token` row when more pages
-exist.
+footer when more pages exist. `plain` renders a tab-separated header and one
+tab-separated row per scan, so every row has the same field count and can be cut
+by column. The continuation token is not part of plain output: read it from
+`table` or `json`.
 
 ## Authentication
 

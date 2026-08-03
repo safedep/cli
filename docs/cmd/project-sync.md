@@ -107,8 +107,9 @@ JSON shape:
 ```
 
 `table` renders one row per synced repository and reports the link ID in the
-footer. `plain` renders a tab-separated header, one tab-separated row per synced
-repository, and a trailing `link_id` row.
+footer. `plain` renders a tab-separated header and one tab-separated row per
+synced repository, so every row has the same field count and can be cut by
+column. The link ID is not part of plain output: read it from `table` or `json`.
 
 ## Resolution and failure behaviour
 

@@ -152,11 +152,13 @@ func TestSyncResult_RenderPlain(t *testing.T) {
 	}
 
 	lines := strings.Split(result.RenderPlain(), "\n")
-	require.Len(t, lines, 4)
+	require.Len(t, lines, 3, "plain output is a header plus one line per project, nothing else")
 	assert.Equal(t, "repository_name\trepository_id\tproject_id", lines[0])
 	assert.Equal(t, "safedep/cli\t1296269\tproject-1", lines[1])
 	assert.Equal(t, "-\t10270250\tproject-2", lines[2])
-	assert.Equal(t, "link_id\tlink-1", lines[3])
+	for i, line := range lines {
+		assert.NotContains(t, line, "link_id", "line %d", i)
+	}
 }
 
 func TestSyncResult_RenderTable(t *testing.T) {

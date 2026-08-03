@@ -3,10 +3,14 @@ package subscription
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
+	"time"
 
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/dry/tui"
 	"github.com/safedep/dry/tui/panel"
+	"github.com/safedep/dry/tui/section"
 	"github.com/spf13/cobra"
 )
 
@@ -96,25 +100,70 @@ func ondemandStatusCmd(a *app.App) *cobra.Command {
 type ondemandResult struct{ state *OnDemandState }
 
 func (r *ondemandResult) RenderJSON() ([]byte, error) {
+	usage := make([]map[string]any, 0, len(r.state.Usage))
+	for _, u := range r.state.Usage {
+		m := map[string]any{
+			"feature_key":        u.FeatureKey,
+			"display_name":       u.DisplayName,
+			"unit_label":         u.UnitLabel,
+			"included_limit":     u.IncludedLimit,
+			"consumed":           u.Consumed,
+			"seats":              u.Seats,
+			"tier":               u.Tier,
+			"provisional":        u.Provisional,
+			"overage_used":       u.OverageUsed,
+			"overage_used_minor": u.OverageUsedMinor,
+			"settlement_pending": u.SettlementPending,
+		}
+		if !u.PeriodEnd.IsZero() {
+			m["period_end"] = u.PeriodEnd.Format(time.RFC3339)
+		}
+		if u.Overage != nil {
+			m["overage"] = map[string]any{
+				"cap_kind":         u.Overage.CapKind,
+				"cap_units":        u.Overage.CapUnits,
+				"unit_price_minor": u.Overage.UnitPriceMinor,
+				"cap_amount_minor": u.Overage.CapAmountMinor,
+				"currency":         u.Overage.Currency,
+			}
+		}
+		usage = append(usage, m)
+	}
 	return json.MarshalIndent(map[string]any{
 		"enabled":                r.state.Enabled,
 		"payment_method_on_file": r.state.PaymentMethodOnFile,
 		"payment_posture":        r.state.Posture,
+		"feature_usage":          usage,
 	}, "", "  ")
 }
 
 func (r *ondemandResult) RenderPlain() string {
-	return "enabled\t" + boolText(r.state.Enabled) +
-		"\npayment_method\t" + boolText(r.state.PaymentMethodOnFile) +
-		"\nposture\t" + r.state.Posture
+	lines := []string{
+		"enabled\t" + boolText(r.state.Enabled),
+		"payment_method\t" + boolText(r.state.PaymentMethodOnFile),
+		"posture\t" + r.state.Posture,
+	}
+	for _, u := range r.state.Usage {
+		lines = append(lines, fmt.Sprintf("usage.%s\t%s", u.FeatureKey, plainUsage(u)))
+		if u.Overage != nil && u.OverageUsed > 0 {
+			lines = append(lines, fmt.Sprintf("overage.%s\t%s", u.FeatureKey, plainOverage(u)))
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (r *ondemandResult) RenderTable() string {
-	return panel.New("On-demand billing").
+	p := panel.New("On-demand billing").
 		Field("Enabled", enabledText(r.state.Enabled)).
 		Field("Payment method", onFileText(r.state.PaymentMethodOnFile)).
 		Field("Payment posture", r.state.Posture).
 		Render()
+
+	blocks := []string{p}
+	for i := range r.state.Usage {
+		blocks = append(blocks, renderFeatureUsage(r.state.Usage[i], r.state.Enabled))
+	}
+	return section.Join(blocks...)
 }
 
 func boolText(b bool) string {

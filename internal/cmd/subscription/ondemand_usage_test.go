@@ -4,17 +4,49 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func unitsOverage() *FeatureOverage {
+	return &FeatureOverage{CapKind: "units", CapUnits: 100}
+}
+
+func TestCapReached(t *testing.T) {
+	assert.False(t, capReached(FeatureUsage{}))
+	assert.True(t, capReached(FeatureUsage{OverageUsedMinor: 5000, Overage: monetaryOverage()}))
+	assert.False(t, capReached(FeatureUsage{OverageUsedMinor: 4999, Overage: monetaryOverage()}))
+	assert.True(t, capReached(FeatureUsage{OverageUsed: 100, Overage: unitsOverage()}))
+	assert.False(t, capReached(FeatureUsage{OverageUsed: 99, Overage: unitsOverage()}))
+}
 
 func TestMoney(t *testing.T) {
 	assert.Equal(t, "$0.00", money(0, "usd"))
 	assert.Equal(t, "$21.50", money(2150, "usd"))
 	assert.Equal(t, "$50.00", money(5000, "usd"))
 	assert.Equal(t, "-$1.05", money(-105, "usd"))
+	assert.Equal(t, "$12.34", money(1234, "USD"), "currency compare is case-insensitive")
 	assert.Equal(t, "EUR 3.00", money(300, "eur"))
+}
+
+func TestPlainUsage(t *testing.T) {
+	assert.Equal(t, "72/100", plainUsage(FeatureUsage{Consumed: 72, IncludedLimit: 100}))
+	assert.Equal(t, "5/unlimited", plainUsage(FeatureUsage{Consumed: 5, IncludedLimit: -1}))
+	assert.Equal(t, "0/unavailable", plainUsage(FeatureUsage{Consumed: 0, IncludedLimit: 0}))
+}
+
+func TestPlainOverage(t *testing.T) {
+	assert.Equal(t, "$21.50", plainOverage(FeatureUsage{OverageUsed: 43, OverageUsedMinor: 2150, Overage: monetaryOverage()}))
+	assert.Equal(t, "43", plainOverage(FeatureUsage{OverageUsed: 43, Overage: unitsOverage()}))
+}
+
+func TestUsageHintNotAvailableNoEnable(t *testing.T) {
+	// A not-available feature (limit 0) with an overage clause must not be told
+	// to enable on-demand just because consumed >= 0.
+	assert.Empty(t, usageHint(FeatureUsage{IncludedLimit: 0, Consumed: 0, Overage: monetaryOverage()}, false))
+	assert.Empty(t, usageHint(FeatureUsage{IncludedLimit: -1, Consumed: 5, Overage: monetaryOverage()}, false))
 }
 
 func TestPercentInt(t *testing.T) {
@@ -79,6 +111,10 @@ func TestUsageHint(t *testing.T) {
 	capped := usageHint(FeatureUsage{IncludedLimit: 100, Consumed: 200, OverageUsed: 100, OverageUsedMinor: 5000, Overage: monetaryOverage()}, true)
 	assert.Contains(t, capped, "contact SafeDep to raise your cap")
 
+	// A units cap at its ceiling reports cap-reached, not the enable hint.
+	unitCapped := usageHint(FeatureUsage{IncludedLimit: 100, Consumed: 200, OverageUsed: 100, Overage: unitsOverage()}, false)
+	assert.Contains(t, unitCapped, "contact SafeDep to raise your cap")
+
 	upsell := usageHint(FeatureUsage{IncludedLimit: 100, Consumed: 100, Overage: monetaryOverage()}, false)
 	assert.Contains(t, upsell, "ondemand enable")
 }
@@ -104,6 +140,20 @@ func TestRenderJSONIncludesUsage(t *testing.T) {
 	assert.Equal(t, "malysis.package_scan_submit", entry["feature_key"])
 	assert.EqualValues(t, 72, entry["consumed"])
 	assert.NotNil(t, entry["overage"])
+}
+
+func TestRenderJSONIncludesPeriodEnd(t *testing.T) {
+	end := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	r := &ondemandResult{state: &OnDemandState{
+		Usage: []FeatureUsage{{FeatureKey: "malysis.package_scan_submit", Consumed: 10, IncludedLimit: 100, PeriodEnd: end}},
+	}}
+	b, err := r.RenderJSON()
+	require.NoError(t, err)
+
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(b, &m))
+	entry := m["feature_usage"].([]any)[0].(map[string]any)
+	assert.Equal(t, end.Format(time.RFC3339), entry["period_end"])
 }
 
 func TestRenderPlainIncludesUsage(t *testing.T) {

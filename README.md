@@ -121,7 +121,9 @@ Push SafeDep malware findings to external security tools. JFrog XRay is supporte
 | [`safedep query schema list`](./docs/cmd/query-schema-list.md) | List tables in the query schema |
 | [`safedep query schema show`](./docs/cmd/query-schema-show.md) | Show one table from the query schema |
 | [`safedep query schema get`](./docs/cmd/query-schema-get.md) | Get the full schema in one call (for AI agents and scripts) |
+| [`safedep project sync`](./docs/cmd/project-sync.md) | Sync GitHub repositories into SafeDep projects |
 | [`safedep project scan create`](./docs/cmd/project-scan-create.md) | Submit project scans by name to SafeDep Cloud-hosted scanners |
+| [`safedep project scan list`](./docs/cmd/project-scan-list.md) | List project scans with filters |
 | [`safedep package scan run`](./docs/cmd/package-scan-run.md) | Submit a package for on-demand scanning |
 | [`safedep package scan get`](./docs/cmd/package-scan-get.md) | Get the status and verdict of a scan |
 | [`safedep package scan list`](./docs/cmd/package-scan-list.md) | List package scans |

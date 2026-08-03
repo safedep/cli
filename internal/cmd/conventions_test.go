@@ -144,7 +144,11 @@ func TestProjectScanCommandTree(t *testing.T) {
 	assert.Contains(t, create.Long, "asynchronously")
 	assert.Contains(t, create.Long, "cloud admission")
 
-	for _, command := range []*cobra.Command{project, scan, create} {
+	list := requireSubcommand(t, scan, "list")
+	assert.Equal(t, "List project scans performed by SafeDep Cloud-hosted scanners", list.Short)
+	assert.Contains(t, list.Long, "--page-token")
+
+	for _, command := range []*cobra.Command{project, scan, create, list} {
 		var output bytes.Buffer
 		command.SetOut(&output)
 		require.NoError(t, command.Help())
@@ -152,6 +156,22 @@ func TestProjectScanCommandTree(t *testing.T) {
 	}
 
 	assert.Nil(t, findSubcommand(root, "scan"), "top-level scan command must not exist")
+}
+
+func TestProjectSyncCommandTree(t *testing.T) {
+	root := newTree(t)
+
+	project := requireSubcommand(t, root, "project")
+	sync := requireSubcommand(t, project, "sync")
+
+	assert.Equal(t, "Sync GitHub repositories into SafeDep projects", sync.Short)
+	assert.Contains(t, sync.Long, "GitHub App installation")
+	assert.Contains(t, sync.Long, "idempotent")
+
+	// Syncing is a project-level verb, not a scan-level one: it materializes
+	// projects and never submits a scan.
+	assert.Nil(t, findSubcommand(requireSubcommand(t, project, "scan"), "sync"))
+	assert.Nil(t, findSubcommand(root, "sync"), "top-level sync command must not exist")
 }
 
 func requireSubcommand(t *testing.T, parent *cobra.Command, name string) *cobra.Command {

@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
-	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/safedep/dry/usefulerror"
 	"google.golang.org/grpc"
@@ -124,41 +123,25 @@ func resolveProjectNameChunk(
 		requested[name] = struct{}{}
 	}
 
-	pageToken := ""
-	seenTokens := map[string]struct{}{}
-	for {
-		req := newListProjectsRequest(names, pageToken)
-		res, err := client.ListProjects(ctx, req)
+	const label = "project scan create: resolve projects"
+	return paginate(ctx, label, func(ctx context.Context, pageToken string) (string, error) {
+		res, err := client.ListProjects(ctx, newListProjectsRequest(names, pageToken))
 		if err != nil {
-			return fmt.Errorf("project scan create: resolve projects: %w", err)
+			return "", fmt.Errorf("%s: %w", label, err)
 		}
 		if err := collectProjectMatches(res, requested, matches); err != nil {
-			return err
+			return "", err
 		}
-
-		next := res.GetPagination().GetNextPageToken()
-		if next == "" {
-			return nil
-		}
-		if _, repeated := seenTokens[next]; repeated {
-			return fmt.Errorf("project scan create: resolve projects: invalid response: repeated page token")
-		}
-		seenTokens[next] = struct{}{}
-		pageToken = next
-	}
+		return res.GetPagination().GetNextPageToken(), nil
+	})
 }
 
 func newListProjectsRequest(names []string, pageToken string) *controltowerv1.ListProjectsRequest {
 	filter := &controltowerv1.ListProjectsRequest_Filter{}
 	filter.SetProjectNames(names)
-	pagination := &messagescontroltowerv1.PaginationRequest{}
-	pagination.SetPageSize(projectLookupPageSize)
-	if pageToken != "" {
-		pagination.SetPageToken(pageToken)
-	}
 	req := &controltowerv1.ListProjectsRequest{}
 	req.SetFilterV2(filter)
-	req.SetPagination(pagination)
+	req.SetPagination(newPaginationRequest(projectLookupPageSize, pageToken))
 	return req
 }
 

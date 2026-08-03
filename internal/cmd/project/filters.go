@@ -25,7 +25,7 @@ func scanTriggerTokens() []string {
 	return tui.EnumTokens(messagescontroltowerv1.ScanTrigger_name, scanTriggerPrefix)
 }
 
-func validateListInput(in listInput) error {
+func validateListInput(in *listInput) error {
 	if err := validateScanFilterValues(in.Projects, "project name"); err != nil {
 		return err
 	}

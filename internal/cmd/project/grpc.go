@@ -39,7 +39,7 @@ func newListScansClient(conn grpc.ClientConnInterface) listScansClient {
 func listProjectScans(
 	ctx context.Context,
 	client listScansClient,
-	in listInput,
+	in *listInput,
 ) (*listResult, error) {
 	if err := validateListInput(in); err != nil {
 		return nil, err
@@ -56,7 +56,7 @@ func listProjectScans(
 	return translateListResponse(res)
 }
 
-func newListRequest(in listInput) (*controltowerv1.ListScansRequest, error) {
+func newListRequest(in *listInput) (*controltowerv1.ListScansRequest, error) {
 	status, err := parseScanStatus(in.Status)
 	if err != nil {
 		return nil, err

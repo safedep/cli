@@ -104,7 +104,7 @@ func TestValidateListInput(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			err := validateListInput(tt.in)
+			err := validateListInput(&tt.in)
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 				return
@@ -119,7 +119,7 @@ func TestListProjectScans_OmitsFilterWhenNoSelectorIsSet(t *testing.T) {
 	t.Parallel()
 
 	client := &fakeListScansClient{res: &controltowerv1.ListScansResponse{}}
-	_, err := listProjectScans(context.Background(), client, listInput{})
+	_, err := listProjectScans(context.Background(), client, &listInput{})
 	require.NoError(t, err)
 
 	require.Equal(t, 1, client.calls)
@@ -132,7 +132,7 @@ func TestListProjectScans_TranslatesFiltersAndPagination(t *testing.T) {
 	t.Parallel()
 
 	client := &fakeListScansClient{res: &controltowerv1.ListScansResponse{}}
-	_, err := listProjectScans(context.Background(), client, listInput{
+	_, err := listProjectScans(context.Background(), client, &listInput{
 		Projects:        []string{"project-1"},
 		ProjectVersions: []string{"main"},
 		Status:          "running",
@@ -156,7 +156,7 @@ func TestListProjectScans_RejectsInvalidInputBeforeRPC(t *testing.T) {
 	t.Parallel()
 
 	client := &fakeListScansClient{}
-	_, err := listProjectScans(context.Background(), client, listInput{Status: "nope"})
+	_, err := listProjectScans(context.Background(), client, &listInput{Status: "nope"})
 	require.Error(t, err)
 	assert.Zero(t, client.calls)
 }
@@ -172,7 +172,7 @@ func TestListProjectScans_TranslatesScanSessions(t *testing.T) {
 	info.SetPolicyViolations(0)
 
 	client := &fakeListScansClient{res: listResponse("next", info)}
-	result, err := listProjectScans(context.Background(), client, listInput{})
+	result, err := listProjectScans(context.Background(), client, &listInput{})
 	require.NoError(t, err)
 
 	require.Len(t, result.scans, 1)
@@ -200,7 +200,7 @@ func TestListProjectScans_ToleratesMissingProjectAttributes(t *testing.T) {
 		messagescontroltowerv1.ScanTrigger_SCAN_TRIGGER_UNSPECIFIED, time.Time{})
 
 	client := &fakeListScansClient{res: listResponse("", info)}
-	result, err := listProjectScans(context.Background(), client, listInput{})
+	result, err := listProjectScans(context.Background(), client, &listInput{})
 	require.NoError(t, err)
 
 	require.Len(t, result.scans, 1)
@@ -239,7 +239,7 @@ func TestListProjectScans_RejectsMalformedResponses(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			client := &fakeListScansClient{res: tt.res}
-			_, err := listProjectScans(context.Background(), client, listInput{})
+			_, err := listProjectScans(context.Background(), client, &listInput{})
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "project scan list: invalid response")
 			assert.Contains(t, err.Error(), tt.wantErr)
@@ -251,7 +251,7 @@ func TestListProjectScans_PreservesGRPCStatus(t *testing.T) {
 	t.Parallel()
 
 	client := &fakeListScansClient{err: status.Error(codes.PermissionDenied, "denied")}
-	_, err := listProjectScans(context.Background(), client, listInput{})
+	_, err := listProjectScans(context.Background(), client, &listInput{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "project scan list")
 	assert.Equal(t, codes.PermissionDenied, status.Code(err))

@@ -81,7 +81,7 @@ func listCmd(a *app.App) *cobra.Command {
 				return err
 			}
 
-			result, err := listProjectScans(cmd.Context(), newListScansClient(client.Connection()), in)
+			result, err := listProjectScans(cmd.Context(), newListScansClient(client.Connection()), &in)
 			if err != nil {
 				return err
 			}
@@ -132,7 +132,8 @@ func (r *listResult) RenderPlain() string {
 		"scan_session_id\tproject_name\tproject_version\tstatus\ttrigger\t" +
 			"vulnerabilities\tpolicy_violations\tsuspicious_packages\tcreated_at\tscan_url",
 	)
-	for _, scan := range r.scans {
+	for i := range r.scans {
+		scan := &r.scans[i]
 		cells := append(listedScanCells(scan, nil), scanURL(scan.ScanSessionID))
 		output.WriteByte('\n')
 		output.WriteString(strings.Join(cells, "\t"))
@@ -146,8 +147,8 @@ func (r *listResult) RenderPlain() string {
 func (r *listResult) RenderTable() string {
 	now := time.Now()
 	rows := make([][]string, 0, len(r.scans))
-	for _, scan := range r.scans {
-		rows = append(rows, listedScanCells(scan, &now))
+	for i := range r.scans {
+		rows = append(rows, listedScanCells(&r.scans[i], &now))
 	}
 
 	t := table.New().
@@ -169,7 +170,7 @@ func (r *listResult) RenderTable() string {
 // listedScanCells renders one scan as display cells. A non-nil now switches the
 // creation time to a humanized form for table output. The scan URL is appended
 // by plain output only: it does not fit the table width.
-func listedScanCells(scan listedScan, now *time.Time) []string {
+func listedScanCells(scan *listedScan, now *time.Time) []string {
 	created := ""
 	switch {
 	case scan.CreatedAt == nil:

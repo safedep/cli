@@ -81,6 +81,10 @@ func syncCmd(a *app.App) *cobra.Command {
 		"GitHub App installation link to sync through; resolved automatically when the tenant has exactly one link")
 	f.Int64SliceVar(&in.RepositoryIDs, "repository-id", nil,
 		"GitHub repository ID to sync instead of a name; repeat for multiple repositories")
+	// pflag renders an empty slice default as "(default [])", which reads as a
+	// value the flag accepts. An empty DefValue suppresses the default in help
+	// without changing the flag's zero value.
+	f.Lookup("repository-id").DefValue = ""
 	return cmd
 }
 

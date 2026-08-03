@@ -20,6 +20,22 @@ const (
 	unsetCount = "-"
 )
 
+// listPlainHeaders is the plain output header, and the field order every plain
+// row follows.
+var listPlainHeaders = []string{
+	"scan_session_id",
+	"project_id",
+	"project_name",
+	"project_version",
+	"status",
+	"trigger",
+	"vulnerabilities",
+	"policy_violations",
+	"suspicious_packages",
+	"created_at",
+	"scan_url",
+}
+
 type listInput struct {
 	Projects        []string
 	ProjectVersions []string
@@ -74,7 +90,15 @@ func listCmd(a *app.App) *cobra.Command {
 		Long: "List scan sessions run for the active tenant by SafeDep Cloud-hosted scanners. Filter " +
 			"by exact project name, project version, scan status, or scan trigger. One page is " +
 			"returned per invocation, so follow --page-token to read the next page.",
-		Args: cobra.NoArgs,
+		// Validation belongs here rather than in RunE: cobra runs it before RunE
+		// reaches the credential store, so a flag typo never costs a keychain read
+		// or a token refresh. This matches create and sync.
+		Args: func(cmd *cobra.Command, args []string) error {
+			if err := cobra.NoArgs(cmd, args); err != nil {
+				return err
+			}
+			return validateListInput(&in)
+		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, err := a.ControlPlane()
 			if err != nil {
@@ -128,15 +152,10 @@ func (r *listResult) RenderJSON() ([]byte, error) {
 
 func (r *listResult) RenderPlain() string {
 	var output strings.Builder
-	output.WriteString(
-		"scan_session_id\tproject_name\tproject_version\tstatus\ttrigger\t" +
-			"vulnerabilities\tpolicy_violations\tsuspicious_packages\tcreated_at\tscan_url",
-	)
+	output.WriteString(strings.Join(listPlainHeaders, "\t"))
 	for i := range r.scans {
-		scan := &r.scans[i]
-		cells := append(listedScanCells(scan, nil), scanURL(scan.ScanSessionID))
 		output.WriteByte('\n')
-		output.WriteString(strings.Join(cells, "\t"))
+		output.WriteString(strings.Join(listedScanPlainCells(&r.scans[i]), "\t"))
 	}
 	return output.String()
 }
@@ -164,18 +183,10 @@ func (r *listResult) RenderTable() string {
 	return t.Render()
 }
 
-// listedScanCells renders one scan as display cells. A non-nil now switches the
-// creation time to a humanized form for table output. The scan URL is appended
-// by plain output only: it does not fit the table width.
+// listedScanCells renders one scan as table cells. The table drops project_id
+// and the scan URL that plain output carries: eleven columns, two of them long
+// opaque identifiers, do not fit a terminal.
 func listedScanCells(scan *listedScan, now *time.Time) []string {
-	created := ""
-	switch {
-	case scan.CreatedAt == nil:
-	case now != nil:
-		created = humanize.Time(*scan.CreatedAt, *now)
-	default:
-		created = scan.CreatedAt.UTC().Format(time.RFC3339)
-	}
 	return []string{
 		scan.ScanSessionID,
 		scan.ProjectName,
@@ -185,7 +196,38 @@ func listedScanCells(scan *listedScan, now *time.Time) []string {
 		countCell(scan.Vulnerabilities),
 		countCell(scan.PolicyViolations),
 		countCell(scan.SuspiciousPackages),
-		created,
+		createdAtCell(scan.CreatedAt, now),
+	}
+}
+
+// listedScanPlainCells renders one scan for shell pipelines. It carries every
+// field, in the order of listPlainHeaders, so a consumer can cut any column.
+func listedScanPlainCells(scan *listedScan) []string {
+	return []string{
+		scan.ScanSessionID,
+		scan.ProjectID,
+		scan.ProjectName,
+		scan.ProjectVersion,
+		scan.Status,
+		scan.Trigger,
+		countCell(scan.Vulnerabilities),
+		countCell(scan.PolicyViolations),
+		countCell(scan.SuspiciousPackages),
+		createdAtCell(scan.CreatedAt, nil),
+		scanURL(scan.ScanSessionID),
+	}
+}
+
+// createdAtCell formats a creation time. A non-nil now switches it to a
+// humanized form for table output.
+func createdAtCell(createdAt *time.Time, now *time.Time) string {
+	switch {
+	case createdAt == nil:
+		return ""
+	case now != nil:
+		return humanize.Time(*createdAt, *now)
+	default:
+		return createdAt.UTC().Format(time.RFC3339)
 	}
 }
 

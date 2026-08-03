@@ -29,7 +29,7 @@ Repeated `--project` and `--project-version` values must be unique and
 non-empty. Repeated values within one filter match any of them. Different
 filters combine, so a scan must satisfy every filter that was supplied. Project
 and version names are matched exactly and case-sensitively, as the API compares
-them literally.
+them literally, and each value is limited to 255 characters.
 
 Inherits root flags `--output` and `--profile`.
 
@@ -66,21 +66,33 @@ safedep project scan list --status success --output json \
   | jq -r '.scans[].scan_session_id'
 ```
 
+Re-scan every project that failed its last scan, using plain output:
+
+```bash
+safedep project scan list --status error --output plain \
+  | tail -n +2 | cut -f2 \
+  | xargs -I{} safedep project scan create --project-id {}
+```
+
 ## Output
 
-| Field | Description |
-|-------|-------------|
-| `scan_session_id` | The scan session's ID. |
-| `scan_url` | URL for the scan in the SafeDep web application. Omitted from table output for width. |
-| `project_id` | ID of the scanned project. Omitted from JSON when the server does not supply it. |
-| `project_name` | Name of the scanned project. |
-| `project_version` | Version (branch, tag, or commit) that was scanned. |
-| `status` | Lowercase scan status, such as `queued` or `success`. |
-| `trigger` | Lowercase scan trigger, such as `push` or `manual`. |
-| `created_at` | Scan creation time in UTC RFC 3339 format. Table output humanizes it. |
-| `vulnerabilities` | Count of vulnerabilities found by the scan. |
-| `policy_violations` | Count of policy violations found by the scan. |
-| `suspicious_packages` | Count of suspicious packages found by the scan. |
+| Field | Modes | Description |
+|-------|-------|-------------|
+| `scan_session_id` | all | The scan session's ID. |
+| `project_id` | plain, json | ID of the scanned project. Feed it to `project scan create --project-id`. Omitted from JSON when the server does not supply it. |
+| `project_name` | all | Name of the scanned project. |
+| `project_version` | all | Version (branch, tag, or commit) that was scanned. |
+| `status` | all | Lowercase scan status, such as `queued` or `success`. |
+| `trigger` | all | Lowercase scan trigger, such as `push` or `manual`. |
+| `vulnerabilities` | all | Count of vulnerabilities found by the scan. |
+| `policy_violations` | all | Count of policy violations found by the scan. |
+| `suspicious_packages` | all | Count of suspicious packages found by the scan. |
+| `created_at` | all | Scan creation time in UTC RFC 3339 format. Table output humanizes it. |
+| `scan_url` | plain, json | URL for the scan in the SafeDep web application. |
+
+`project_id` and `scan_url` are absent from table output: eleven columns, two of
+them long opaque identifiers, do not fit a terminal. Both are machine-facing, so
+they live in plain and JSON where consumers actually read them.
 
 The three counts are computed by the server and can be absent, which is not the
 same as zero. An absent count renders as `-` in table and plain output and is

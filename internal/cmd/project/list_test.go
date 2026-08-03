@@ -3,6 +3,7 @@ package project
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -68,6 +69,36 @@ func TestListCmd_FlagHelpListsEveryEnumToken(t *testing.T) {
 	assert.Equal(t, "filter: scan trigger (push, pull-request, tag, manual, scheduled)", trigger.Usage)
 }
 
+// A nil App panics the moment RunE reaches a.ControlPlane, so an error rather
+// than a panic proves local validation runs before any credential or network
+// work.
+func TestListCmd_ValidatesFlagsBeforeTouchingAuth(t *testing.T) {
+	t.Parallel()
+
+	cmd := listCmd(nil)
+	cmd.SetArgs([]string{"--status", "bogus"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `unknown --status value "bogus"`)
+}
+
+func TestListCmd_ArgsRejectsBothPositionalsAndBadFlags(t *testing.T) {
+	t.Parallel()
+
+	cmd := listCmd(nil)
+	require.Error(t, cmd.Args(cmd, []string{"unexpected"}), "list takes no positional arguments")
+
+	require.NoError(t, cmd.ParseFlags([]string{"--trigger", "cron"}))
+	err := cmd.Args(cmd, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `unknown --trigger value "cron"`)
+}
+
 func TestValidateListInput(t *testing.T) {
 	t.Parallel()
 
@@ -96,6 +127,20 @@ func TestValidateListInput(t *testing.T) {
 			wantErr: "duplicate project name",
 		},
 		{name: "empty project", in: listInput{Projects: []string{""}}, wantErr: "must not be empty"},
+		{
+			name: "project at the length limit",
+			in:   listInput{Projects: []string{strings.Repeat("a", maxScanFilterValueLength)}},
+		},
+		{
+			name:    "project over the length limit",
+			in:      listInput{Projects: []string{strings.Repeat("a", maxScanFilterValueLength+1)}},
+			wantErr: "over the 255 character limit",
+		},
+		{
+			name:    "version over the length limit",
+			in:      listInput{ProjectVersions: []string{strings.Repeat("a", maxScanFilterValueLength+1)}},
+			wantErr: "over the 255 character limit",
+		},
 		{name: "unknown status", in: listInput{Status: "pending"}, wantErr: `unknown --status value "pending"`},
 		{name: "unknown trigger", in: listInput{Trigger: "cron"}, wantErr: `unknown --trigger value "cron"`},
 		{name: "unspecified status", in: listInput{Status: "unknown"}, wantErr: `unknown --status value "unknown"`},
@@ -307,6 +352,7 @@ func TestListResult_RenderPlain(t *testing.T) {
 	result := &listResult{
 		scans: []listedScan{{
 			ScanSessionID:    "session-1",
+			ProjectID:        "project-1",
 			ProjectName:      "safedep/cli",
 			ProjectVersion:   "main",
 			Status:           "success",
@@ -321,16 +367,31 @@ func TestListResult_RenderPlain(t *testing.T) {
 	require.Len(t, lines, 2, "plain output is a header plus one line per scan, nothing else")
 	assert.Equal(
 		t,
-		"scan_session_id\tproject_name\tproject_version\tstatus\ttrigger\t"+
+		"scan_session_id\tproject_id\tproject_name\tproject_version\tstatus\ttrigger\t"+
 			"vulnerabilities\tpolicy_violations\tsuspicious_packages\tcreated_at\tscan_url",
 		lines[0],
 	)
 	assert.Equal(
 		t,
-		"session-1\tsafedep/cli\tmain\tsuccess\tpush\t-\t0\t-\t2026-07-30T10:00:00Z\t"+
+		"session-1\tproject-1\tsafedep/cli\tmain\tsuccess\tpush\t-\t0\t-\t2026-07-30T10:00:00Z\t"+
 			"https://app.safedep.io/scans/session-1",
 		lines[1],
 	)
+}
+
+// project_id is only reachable from plain and JSON output, so a pipeline can
+// feed it to `project scan create --project-id`.
+func TestListResult_RenderPlainCarriesProjectID(t *testing.T) {
+	t.Parallel()
+
+	result := &listResult{scans: []listedScan{{
+		ScanSessionID: "session-1", ProjectID: "project-1", Status: "queued", Trigger: "manual",
+	}}}
+
+	lines := strings.Split(result.RenderPlain(), "\n")
+	require.Len(t, lines, 2)
+	assert.Equal(t, "project_id", strings.Split(lines[0], "\t")[1])
+	assert.Equal(t, "project-1", strings.Split(lines[1], "\t")[1])
 }
 
 // Every plain row must carry the same field count so a shell pipeline can cut
@@ -348,9 +409,8 @@ func TestListResult_RenderPlainRowsAreUniformlyShaped(t *testing.T) {
 
 	lines := strings.Split(result.RenderPlain(), "\n")
 	require.Len(t, lines, 3)
-	want := strings.Count(lines[0], "\t")
 	for i, line := range lines {
-		assert.Equal(t, want, strings.Count(line, "\t"), "line %d field count", i)
+		assert.Len(t, strings.Split(line, "\t"), len(listPlainHeaders), "line %d field count", i)
 		assert.NotContains(t, line, "next_page_token")
 	}
 }

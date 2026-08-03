@@ -10,8 +10,9 @@ import (
 
 const (
 	// The ListScans filter caps repeated project and version selectors at ten
-	// items each.
-	maxScanFilterValues = 10
+	// items each, and each value at 255 characters.
+	maxScanFilterValues      = 10
+	maxScanFilterValueLength = 255
 
 	scanStatusPrefix  = "SCAN_STATUS_"
 	scanTriggerPrefix = "SCAN_TRIGGER_"
@@ -46,6 +47,18 @@ func validateScanFilterValues(values []string, label string) error {
 			cause,
 			fmt.Sprintf("Provide at most %d %s filters.", maxScanFilterValues, label),
 		)
+	}
+	for i, value := range values {
+		if len(value) > maxScanFilterValueLength {
+			cause := fmt.Errorf(
+				"%s at position %d is %d characters, over the %d character limit",
+				label, i+1, len(value), maxScanFilterValueLength,
+			)
+			return invalidProjectSelectionError(cause, fmt.Sprintf(
+				"Shorten the %s at position %d to %d characters or fewer.",
+				label, i+1, maxScanFilterValueLength,
+			))
+		}
 	}
 	return validateUniqueValues(values, label)
 }

@@ -83,7 +83,7 @@ safedep project sync safedep/cli --output json \
 
 | Field | Description |
 |-------|-------------|
-| `link_id` | The installation link the sync ran through, whether supplied or resolved. |
+| `link_id` | The installation link the sync ran through, whether supplied or resolved. Reported once per invocation, in the JSON body and the table footer. |
 | `repository_id` | The immutable GitHub repository ID. |
 | `repository_name` | The `owner/repository` name as GitHub reports it. Empty for repositories selected by ID, which the CLI never resolved. |
 | `project_id` | The stable SafeDep project ID for that repository. |

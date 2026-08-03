@@ -26,8 +26,10 @@ continuation token, pass it back with `--page-token` to read the next page.
 | `--page-token <token>` | Continuation token from a prior response. |
 
 Repeated `--project` and `--project-version` values must be unique and
-non-empty. Filters combine: a scan must match every supplied filter to appear
-in the response.
+non-empty. Repeated values within one filter match any of them. Different
+filters combine, so a scan must satisfy every filter that was supplied. Project
+and version names are matched exactly and case-sensitively, as the API compares
+them literally.
 
 Inherits root flags `--output` and `--profile`.
 

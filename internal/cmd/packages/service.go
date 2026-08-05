@@ -9,6 +9,7 @@ import (
 	paginationv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	malysismsgv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/malysis/v1"
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	threatintelv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/threatintel/v1"
 	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
 	"github.com/safedep/cli/internal/tui"
 	"google.golang.org/grpc"
@@ -109,7 +110,15 @@ type Report struct {
 	IsMalware        bool
 	FileEvidences    []FileEvidence
 	ProjectEvidences []ProjectEvidence
+	Indicators       []Indicator
 	Warnings         []string
+}
+
+// Indicator is a user-actionable indicator of compromise from the report.
+type Indicator struct {
+	Type  string
+	Value string
+	Note  string
 }
 
 type FileEvidence struct {
@@ -238,8 +247,22 @@ func reportFromProto(ps *malysisv1.PackageScan, r *malysismsgv1.Report) *Report 
 		Summary:   r.GetInference().GetSummary(),
 		Details:   r.GetInference().GetDetails(),
 	}
+	// The report inference verdict is the authoritative four-valued verdict for
+	// the report view, including INCONCLUSIVE which the service-level
+	// AnalysisVerdict does not yet carry. Prefer it over the embedded scan
+	// verdict when the report provides one.
+	if v := inferenceVerdictToken(r.GetInference().GetVerdict()); v != "" {
+		out.Verdict = v
+	}
 	if r.GetAnalyzedAt() != nil {
 		out.AnalyzedAt = r.GetAnalyzedAt().AsTime()
+	}
+	for _, ioc := range r.GetIocs() {
+		out.Indicators = append(out.Indicators, Indicator{
+			Type:  indicatorTypeToken(ioc.GetType()),
+			Value: ioc.GetValue(),
+			Note:  ioc.GetNote(),
+		})
 	}
 	for _, fe := range r.GetFileEvidences() {
 		ev := fe.GetEvidence()
@@ -278,6 +301,30 @@ func statusToken(s malysisv1.AnalysisStatus) string {
 
 func verdictToken(v malysisv1.AnalysisVerdict) string {
 	return tui.EnumToken(v.String(), "ANALYSIS_VERDICT_")
+}
+
+// inferenceVerdictToken maps the report inference verdict onto the shared
+// verdict tokens so it renders through the same badge. VERDICT_MALICIOUS is the
+// "malware" token (matching AnalysisVerdict). Unspecified returns empty.
+func inferenceVerdictToken(v malysismsgv1.Report_Inference_Verdict) string {
+	switch v {
+	case malysismsgv1.Report_Inference_VERDICT_MALICIOUS:
+		return verdictMalware
+	case malysismsgv1.Report_Inference_VERDICT_BENIGN:
+		return verdictBenign
+	case malysismsgv1.Report_Inference_VERDICT_INCONCLUSIVE:
+		return verdictInconclusive
+	default:
+		return ""
+	}
+}
+
+func indicatorTypeToken(t threatintelv1.IndicatorType) string {
+	tok := tui.EnumToken(t.String(), "INDICATOR_TYPE_")
+	if tok == "unknown" {
+		return ""
+	}
+	return tok
 }
 
 func ecosystemToken(e packagev1.Ecosystem) string {

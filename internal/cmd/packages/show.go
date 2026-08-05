@@ -124,6 +124,9 @@ func (r *showResult) RenderPlain() string {
 	for _, e := range r.report.ProjectEvidences {
 		fmt.Fprintf(&b, "project\t%s\t%s\t%s\n", e.Project, e.Title, e.Confidence)
 	}
+	for _, ioc := range r.report.Indicators {
+		fmt.Fprintf(&b, "ioc\t%s\t%s\t%s\n", ioc.Type, ioc.Value, ioc.Note)
+	}
 	for _, w := range r.report.Warnings {
 		fmt.Fprintf(&b, "warning\t%s\n", w)
 	}
@@ -147,6 +150,11 @@ func (r *showResult) RenderJSON() ([]byte, error) {
 		Details    string `json:"details,omitempty"`
 		Confidence string `json:"confidence,omitempty"`
 	}
+	type iocJSON struct {
+		Type  string `json:"type,omitempty"`
+		Value string `json:"value"`
+		Note  string `json:"note,omitempty"`
+	}
 	out := struct {
 		Scan             scanJSONObj  `json:"scan"`
 		ReportID         string       `json:"report_id,omitempty"`
@@ -156,6 +164,7 @@ func (r *showResult) RenderJSON() ([]byte, error) {
 		Details          string       `json:"details,omitempty"`
 		FileEvidences    []fileEvJSON `json:"file_evidences,omitempty"`
 		ProjectEvidences []projEvJSON `json:"project_evidences,omitempty"`
+		Indicators       []iocJSON    `json:"indicators,omitempty"`
 		Warnings         []string     `json:"warnings,omitempty"`
 	}{
 		Scan:      scanJSON(r.report.Scan),
@@ -173,6 +182,9 @@ func (r *showResult) RenderJSON() ([]byte, error) {
 	}
 	for _, e := range r.report.ProjectEvidences {
 		out.ProjectEvidences = append(out.ProjectEvidences, projEvJSON(e))
+	}
+	for _, ioc := range r.report.Indicators {
+		out.Indicators = append(out.Indicators, iocJSON(ioc))
 	}
 	return json.MarshalIndent(out, "", "  ")
 }

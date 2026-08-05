@@ -115,6 +115,15 @@ func reportBody(r *Report) string {
 			[]string{"Project", "Signal", "Confidence", "Detail"}, rows))
 	}
 
+	if len(r.Indicators) > 0 {
+		rows := make([][]string, 0, len(r.Indicators))
+		for _, ioc := range r.Indicators {
+			rows = append(rows, []string{dash(ioc.Type), dash(ioc.Value), dash(ioc.Note)})
+		}
+		parts = append(parts, evidenceTable("Indicators of compromise",
+			[]string{"Type", "Value", "Note"}, rows))
+	}
+
 	if len(r.Warnings) > 0 {
 		var b strings.Builder
 		for _, w := range r.Warnings {

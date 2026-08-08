@@ -6,6 +6,10 @@ package cmd
 //
 // Keep alphabetised.
 var AllowedVerbs = map[string]struct{}{
+	// add/remove attach or detach a fixed catalog item (a subscription add-on)
+	// to an existing resource. They read as attach/detach, distinct from
+	// create/delete which mint or destroy a resource the user defines.
+	"add":       {},
 	"create":    {},
 	"delete":    {},
 	"disable":   {},
@@ -19,6 +23,7 @@ var AllowedVerbs = map[string]struct{}{
 	"login":     {},
 	"logout":    {},
 	"open":      {},
+	"remove":    {},
 	"run":       {},
 	"set":       {},
 	"show":      {},

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	ctv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
@@ -16,9 +17,10 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// termsVersion is the on-demand billing terms version the CLI records as
-// accepted. There is no terms content/version API yet, so this is a shipped
-// constant. See the spec's Future section.
+// termsVersion is the billing terms version the CLI records as accepted, for
+// both on-demand billing and add-on purchases. Both accept the same terms
+// document (termsURL) and there is no terms content/version API yet, so this is
+// a single shipped constant. See the spec's Future section.
 const termsVersion = "2026-07-23"
 
 // One narrow interface per operation so commands and tests depend only on
@@ -63,6 +65,18 @@ type OnDemandDisabler interface {
 	DisableOnDemand(ctx context.Context) (*OnDemandState, error)
 }
 
+type AddOnAttacher interface {
+	// AttachAddOn purchases the add-on on the tenant's subscription and returns
+	// the account's active add-on tokens after the change.
+	AttachAddOn(ctx context.Context, addOn string, terms string) ([]string, error)
+}
+
+type AddOnDetacher interface {
+	// DetachAddOn removes the add-on and returns the remaining active add-on
+	// tokens.
+	DetachAddOn(ctx context.Context, addOn string) ([]string, error)
+}
+
 type Service struct {
 	sub     ctv1grpc.SubscriptionServiceClient
 	billing ctv1grpc.BillingServiceClient
@@ -85,6 +99,8 @@ var (
 	_ OnDemandStateGetter = (*Service)(nil)
 	_ OnDemandEnabler     = (*Service)(nil)
 	_ OnDemandDisabler    = (*Service)(nil)
+	_ AddOnAttacher       = (*Service)(nil)
+	_ AddOnDetacher       = (*Service)(nil)
 )
 
 // CLI-side types. Proto stays out of command code.
@@ -97,6 +113,8 @@ type TrialInfo struct {
 type AccountStatus struct {
 	Status       string
 	Tier         string
+	Interval     string     // tier billing cadence: "monthly" | "yearly" | ""
+	ActiveAddOns []string   // purchased add-on tokens; entitlements cover manual grants separately
 	Trial        *TrialInfo // set only when in an active trial
 	Entitlements []string
 	OnDemand     *OnDemandState // best-effort; nil if unavailable
@@ -137,6 +155,7 @@ type FeatureOverage struct {
 
 type CheckoutInput struct {
 	Seats      uint32
+	AddOns     []string // add-on tokens to buy alongside the seats
 	SuccessURL string
 	CancelURL  string
 }
@@ -195,6 +214,10 @@ func (s *Service) Status(ctx context.Context) (*AccountStatus, error) {
 	out := &AccountStatus{Status: statusToken(res.GetStatus())}
 	if info := res.GetSubscriptionAccountInfo(); info != nil {
 		out.Tier = tierToken(info.GetBillingTier())
+		out.Interval = intervalToken(info.GetBillingInterval())
+		for _, a := range info.GetActiveAddOns() {
+			out.ActiveAddOns = append(out.ActiveAddOns, addOnToken(a))
+		}
 	}
 	if t := res.GetTrialStatus(); t != nil {
 		out.Trial = &TrialInfo{DaysRemaining: t.GetDaysRemaining()}
@@ -268,9 +291,16 @@ func (s *Service) Checkout(ctx context.Context, in CheckoutInput) (*CheckoutResu
 	if in.Seats > 0 {
 		req.SetQuantity(in.Seats)
 	}
+	if len(in.AddOns) > 0 {
+		addOns, err := parseAddOns(in.AddOns)
+		if err != nil {
+			return nil, err
+		}
+		req.SetAddOns(addOns)
+	}
 	res, err := s.billing.CreateBillingSubscriptionCheckoutSession(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("subscription: checkout: %w", err)
+		return nil, mapCheckoutError(err)
 	}
 	info := res.GetStatusInfo()
 	out := &CheckoutResult{URL: res.GetCheckoutSessionUrl()}
@@ -325,6 +355,62 @@ func (s *Service) DisableOnDemand(ctx context.Context) (*OnDemandState, error) {
 		return nil, fmt.Errorf("subscription: disable on-demand: %w", err)
 	}
 	return onDemandFromProto(res.GetState()), nil
+}
+
+func (s *Service) AttachAddOn(ctx context.Context, addOn string, terms string) ([]string, error) {
+	code, err := parseAddOn(addOn)
+	if err != nil {
+		return nil, err
+	}
+	req := &ctv1.AddBillingSubscriptionAddOnRequest{}
+	req.SetAddOn(code)
+	req.SetTermsVersion(terms)
+	res, err := s.billing.AddBillingSubscriptionAddOn(ctx, req)
+	if err != nil {
+		return nil, mapAddOnAttachError(err)
+	}
+	return addOnTokens(res.GetActiveAddOns()), nil
+}
+
+func (s *Service) DetachAddOn(ctx context.Context, addOn string) ([]string, error) {
+	code, err := parseAddOn(addOn)
+	if err != nil {
+		return nil, err
+	}
+	req := &ctv1.RemoveBillingSubscriptionAddOnRequest{}
+	req.SetAddOn(code)
+	res, err := s.billing.RemoveBillingSubscriptionAddOn(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("subscription: remove add-on: %w", err)
+	}
+	return addOnTokens(res.GetActiveAddOns()), nil
+}
+
+// mapAddOnAttachError routes the typed ErrorReason from an add-on purchase to
+// an actionable message naming the next command, matching the on-demand enable
+// path.
+func mapAddOnAttachError(err error) error {
+	switch errorReason(err) {
+	case errorv1.ErrorReason_ERROR_REASON_ENTITLEMENT_NOT_AVAILABLE:
+		return errors.New("add-ons need an active paid plan: subscribe first with `safedep subscription create`")
+	case errorv1.ErrorReason_ERROR_REASON_SUBSCRIPTION_PAST_DUE:
+		return errors.New("subscription is past due: settle payment via `safedep subscription portal open`, then retry")
+	case errorv1.ErrorReason_ERROR_REASON_PAYMENT_METHOD_REQUIRED:
+		return errors.New("no payment method on file: add one via `safedep subscription portal open`, then retry")
+	default:
+		return fmt.Errorf("subscription: add add-on: %w", err)
+	}
+}
+
+// mapCheckoutError turns the checkout RPC's canonical failures into actionable
+// messages. AlreadyExists means the tenant already holds an active
+// subscription, so point at status and portal instead of the generic conflict
+// text a bare code would render.
+func mapCheckoutError(err error) error {
+	if st, ok := status.FromError(err); ok && st.Code() == codes.AlreadyExists {
+		return errors.New("this account already has an active subscription: check `safedep subscription status` or manage billing with `safedep subscription portal open`")
+	}
+	return fmt.Errorf("subscription: checkout: %w", err)
 }
 
 // mapOnDemandEnableError routes the typed ErrorReason to an actionable
@@ -436,4 +522,57 @@ func featureToken(f msgv1.Feature) string {
 
 func postureToken(p msgv1.PaymentPosture) string {
 	return tui.EnumToken(p.String(), "PAYMENT_POSTURE_")
+}
+
+// intervalToken maps the billing interval to its display token, or "" when
+// unspecified (EnumToken renders the zero value as "unknown", but an absent
+// interval must be empty so callers can omit it).
+func intervalToken(i msgv1.BillingInterval) string {
+	if i == msgv1.BillingInterval_BILLING_INTERVAL_UNSPECIFIED {
+		return ""
+	}
+	return tui.EnumToken(i.String(), "BILLING_INTERVAL_")
+}
+
+const addOnEnumPrefix = "BILLING_ADD_ON_"
+
+func addOnToken(a msgv1.BillingAddOn) string {
+	return tui.EnumToken(a.String(), addOnEnumPrefix)
+}
+
+func addOnTokens(in []msgv1.BillingAddOn) []string {
+	out := make([]string, 0, len(in))
+	for _, a := range in {
+		out = append(out, addOnToken(a))
+	}
+	return out
+}
+
+// AddOnTokens lists the selectable add-on tokens (every enum value except the
+// unspecified zero), for command help and error messages.
+func AddOnTokens() []string {
+	return tui.EnumTokens(msgv1.BillingAddOn_name, addOnEnumPrefix)
+}
+
+// parseAddOn resolves a display token back to its BillingAddOn enum, listing
+// the valid tokens on a miss.
+func parseAddOn(token string) (msgv1.BillingAddOn, error) {
+	n, ok := tui.ParseEnumToken(msgv1.BillingAddOn_name, addOnEnumPrefix, token)
+	if !ok {
+		return msgv1.BillingAddOn_BILLING_ADD_ON_UNSPECIFIED,
+			fmt.Errorf("unknown add-on %q: valid add-ons are %s", token, strings.Join(AddOnTokens(), ", "))
+	}
+	return msgv1.BillingAddOn(n), nil
+}
+
+func parseAddOns(tokens []string) ([]msgv1.BillingAddOn, error) {
+	out := make([]msgv1.BillingAddOn, 0, len(tokens))
+	for _, t := range tokens {
+		code, err := parseAddOn(t)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, code)
+	}
+	return out, nil
 }

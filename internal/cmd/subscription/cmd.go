@@ -21,6 +21,7 @@ func Register(root *cobra.Command, a *app.App) {
 	parent.AddCommand(statusCmd(a))
 	parent.AddCommand(trialCmd(a))
 	parent.AddCommand(createCmd(a))
+	parent.AddCommand(addonCmd(a))
 	parent.AddCommand(ondemandCmd(a))
 	parent.AddCommand(customerCmd(a))
 	parent.AddCommand(portalCmd(a))

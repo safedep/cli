@@ -3,7 +3,7 @@
 ## Synopsis
 
 ```
-safedep subscription create [--seats N] [customer flags] [--wait] [--timeout DUR]
+safedep subscription create [--seats N] [--with-addon ADDON] [customer flags] [--wait] [--timeout DUR]
 ```
 
 ## Description
@@ -14,11 +14,17 @@ otherwise). The command opens the provider-hosted checkout page in your browser 
 by default, waits until the subscription becomes active. Enterprise plans are custom
 - contact sales.
 
+Pass `--with-addon` to buy an add-on alongside the seats in the same checkout. The
+add-on shows as its own line on the checkout page and is billed on the plan's
+cadence. The flag is repeatable, one add-on per occurrence. Available add-ons:
+`threat-intel-feed`.
+
 ## Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--seats` | `5` | Number of seats (minimum 1). |
+| `--with-addon` | - | Add-on to buy alongside the seats. Repeatable. |
 | `--wait` | `true` | Wait for the subscription to become active after checkout. |
 | `--timeout` | `10m` | Maximum time to wait. |
 | customer flags | - | Billing profile fields, used when no customer exists. |
@@ -28,6 +34,7 @@ by default, waits until the subscription becomes active. Enterprise plans are cu
 ```
 safedep subscription create
 safedep subscription create --seats 10
+safedep subscription create --seats 10 --with-addon threat-intel-feed
 safedep subscription create --seats 10 --wait=false
 ```
 

@@ -24,6 +24,15 @@ type fakeSvc struct {
 	createCustFn func(context.Context, CustomerInput) (*Customer, []ProviderError, error)
 	activateFn   func(context.Context) error
 	checkoutFn   func(context.Context, CheckoutInput) (*CheckoutResult, error)
+	attachFn     func(context.Context, string, string) ([]string, error)
+	detachFn     func(context.Context, string) ([]string, error)
+}
+
+func (f *fakeSvc) AttachAddOn(ctx context.Context, addOn, terms string) ([]string, error) {
+	return f.attachFn(ctx, addOn, terms)
+}
+func (f *fakeSvc) DetachAddOn(ctx context.Context, addOn string) ([]string, error) {
+	return f.detachFn(ctx, addOn)
 }
 
 func (f *fakeSvc) Status(ctx context.Context) (*AccountStatus, error) { return f.statusFn(ctx) }
@@ -52,6 +61,7 @@ func TestRegister_buildsSubscriptionTree(t *testing.T) {
 		{"subscription"}, {"subscription", "status"},
 		{"subscription", "trial", "enable"}, {"subscription", "create"},
 		{"subscription", "ondemand", "enable"}, {"subscription", "ondemand", "disable"}, {"subscription", "ondemand", "status"},
+		{"subscription", "addon", "list"}, {"subscription", "addon", "add"}, {"subscription", "addon", "remove"},
 		{"subscription", "customer", "create"}, {"subscription", "customer", "show"},
 		{"subscription", "portal"},
 	} {
@@ -64,8 +74,11 @@ func TestRegister_buildsSubscriptionTree(t *testing.T) {
 
 	create, _, _ := root.Find([]string{"subscription", "create"})
 	assert.NotNil(t, create.Flags().Lookup("seats"))
+	assert.NotNil(t, create.Flags().Lookup("with-addon"))
 	enable, _, _ := root.Find([]string{"subscription", "ondemand", "enable"})
 	assert.NotNil(t, enable.Flags().Lookup("accept-terms"))
+	addonAdd, _, _ := root.Find([]string{"subscription", "addon", "add"})
+	assert.NotNil(t, addonAdd.Flags().Lookup("accept-terms"))
 }
 
 func TestEnumTokens(t *testing.T) {
@@ -176,7 +189,7 @@ func TestRunCreate_AlreadyActive(t *testing.T) {
 		},
 		statusFn: func(context.Context) (*AccountStatus, error) { return &AccountStatus{Status: statusActive}, nil },
 	}
-	res, err := runCreate(context.Background(), svc, customerForm{}, 5, true, time.Minute)
+	res, err := runCreate(context.Background(), svc, customerForm{}, 5, nil, true, time.Minute)
 	require.NoError(t, err)
 	assert.True(t, res.alreadyActive)
 	assert.Equal(t, statusActive, res.acct.Status)
@@ -190,7 +203,7 @@ func TestRunCreate_CheckoutError(t *testing.T) {
 			return &CheckoutResult{Outcome: checkoutError, ErrorCode: "card_declined", ErrorMessage: "declined"}, nil
 		},
 	}
-	_, err := runCreate(context.Background(), svc, customerForm{}, 5, true, time.Minute)
+	_, err := runCreate(context.Background(), svc, customerForm{}, 5, nil, true, time.Minute)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "declined")
 }
@@ -216,7 +229,7 @@ func TestRunCreate_WaitTimeoutErrors(t *testing.T) {
 		},
 		statusFn: func(context.Context) (*AccountStatus, error) { return &AccountStatus{Status: statusFree}, nil },
 	}
-	_, err := runCreate(context.Background(), svc, customerForm{}, 5, true, time.Nanosecond)
+	_, err := runCreate(context.Background(), svc, customerForm{}, 5, nil, true, time.Nanosecond)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "timed out")
 }
@@ -295,7 +308,7 @@ func TestRunCreate_NeedsCheckoutNoWait(t *testing.T) {
 			return &CheckoutResult{Outcome: checkoutNeeded, URL: "https://checkout.example/x"}, nil
 		},
 	}
-	res, err := runCreate(context.Background(), svc, customerForm{}, 10, false, time.Minute)
+	res, err := runCreate(context.Background(), svc, customerForm{}, 10, nil, false, time.Minute)
 	require.NoError(t, err)
 	assert.Equal(t, "https://checkout.example/x", res.checkoutURL)
 	assert.Nil(t, res.acct)

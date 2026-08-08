@@ -1,9 +1,9 @@
 buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260709200747-435963d16310.1 h1:fXh8CsdNpjRr8R5vFdqtIxPt/Lno2IIJlYOdZBIZn0w=
 buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260709200747-435963d16310.1/go.mod h1:tvtbpgaVXZX4g6Pn+AnzFycuRK3MOz5HJfEGeEllXYM=
-buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260804091850-421d5379a8ef.1 h1:4hq0U+69rnEHvNjW9MtudAMTJd5SlJwoRGmG3vafb7w=
-buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260804091850-421d5379a8ef.1/go.mod h1:xpXS/f2LEp2vlUufFjwd4UvzytJBCZZN8ha3ccJd41k=
-buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260804091850-421d5379a8ef.1 h1:l9Jb1Pfw+AoU779DFngLWTe08o3xdFVSBfAHolv4I+E=
-buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260804091850-421d5379a8ef.1/go.mod h1:I8E+sZXJNqzWBtSlRGCoiEorLSRiix50h2R/66aBzME=
+buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260807140618-40df80d1600c.1 h1:ROnP2uEP4mjW2DT9DQOMvYYP5BLHN+lRl/J095CtIGE=
+buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260807140618-40df80d1600c.1/go.mod h1:txr/NGc+l4cizLvDltbtxpr2+JgnNQNTVG6EIqxK/Cw=
+buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260807140618-40df80d1600c.1 h1:y7HH4f+/dhXF1LNfs2/mdvcX8ZFCmRaqzL0ZgXanVRM=
+buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260807140618-40df80d1600c.1/go.mod h1:I8E+sZXJNqzWBtSlRGCoiEorLSRiix50h2R/66aBzME=
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/MakeNowJust/heredoc v1.0.0 h1:cXCdzVdstXyiTqTvfqk9SDHpKNjxuom+DOlyEeQ4pzQ=

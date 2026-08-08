@@ -2,12 +2,14 @@ package subscription
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	errorv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/error/v1"
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/config"
+	"github.com/safedep/dry/tui/output"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -47,6 +49,33 @@ func TestStatusResult_OmitsUnspecifiedInterval(t *testing.T) {
 
 	withInterval := &statusResult{acct: &AccountStatus{Status: statusActive, Tier: "professional", Interval: "yearly"}}
 	assert.Contains(t, withInterval.RenderTable(), "Yearly")
+}
+
+func TestStatusResult_AddOnLayoutByMode(t *testing.T) {
+	// Mutates the global output mode, so keep it serial.
+	prev := output.CurrentMode()
+	t.Cleanup(func() { output.SetMode(prev) })
+
+	addOns := []string{"threat-intel-feed", "another-feed", "third-feed"}
+	joined := strings.Join(addOns, ", ")
+	r := &statusResult{acct: &AccountStatus{Status: statusActive, Tier: "professional", ActiveAddOns: addOns}}
+
+	output.SetMode(output.Rich)
+	rich := r.RenderTable()
+	for _, a := range addOns {
+		assert.Contains(t, rich, a)
+	}
+	assert.NotContains(t, rich, joined, "the bordered card lists one add-on per row, never joined")
+	widest := 0
+	for _, line := range strings.Split(rich, "\n") {
+		if w := len([]rune(line)); w > widest {
+			widest = w
+		}
+	}
+	assert.Less(t, widest, len(joined)+40, "card width tracks the longest token, not the sum")
+
+	output.SetMode(output.Plain)
+	assert.Contains(t, r.RenderTable(), joined, "non-bordered modes keep the compact joined form")
 }
 
 func TestAddOnTokens_ExcludesUnspecified(t *testing.T) {

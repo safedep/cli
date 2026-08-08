@@ -8,6 +8,7 @@ import (
 
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/dry/tui"
+	"github.com/safedep/dry/tui/output"
 	"github.com/safedep/dry/tui/panel"
 	"github.com/safedep/dry/tui/section"
 	"github.com/safedep/dry/tui/table"
@@ -150,7 +151,7 @@ func (r *statusResult) RenderTable() string {
 	if r.acct.Interval != "" {
 		p = p.Field("Billing", titleCase(r.acct.Interval))
 	}
-	p = p.Field("Add-ons", dashEmpty(strings.Join(r.acct.ActiveAddOns, ", ")))
+	p = addOnFields(p, r.acct.ActiveAddOns)
 	if r.acct.Trial != nil {
 		p = p.Field("Trial ends", fmt.Sprintf("in %d days (%s)", r.acct.Trial.DaysRemaining, r.acct.Trial.ExpiresAt.Format("2006-01-02")))
 	}
@@ -168,6 +169,28 @@ func (r *statusResult) RenderTable() string {
 		parts = append(parts, section.Hint(hint))
 	}
 	return section.Join(parts...)
+}
+
+// addOnFields adds the add-ons to the panel. In Rich mode the panel draws a
+// bordered card whose width tracks its widest row, so each add-on gets its own
+// row (label on the first only) to keep the card bounded by the longest token
+// rather than the joined list. Other modes have no border to blow out, so a
+// single comma-joined row is enough.
+func addOnFields(p *panel.Panel, addOns []string) *panel.Panel {
+	if len(addOns) == 0 {
+		return p.Field("Add-ons", "-")
+	}
+	if output.CurrentMode() != output.Rich {
+		return p.Field("Add-ons", strings.Join(addOns, ", "))
+	}
+	for i, a := range addOns {
+		label := ""
+		if i == 0 {
+			label = "Add-ons"
+		}
+		p = p.Field(label, a)
+	}
+	return p
 }
 
 func dashEmpty(s string) string {

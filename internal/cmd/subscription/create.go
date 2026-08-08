@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/safedep/cli/internal/app"
@@ -25,6 +26,7 @@ func createCmd(a *app.App) *cobra.Command {
 	var (
 		form    customerForm
 		seats   uint32
+		addOns  []string
 		wait    bool
 		timeout time.Duration
 	)
@@ -43,7 +45,7 @@ func createCmd(a *app.App) *cobra.Command {
 				return err
 			}
 			svc := NewService(client.Connection())
-			res, err := runCreate(cmd.Context(), svc, form, seats, wait, timeout)
+			res, err := runCreate(cmd.Context(), svc, form, seats, addOns, wait, timeout)
 			if err != nil {
 				return err
 			}
@@ -52,18 +54,19 @@ func createCmd(a *app.App) *cobra.Command {
 	}
 	addCustomerFlags(cmd, &form)
 	cmd.Flags().Uint32Var(&seats, "seats", defaultSeats, "number of seats (min 1)")
+	cmd.Flags().StringSliceVar(&addOns, "with-addon", nil, "add-on to buy alongside the seats (repeatable): "+strings.Join(AddOnTokens(), ", "))
 	cmd.Flags().BoolVar(&wait, "wait", true, "wait for the subscription to become active after checkout")
 	cmd.Flags().DurationVar(&timeout, "timeout", 10*time.Minute, "maximum time to wait for activation")
 	return cmd
 }
 
-func runCreate(ctx context.Context, svc createSvc, form customerForm, seats uint32, wait bool, timeout time.Duration) (*createResult, error) {
+func runCreate(ctx context.Context, svc createSvc, form customerForm, seats uint32, addOns []string, wait bool, timeout time.Duration) (*createResult, error) {
 	if err := ensureCustomer(ctx, svc, form); err != nil {
 		return nil, err
 	}
 
 	checkout, err := svc.Checkout(ctx, CheckoutInput{
-		Seats: seats, SuccessURL: checkoutSuccessURL, CancelURL: checkoutCancelURL,
+		Seats: seats, AddOns: addOns, SuccessURL: checkoutSuccessURL, CancelURL: checkoutCancelURL,
 	})
 	if err != nil {
 		return nil, err

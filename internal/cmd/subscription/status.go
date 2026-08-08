@@ -101,8 +101,11 @@ type statusResult struct {
 
 func (r *statusResult) RenderJSON() ([]byte, error) {
 	out := map[string]any{
-		"status": r.acct.Status,
-		"tier":   r.acct.Tier,
+		"status":   r.acct.Status,
+		"tier":     r.acct.Tier,
+		"interval": r.acct.Interval,
+		// Always a list, never null, so consumers can iterate unconditionally.
+		"add_ons": append([]string{}, r.acct.ActiveAddOns...),
 	}
 	if r.showEntitlements {
 		out["entitlements"] = r.acct.Entitlements
@@ -126,6 +129,8 @@ func (r *statusResult) RenderJSON() ([]byte, error) {
 func (r *statusResult) RenderPlain() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "status\t%s\ntier\t%s\n", r.acct.Status, dashEmpty(r.acct.Tier))
+	fmt.Fprintf(&b, "interval\t%s\n", dashEmpty(r.acct.Interval))
+	fmt.Fprintf(&b, "add_ons\t%s\n", dashEmpty(strings.Join(r.acct.ActiveAddOns, ",")))
 	if r.acct.Trial != nil {
 		fmt.Fprintf(&b, "trial_days_remaining\t%d\n", r.acct.Trial.DaysRemaining)
 	}
@@ -142,6 +147,10 @@ func (r *statusResult) RenderTable() string {
 	p := panel.New("Subscription").
 		Field("Status", statusBadge(r.acct.Status)).
 		Field("Tier", dashEmpty(titleCase(r.acct.Tier)))
+	if r.acct.Interval != "" {
+		p = p.Field("Billing", titleCase(r.acct.Interval))
+	}
+	p = p.Field("Add-ons", dashEmpty(strings.Join(r.acct.ActiveAddOns, ", ")))
 	if r.acct.Trial != nil {
 		p = p.Field("Trial ends", fmt.Sprintf("in %d days (%s)", r.acct.Trial.DaysRemaining, r.acct.Trial.ExpiresAt.Format("2006-01-02")))
 	}

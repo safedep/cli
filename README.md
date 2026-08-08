@@ -134,6 +134,9 @@ Push SafeDep malware findings to external security tools. JFrog XRay is supporte
 | [`safedep subscription ondemand enable`](./docs/cmd/subscription-ondemand-enable.md) | Enable on-demand (overage) billing |
 | [`safedep subscription ondemand disable`](./docs/cmd/subscription-ondemand-disable.md) | Disable on-demand (overage) billing |
 | [`safedep subscription ondemand status`](./docs/cmd/subscription-ondemand-status.md) | Show on-demand billing state |
+| [`safedep subscription addon list`](./docs/cmd/subscription-addon-list.md) | List purchased add-ons |
+| [`safedep subscription addon add`](./docs/cmd/subscription-addon-add.md) | Buy an add-on |
+| [`safedep subscription addon remove`](./docs/cmd/subscription-addon-remove.md) | Remove an add-on |
 | [`safedep subscription customer create`](./docs/cmd/subscription-customer-create.md) | Create the billing customer profile |
 | [`safedep subscription customer show`](./docs/cmd/subscription-customer-show.md) | Show the billing customer profile |
 | [`safedep subscription portal open`](./docs/cmd/subscription-portal-open.md) | Open the billing portal |

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/cli/browser"
@@ -54,14 +55,46 @@ type statusWaiter struct {
 	Fail map[string]error
 }
 
+// statusPredicate classifies an observed account status during a wait. It
+// returns done=true to end the wait successfully, a non-nil failErr to end it
+// with a terminal error, or (false, nil) to keep polling.
+type statusPredicate func(*AccountStatus) (done bool, failErr error)
+
+func (w statusWaiter) predicate() statusPredicate {
+	return func(acct *AccountStatus) (bool, error) {
+		if w.Done[acct.Status] {
+			return true, nil
+		}
+		if ferr, ok := w.Fail[acct.Status]; ok {
+			return false, ferr
+		}
+		return false, nil
+	}
+}
+
+// addOnPresenceWaiter resolves once the add-on token is present (attach) or
+// absent (detach) in the account's active add-ons, which reflect the
+// webhook-synced subscription items.
+func addOnPresenceWaiter(addOnToken string, wantPresent bool) statusPredicate {
+	return func(acct *AccountStatus) (bool, error) {
+		return slices.Contains(acct.ActiveAddOns, addOnToken) == wantPresent, nil
+	}
+}
+
 // pollUntilStatus polls the account status until the waiter resolves it, or the
+// timeout elapses.
+func pollUntilStatus(ctx context.Context, svc StatusGetter, w statusWaiter, timeout time.Duration) (*AccountStatus, error) {
+	return pollUntil(ctx, svc, w.predicate(), timeout)
+}
+
+// pollUntil polls the account status until the predicate resolves it, or the
 // timeout elapses. The timeout is a hard deadline on the whole operation,
 // including each status RPC (so a stalled control-plane call cannot outlast
 // --timeout). A timeout returns an error: a waited operation that never
 // confirms is a failure, not a silent success. Transient read failures
 // (network blips) are retried within the deadline rather than failing the
 // command, since the underlying mutation may already have succeeded.
-func pollUntilStatus(ctx context.Context, svc StatusGetter, w statusWaiter, timeout time.Duration) (*AccountStatus, error) {
+func pollUntil(ctx context.Context, svc StatusGetter, pred statusPredicate, timeout time.Duration) (*AccountStatus, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -70,10 +103,11 @@ func pollUntilStatus(ctx context.Context, svc StatusGetter, w statusWaiter, time
 		acct, err := svc.Status(ctx)
 		switch {
 		case err == nil:
-			if w.Done[acct.Status] {
+			done, ferr := pred(acct)
+			if done {
 				return acct, nil
 			}
-			if ferr, ok := w.Fail[acct.Status]; ok {
+			if ferr != nil {
 				return nil, ferr
 			}
 			// Not a resolved state yet: keep waiting.

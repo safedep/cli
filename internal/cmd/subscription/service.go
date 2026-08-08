@@ -17,9 +17,10 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// termsVersion is the on-demand billing terms version the CLI records as
-// accepted. There is no terms content/version API yet, so this is a shipped
-// constant. See the spec's Future section.
+// termsVersion is the billing terms version the CLI records as accepted, for
+// both on-demand billing and add-on purchases. Both accept the same terms
+// document (termsURL) and there is no terms content/version API yet, so this is
+// a single shipped constant. See the spec's Future section.
 const termsVersion = "2026-07-23"
 
 // One narrow interface per operation so commands and tests depend only on
@@ -512,7 +513,13 @@ func postureToken(p msgv1.PaymentPosture) string {
 	return tui.EnumToken(p.String(), "PAYMENT_POSTURE_")
 }
 
+// intervalToken maps the billing interval to its display token, or "" when
+// unspecified (EnumToken renders the zero value as "unknown", but an absent
+// interval must be empty so callers can omit it).
 func intervalToken(i msgv1.BillingInterval) string {
+	if i == msgv1.BillingInterval_BILLING_INTERVAL_UNSPECIFIED {
+		return ""
+	}
 	return tui.EnumToken(i.String(), "BILLING_INTERVAL_")
 }
 

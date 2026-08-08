@@ -29,6 +29,26 @@ func TestParseAddOn(t *testing.T) {
 	assert.Contains(t, err.Error(), threatIntelAddOn, "the error lists the valid tokens")
 }
 
+func TestIntervalToken(t *testing.T) {
+	t.Parallel()
+	// Unspecified maps to "" (not "unknown"), so status can omit the field.
+	assert.Empty(t, intervalToken(0))
+	assert.Equal(t, "monthly", intervalToken(1)) // BILLING_INTERVAL_MONTHLY
+	assert.Equal(t, "yearly", intervalToken(2))  // BILLING_INTERVAL_YEARLY
+}
+
+func TestStatusResult_OmitsUnspecifiedInterval(t *testing.T) {
+	t.Parallel()
+	r := &statusResult{acct: &AccountStatus{Status: statusActive, Tier: "professional"}}
+	assert.NotContains(t, r.RenderTable(), "Billing", "no Billing row when interval is unspecified")
+	js, err := r.RenderJSON()
+	require.NoError(t, err)
+	assert.Contains(t, string(js), "\"interval\": \"\"")
+
+	withInterval := &statusResult{acct: &AccountStatus{Status: statusActive, Tier: "professional", Interval: "yearly"}}
+	assert.Contains(t, withInterval.RenderTable(), "Yearly")
+}
+
 func TestAddOnTokens_ExcludesUnspecified(t *testing.T) {
 	t.Parallel()
 	tokens := AddOnTokens()

@@ -54,7 +54,10 @@ func createCmd(a *app.App) *cobra.Command {
 	}
 	addCustomerFlags(cmd, &form)
 	cmd.Flags().Uint32Var(&seats, "seats", defaultSeats, "number of seats (min 1)")
-	cmd.Flags().StringSliceVar(&addOns, "with-addon", nil, "add-on to buy alongside the seats (repeatable): "+strings.Join(AddOnTokens(), ", "))
+	// StringArray, not StringSlice: one add-on per occurrence, with no comma
+	// splitting, matching the documented behavior. A bad "a,b" value then fails
+	// token validation loudly instead of silently splitting.
+	cmd.Flags().StringArrayVar(&addOns, "with-addon", nil, "add-on to buy alongside the seats (repeatable): "+strings.Join(AddOnTokens(), ", "))
 	cmd.Flags().BoolVar(&wait, "wait", true, "wait for the subscription to become active after checkout")
 	cmd.Flags().DurationVar(&timeout, "timeout", 10*time.Minute, "maximum time to wait for activation")
 	return cmd

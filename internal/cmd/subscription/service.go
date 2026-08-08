@@ -113,6 +113,7 @@ type TrialInfo struct {
 type AccountStatus struct {
 	Status       string
 	Tier         string
+	Seats        int64      // effective seat count. Zero means no seat-based subscription.
 	Interval     string     // tier billing cadence: "monthly" | "yearly" | ""
 	ActiveAddOns []string   // purchased add-on tokens; entitlements cover manual grants separately
 	Trial        *TrialInfo // set only when in an active trial
@@ -214,6 +215,7 @@ func (s *Service) Status(ctx context.Context) (*AccountStatus, error) {
 	out := &AccountStatus{Status: statusToken(res.GetStatus())}
 	if info := res.GetSubscriptionAccountInfo(); info != nil {
 		out.Tier = tierToken(info.GetBillingTier())
+		out.Seats = int64(info.GetSeats())
 		out.Interval = intervalToken(info.GetBillingInterval())
 		for _, a := range info.GetActiveAddOns() {
 			out.ActiveAddOns = append(out.ActiveAddOns, addOnToken(a))

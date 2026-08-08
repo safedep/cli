@@ -300,7 +300,7 @@ func (s *Service) Checkout(ctx context.Context, in CheckoutInput) (*CheckoutResu
 	}
 	res, err := s.billing.CreateBillingSubscriptionCheckoutSession(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("subscription: checkout: %w", err)
+		return nil, mapCheckoutError(err)
 	}
 	info := res.GetStatusInfo()
 	out := &CheckoutResult{URL: res.GetCheckoutSessionUrl()}
@@ -400,6 +400,17 @@ func mapAddOnAttachError(err error) error {
 	default:
 		return fmt.Errorf("subscription: add add-on: %w", err)
 	}
+}
+
+// mapCheckoutError turns the checkout RPC's canonical failures into actionable
+// messages. AlreadyExists means the tenant already holds an active
+// subscription, so point at status and portal instead of the generic conflict
+// text a bare code would render.
+func mapCheckoutError(err error) error {
+	if st, ok := status.FromError(err); ok && st.Code() == codes.AlreadyExists {
+		return errors.New("this account already has an active subscription: check `safedep subscription status` or manage billing with `safedep subscription portal open`")
+	}
+	return fmt.Errorf("subscription: checkout: %w", err)
 }
 
 // mapOnDemandEnableError routes the typed ErrorReason to an actionable

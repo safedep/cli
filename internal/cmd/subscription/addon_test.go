@@ -114,6 +114,17 @@ func TestMapAddOnAttachError_UntypedPassthrough(t *testing.T) {
 	assert.Contains(t, mapAddOnAttachError(err).Error(), "add add-on")
 }
 
+func TestMapCheckoutError(t *testing.T) {
+	t.Parallel()
+
+	already := mapCheckoutError(status.Error(codes.AlreadyExists, "tenant already has an active subscription"))
+	assert.Contains(t, already.Error(), "already has an active subscription")
+	assert.Contains(t, already.Error(), "subscription status", "names the next command")
+
+	other := mapCheckoutError(status.Error(codes.Unavailable, "boom"))
+	assert.Contains(t, other.Error(), "checkout")
+}
+
 func TestRunAddonAdd_WaitConfirmsPresence(t *testing.T) {
 	t.Parallel()
 	var gotTerms string

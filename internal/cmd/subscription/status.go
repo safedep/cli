@@ -108,6 +108,9 @@ func (r *statusResult) RenderJSON() ([]byte, error) {
 		// Always a list, never null, so consumers can iterate unconditionally.
 		"add_ons": append([]string{}, r.acct.ActiveAddOns...),
 	}
+	if r.acct.Seats > 0 {
+		out["seats"] = r.acct.Seats
+	}
 	if r.showEntitlements {
 		out["entitlements"] = r.acct.Entitlements
 	}
@@ -130,6 +133,9 @@ func (r *statusResult) RenderJSON() ([]byte, error) {
 func (r *statusResult) RenderPlain() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "status\t%s\ntier\t%s\n", r.acct.Status, dashEmpty(r.acct.Tier))
+	if r.acct.Seats > 0 {
+		fmt.Fprintf(&b, "seats\t%d\n", r.acct.Seats)
+	}
 	fmt.Fprintf(&b, "interval\t%s\n", dashEmpty(r.acct.Interval))
 	fmt.Fprintf(&b, "add_ons\t%s\n", dashEmpty(strings.Join(r.acct.ActiveAddOns, ",")))
 	if r.acct.Trial != nil {
@@ -148,6 +154,9 @@ func (r *statusResult) RenderTable() string {
 	p := panel.New("Subscription").
 		Field("Status", statusBadge(r.acct.Status)).
 		Field("Tier", dashEmpty(titleCase(r.acct.Tier)))
+	if r.acct.Seats > 0 {
+		p = p.Field("Seats", fmt.Sprintf("%d", r.acct.Seats))
+	}
 	if r.acct.Interval != "" {
 		p = p.Field("Billing", titleCase(r.acct.Interval))
 	}

@@ -30,3 +30,10 @@ safedep subscription addon list
 # Script against the JSON output.
 safedep subscription addon list --output json
 ```
+
+## Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Add-ons listed (including an empty list). |
+| non-zero | RPC error. |

@@ -61,6 +61,12 @@ func createCmd(a *app.App) *cobra.Command {
 }
 
 func runCreate(ctx context.Context, svc createSvc, form customerForm, seats uint32, addOns []string, wait bool, timeout time.Duration) (*createResult, error) {
+	// Reject bad add-on tokens before touching customer state, so invalid local
+	// input never creates a billing profile or makes a network call.
+	if _, err := parseAddOns(addOns); err != nil {
+		return nil, err
+	}
+
 	if err := ensureCustomer(ctx, svc, form); err != nil {
 		return nil, err
 	}

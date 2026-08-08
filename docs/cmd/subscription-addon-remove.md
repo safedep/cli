@@ -29,3 +29,10 @@ Available add-ons: `threat-intel-feed`.
 ```
 safedep subscription addon remove threat-intel-feed
 ```
+
+## Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Add-on removed (and cleared, unless `--wait=false`). |
+| non-zero | Unknown add-on, wait timeout, or RPC error. |

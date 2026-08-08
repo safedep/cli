@@ -140,6 +140,19 @@ func TestRunCreate_PassesAddOnsToCheckout(t *testing.T) {
 	assert.Equal(t, []string{threatIntelAddOn}, got)
 }
 
+func TestRunCreate_RejectsBadAddOnBeforeCustomer(t *testing.T) {
+	t.Parallel()
+	svc := &fakeSvc{
+		getCustFn: func(context.Context) (*Customer, bool, error) {
+			t.Fatal("a bad add-on token must be rejected before any customer call")
+			return nil, false, nil
+		},
+	}
+	_, err := runCreate(context.Background(), svc, customerForm{}, 5, []string{"bogus"}, false, time.Minute)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown add-on")
+}
+
 func TestAddonAddCmd_RequiresAcceptTerms(t *testing.T) {
 	t.Parallel()
 	a := app.New(&config.Config{})

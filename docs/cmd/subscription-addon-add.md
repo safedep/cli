@@ -42,3 +42,10 @@ safedep subscription addon add threat-intel-feed --accept-terms
 # Buy without waiting for the webhook to sync.
 safedep subscription addon add threat-intel-feed --accept-terms --wait=false
 ```
+
+## Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Add-on purchased (and activated, unless `--wait=false`). |
+| non-zero | Unknown add-on, terms not accepted, no paid plan, past-due balance, no payment method, wait timeout, or RPC error. |

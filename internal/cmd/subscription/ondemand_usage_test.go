@@ -124,7 +124,7 @@ func TestRenderJSONIncludesUsage(t *testing.T) {
 		Enabled: true, PaymentMethodOnFile: true, Posture: "ok",
 		Usage: []FeatureUsage{{
 			FeatureKey: "malysis.package_scan_submit", DisplayName: "On-demand package scans",
-			UnitLabel: "scans", IncludedLimit: 100, Consumed: 72, Seats: 1, Tier: "professional",
+			UnitLabel: "scans", IncludedLimit: 100, Consumed: 72, Seats: 1, Tier: "team",
 			Overage: monetaryOverage(),
 		}},
 	}}

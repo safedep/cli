@@ -41,13 +41,13 @@ func TestIntervalToken(t *testing.T) {
 
 func TestStatusResult_OmitsUnspecifiedInterval(t *testing.T) {
 	t.Parallel()
-	r := &statusResult{acct: &AccountStatus{Status: statusActive, Tier: "professional"}}
+	r := &statusResult{acct: &AccountStatus{Status: statusActive, Tier: "team"}}
 	assert.NotContains(t, r.RenderTable(), "Billing", "no Billing row when interval is unspecified")
 	js, err := r.RenderJSON()
 	require.NoError(t, err)
 	assert.Contains(t, string(js), "\"interval\": \"\"")
 
-	withInterval := &statusResult{acct: &AccountStatus{Status: statusActive, Tier: "professional", Interval: "yearly"}}
+	withInterval := &statusResult{acct: &AccountStatus{Status: statusActive, Tier: "team", Interval: "yearly"}}
 	assert.Contains(t, withInterval.RenderTable(), "Yearly")
 }
 
@@ -58,7 +58,7 @@ func TestStatusResult_AddOnLayoutByMode(t *testing.T) {
 
 	addOns := []string{"threat-intel-feed", "another-feed", "third-feed"}
 	joined := strings.Join(addOns, ", ")
-	r := &statusResult{acct: &AccountStatus{Status: statusActive, Tier: "professional", ActiveAddOns: addOns}}
+	r := &statusResult{acct: &AccountStatus{Status: statusActive, Tier: "team", ActiveAddOns: addOns}}
 
 	output.SetMode(output.Rich)
 	rich := r.RenderTable()

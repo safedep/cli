@@ -209,8 +209,8 @@ func dashEmpty(s string) string {
 	return s
 }
 
-// titleCase uppercases the first rune of an ASCII token (e.g. "professional"
-// -> "Professional"). Enough for tier display; avoids deprecated strings.Title.
+// titleCase uppercases the first rune of an ASCII token (e.g. "team" ->
+// "Team"). Enough for tier display; avoids deprecated strings.Title.
 func titleCase(s string) string {
 	if s == "" {
 		return s

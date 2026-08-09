@@ -514,7 +514,20 @@ func statusToken(s msgv1.SubscriptionAccountStatus) string {
 	return tui.EnumToken(s.String(), "SUBSCRIPTION_ACCOUNT_STATUS_")
 }
 
+// tierDisplayNames overrides the CLI-visible name for tiers whose product name
+// diverges from the proto enum. The backend enum stays canonical (the CLI still
+// sends BILLING_TIER_PROFESSIONAL); only the user-facing token changes. A tier
+// absent from this map falls back to the generic enum token, so a new
+// BILLING_TIER_* renders sensibly with no code change and gets a custom name
+// here only when product naming diverges.
+var tierDisplayNames = map[msgv1.BillingTier]string{
+	msgv1.BillingTier_BILLING_TIER_PROFESSIONAL: "team",
+}
+
 func tierToken(t msgv1.BillingTier) string {
+	if name, ok := tierDisplayNames[t]; ok {
+		return name
+	}
 	return tui.EnumToken(t.String(), "BILLING_TIER_")
 }
 

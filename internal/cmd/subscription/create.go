@@ -32,8 +32,8 @@ func createCmd(a *app.App) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "create",
-		Short: "Subscribe to the Professional plan",
-		Long: "Subscribe the tenant account to the Professional plan via checkout. Creates a billing " +
+		Short: "Subscribe to the Team plan",
+		Long: "Subscribe the tenant account to the Team plan via checkout. Creates a billing " +
 			"profile first if none exists. Enterprise plans are custom - contact sales.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -93,7 +93,7 @@ func runCreate(ctx context.Context, svc createSvc, form customerForm, seats uint
 	}
 
 	// NEED_CHECKOUT_COMPLETION: hand off to the browser.
-	openInBrowser(checkout.URL, fmt.Sprintf("Opening checkout for Professional, %d seats...", seats))
+	openInBrowser(checkout.URL, fmt.Sprintf("Opening checkout for Team, %d seats...", seats))
 	if !wait {
 		return &createResult{checkoutURL: checkout.URL}, nil
 	}

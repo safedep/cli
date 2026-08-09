@@ -8,7 +8,7 @@ safedep subscription create [--seats N] [--with-addon ADDON] [customer flags] [-
 
 ## Description
 
-`subscription create` subscribes the tenant account to the Professional plan. If no
+`subscription create` subscribes the tenant account to the Team plan. If no
 billing profile exists, it is created first (interactive on a terminal, flags
 otherwise). The command opens the provider-hosted checkout page in your browser and,
 by default, waits until the subscription becomes active. Enterprise plans are custom

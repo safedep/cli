@@ -84,7 +84,7 @@ func TestRegister_buildsSubscriptionTree(t *testing.T) {
 func TestEnumTokens(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, "active-trial", statusToken(1)) // SUBSCRIPTION_ACCOUNT_STATUS_ACTIVE_TRIAL
-	assert.Equal(t, "professional", tierToken(2))   // BILLING_TIER_PROFESSIONAL
+	assert.Equal(t, "team", tierToken(2))           // BILLING_TIER_PROFESSIONAL renamed to Team
 	assert.Equal(t, "unknown", tierToken(0))        // UNSPECIFIED
 	assert.Equal(t, "tool-sync", featureToken(3))   // FEATURE_TOOL_SYNC
 	assert.Equal(t, "ok", postureToken(1))          // PAYMENT_POSTURE_OK
@@ -328,7 +328,7 @@ func TestCreateCmd_SeatsMinValidation(t *testing.T) {
 func TestStatusResult_Render(t *testing.T) {
 	t.Parallel()
 	acct := &AccountStatus{
-		Status: statusActiveTrial, Tier: "professional", Seats: 5,
+		Status: statusActiveTrial, Tier: "team", Seats: 5,
 		Trial:        &TrialInfo{DaysRemaining: 14, ExpiresAt: time.Date(2026, 8, 6, 0, 0, 0, 0, time.UTC)},
 		Entitlements: []string{"tool-sync", "sql-query"},
 		OnDemand:     &OnDemandState{Enabled: false},
@@ -337,6 +337,7 @@ func TestStatusResult_Render(t *testing.T) {
 	def := &statusResult{acct: acct}
 	tbl := def.RenderTable()
 	assert.Contains(t, tbl, "ACTIVE-TRIAL")
+	assert.Contains(t, tbl, "Team", "professional tier renders as Team")
 	assert.Contains(t, tbl, "Subscribe anytime")
 	assert.Contains(t, tbl, "Seats")
 	assert.NotContains(t, tbl, "tool-sync", "entitlements are opt-in")

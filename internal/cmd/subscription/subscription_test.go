@@ -328,7 +328,7 @@ func TestCreateCmd_SeatsMinValidation(t *testing.T) {
 func TestStatusResult_Render(t *testing.T) {
 	t.Parallel()
 	acct := &AccountStatus{
-		Status: statusActiveTrial, Tier: "professional",
+		Status: statusActiveTrial, Tier: "professional", Seats: 5,
 		Trial:        &TrialInfo{DaysRemaining: 14, ExpiresAt: time.Date(2026, 8, 6, 0, 0, 0, 0, time.UTC)},
 		Entitlements: []string{"tool-sync", "sql-query"},
 		OnDemand:     &OnDemandState{Enabled: false},
@@ -338,11 +338,21 @@ func TestStatusResult_Render(t *testing.T) {
 	tbl := def.RenderTable()
 	assert.Contains(t, tbl, "ACTIVE-TRIAL")
 	assert.Contains(t, tbl, "Subscribe anytime")
+	assert.Contains(t, tbl, "Seats")
 	assert.NotContains(t, tbl, "tool-sync", "entitlements are opt-in")
 	js, err := def.RenderJSON()
 	require.NoError(t, err)
 	assert.Contains(t, string(js), "\"days_remaining\": 14")
+	assert.Contains(t, string(js), "\"seats\": 5")
+	assert.Contains(t, def.RenderPlain(), "seats\t5")
 	assert.NotContains(t, string(js), "entitlements")
+
+	// A zero seat count means no seat-based subscription and is omitted.
+	free := &statusResult{acct: &AccountStatus{Status: statusFree, Tier: "free"}}
+	assert.NotContains(t, free.RenderTable(), "Seats")
+	freeJS, err := free.RenderJSON()
+	require.NoError(t, err)
+	assert.NotContains(t, string(freeJS), "seats")
 
 	// Opt-in: --entitlements surfaces them in table and json.
 	on := &statusResult{acct: acct, showEntitlements: true}

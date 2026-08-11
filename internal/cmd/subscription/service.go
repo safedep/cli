@@ -399,6 +399,8 @@ func mapAddOnAttachError(err error) error {
 		return errors.New("subscription is past due: settle payment via `safedep subscription portal open`, then retry")
 	case errorv1.ErrorReason_ERROR_REASON_PAYMENT_METHOD_REQUIRED:
 		return errors.New("no payment method on file: add one via `safedep subscription portal open`, then retry")
+	case errorv1.ErrorReason_ERROR_REASON_PAYMENT_DECLINED:
+		return errors.New("the card on file was declined: update it via `safedep subscription portal open`, then retry")
 	default:
 		return fmt.Errorf("subscription: add add-on: %w", err)
 	}

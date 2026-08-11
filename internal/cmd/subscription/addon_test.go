@@ -95,6 +95,7 @@ func TestMapAddOnAttachError(t *testing.T) {
 		{"entitlement", errorv1.ErrorReason_ERROR_REASON_ENTITLEMENT_NOT_AVAILABLE, "paid plan"},
 		{"past due", errorv1.ErrorReason_ERROR_REASON_SUBSCRIPTION_PAST_DUE, "past due"},
 		{"payment", errorv1.ErrorReason_ERROR_REASON_PAYMENT_METHOD_REQUIRED, "payment method"},
+		{"delinquent", errorv1.ErrorReason_ERROR_REASON_PAYMENT_DELINQUENT, "declined"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

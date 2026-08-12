@@ -9,7 +9,6 @@ import (
 	errorv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/error/v1"
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/config"
-	"github.com/safedep/dry/tui/output"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -51,31 +50,51 @@ func TestStatusResult_OmitsUnspecifiedInterval(t *testing.T) {
 	assert.Contains(t, withInterval.RenderTable(), "Yearly")
 }
 
-func TestStatusResult_AddOnLayoutByMode(t *testing.T) {
-	// Mutates the global output mode, so keep it serial.
-	prev := output.CurrentMode()
-	t.Cleanup(func() { output.SetMode(prev) })
-
+func TestStatusResult_AddOnsRenderAsSeparateTable(t *testing.T) {
+	t.Parallel()
 	addOns := []string{"threat-intel-feed", "another-feed", "third-feed"}
 	joined := strings.Join(addOns, ", ")
 	r := &statusResult{acct: &AccountStatus{Status: statusActive, Tier: "team", ActiveAddOns: addOns}}
 
-	output.SetMode(output.Rich)
-	rich := r.RenderTable()
+	out := r.RenderTable()
 	for _, a := range addOns {
-		assert.Contains(t, rich, a)
+		assert.Contains(t, out, a)
 	}
-	assert.NotContains(t, rich, joined, "the bordered card lists one add-on per row, never joined")
-	widest := 0
-	for _, line := range strings.Split(rich, "\n") {
-		if w := len([]rune(line)); w > widest {
-			widest = w
-		}
-	}
-	assert.Less(t, widest, len(joined)+40, "card width tracks the longest token, not the sum")
+	assert.Contains(t, out, "Add-ons", "add-ons get their own titled table")
+	assert.NotContains(t, out, joined, "add-ons are one per row, never comma-joined in the panel")
 
-	output.SetMode(output.Plain)
-	assert.Contains(t, r.RenderTable(), joined, "non-bordered modes keep the compact joined form")
+	noAddOns := &statusResult{acct: &AccountStatus{Status: statusActive, Tier: "team"}}
+	assert.NotContains(t, noAddOns.RenderTable(), "Add-ons", "no add-on table when none are active")
+}
+
+func TestStatusResult_UsageAlertHint(t *testing.T) {
+	t.Parallel()
+
+	quiet := &statusResult{acct: &AccountStatus{Status: statusActive, Tier: "team",
+		OnDemand: &OnDemandState{Enabled: true, Usage: []FeatureUsage{{IncludedLimit: 100, Consumed: 10}}}}}
+	assert.NotContains(t, quiet.RenderTable(), "ondemand status", "no alert while usage stays within the included allowance")
+
+	tests := []struct {
+		name string
+		fu   FeatureUsage
+	}{
+		{"accruing", FeatureUsage{IncludedLimit: 100, Consumed: 110, OverageUsed: 10}},
+		{"settling", FeatureUsage{IncludedLimit: 100, Consumed: 100, SettlementPending: true}},
+		{"capped", FeatureUsage{IncludedLimit: 100, Consumed: 150, OverageUsed: 50, Overage: &FeatureOverage{CapKind: "units", CapUnits: 50}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := &statusResult{acct: &AccountStatus{Status: statusActive, Tier: "team",
+				OnDemand: &OnDemandState{Enabled: true, Usage: []FeatureUsage{tt.fu}}}}
+			out := r.RenderTable()
+			assert.Contains(t, out, "Overage usage")
+			assert.Contains(t, out, "safedep subscription ondemand status")
+		})
+	}
+
+	nilState := &statusResult{acct: &AccountStatus{Status: statusActive, Tier: "team"}}
+	assert.NotContains(t, nilState.RenderTable(), "Overage usage", "nil on-demand state stays quiet")
 }
 
 func TestAddOnTokens_ExcludesUnspecified(t *testing.T) {

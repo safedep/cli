@@ -42,9 +42,14 @@ func runPricing(ctx context.Context, svc CatalogGetter) (*pricingResult, error) 
 
 type pricingResult struct{ catalog *Catalog }
 
-// priceLabel is the cadence label for a price row.
-func priceLabel(p CatalogPrice) string {
+// priceLabel is the cadence label for a price row. A metered price reads
+// "Per <unit>" (for example "Per scan"), or "Per unit" when the product has no
+// unit.
+func priceLabel(prod CatalogProduct, p CatalogPrice) string {
 	if p.Metered {
+		if prod.PricingUnit != "" {
+			return "Per " + prod.PricingUnit
+		}
 		return "Per unit"
 	}
 	switch p.Interval {
@@ -57,6 +62,16 @@ func priceLabel(p CatalogPrice) string {
 	}
 }
 
+// priceValue is the amount for a price row. A licensed price on a per-unit
+// product reads "$20.00 per seat"; the metered unit is already in the label.
+func priceValue(prod CatalogProduct, p CatalogPrice) string {
+	amount := formatMoney(p.UnitAmountMinor, p.Currency)
+	if !p.Metered && prod.PricingUnit != "" {
+		amount += " per " + prod.PricingUnit
+	}
+	return amount
+}
+
 func (r *pricingResult) RenderJSON() ([]byte, error) {
 	type price struct {
 		Interval        string `json:"interval"`
@@ -65,10 +80,11 @@ func (r *pricingResult) RenderJSON() ([]byte, error) {
 		UnitAmountMinor int64  `json:"unit_amount_minor"`
 	}
 	type product struct {
-		Name   string  `json:"name"`
-		Kind   string  `json:"kind"`
-		AddOn  string  `json:"add_on,omitempty"`
-		Prices []price `json:"prices"`
+		Name        string  `json:"name"`
+		Kind        string  `json:"kind"`
+		AddOn       string  `json:"add_on,omitempty"`
+		PricingUnit string  `json:"pricing_unit,omitempty"`
+		Prices      []price `json:"prices"`
 	}
 	products := make([]product, 0, len(r.catalog.Products))
 	for _, p := range r.catalog.Products {
@@ -81,7 +97,8 @@ func (r *pricingResult) RenderJSON() ([]byte, error) {
 				UnitAmountMinor: pr.UnitAmountMinor,
 			})
 		}
-		products = append(products, product{Name: p.DisplayName, Kind: p.Kind, AddOn: p.AddOn, Prices: prices})
+		products = append(products, product{
+			Name: p.DisplayName, Kind: p.Kind, AddOn: p.AddOn, PricingUnit: p.PricingUnit, Prices: prices})
 	}
 	return json.MarshalIndent(map[string]any{"products": products}, "", "  ")
 }
@@ -94,7 +111,7 @@ func (r *pricingResult) RenderPlain() string {
 	for _, p := range r.catalog.Products {
 		for _, pr := range p.Prices {
 			lines = append(lines, strings.Join(
-				[]string{p.DisplayName, priceLabel(pr), formatMoney(pr.UnitAmountMinor, pr.Currency)}, "\t"))
+				[]string{p.DisplayName, priceLabel(p, pr), priceValue(p, pr)}, "\t"))
 		}
 	}
 	return strings.Join(lines, "\n")
@@ -108,7 +125,7 @@ func (r *pricingResult) RenderTable() string {
 	for _, p := range r.catalog.Products {
 		pn := panel.New(p.DisplayName)
 		for _, pr := range p.Prices {
-			pn = pn.Field(priceLabel(pr), formatMoney(pr.UnitAmountMinor, pr.Currency))
+			pn = pn.Field(priceLabel(p, pr), priceValue(p, pr))
 		}
 		panels = append(panels, pn.Render())
 	}

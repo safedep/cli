@@ -126,6 +126,7 @@ type CatalogProduct struct {
 	DisplayName string
 	Kind        string // "subscription_tier" | "add_on" | "overage"
 	AddOn       string // add-on token when Kind is "add_on", else ""
+	PricingUnit string // selling unit ("seat", "scan"), empty for a flat product
 	Prices      []CatalogPrice
 }
 
@@ -428,6 +429,7 @@ func catalogFromProto(pb *msgv1.BillingCatalog) *Catalog {
 		product := CatalogProduct{
 			DisplayName: p.GetDisplayName(),
 			Kind:        productKindToken(p.GetKind()),
+			PricingUnit: p.GetPricingUnit(),
 			Prices:      make([]CatalogPrice, 0, len(p.GetPrices())),
 		}
 		if p.HasAddOn() {

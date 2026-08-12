@@ -14,6 +14,7 @@ func testCatalog() *Catalog {
 		{
 			DisplayName: "SafeDep Cloud",
 			Kind:        "subscription_tier",
+			PricingUnit: "seat",
 			Prices: []CatalogPrice{
 				{UnitAmountMinor: 2000, Currency: "usd", Interval: "monthly"},
 				{UnitAmountMinor: 19200, Currency: "usd", Interval: "yearly"},
@@ -31,6 +32,7 @@ func testCatalog() *Catalog {
 		{
 			DisplayName: "On-demand Package Scan",
 			Kind:        "overage",
+			PricingUnit: "scan",
 			Prices: []CatalogPrice{
 				{UnitAmountMinor: 50, Currency: "usd", Interval: "monthly", Metered: true},
 			},
@@ -57,15 +59,17 @@ func TestRunPricing_RendersProductsAndPrices(t *testing.T) {
 	table := res.RenderTable()
 	assert.Contains(t, table, "SafeDep Threat Intel")
 	assert.Contains(t, table, "$1999.00")
-	assert.Contains(t, table, "Per unit") // metered overage label
+	assert.Contains(t, table, "Per scan") // metered overage names its unit
+	assert.Contains(t, table, "per seat") // seat-priced tier
 
 	plain := res.RenderPlain()
-	assert.Contains(t, plain, "SafeDep Cloud\tMonthly\t$20.00")
+	assert.Contains(t, plain, "SafeDep Cloud\tMonthly\t$20.00 per seat")
 
 	js, err := res.RenderJSON()
 	require.NoError(t, err)
 	assert.Contains(t, string(js), "\"unit_amount_minor\": 199900")
 	assert.Contains(t, string(js), "\"add_on\": \"threat-intel-feed\"")
+	assert.Contains(t, string(js), "\"pricing_unit\": \"seat\"")
 }
 
 func TestRunPricing_PropagatesError(t *testing.T) {

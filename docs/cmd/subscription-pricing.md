@@ -13,6 +13,10 @@ prices are the same for every tenant, so they do not include a tenant discount o
 the exact amount charged at purchase. Each product lists its price per cadence
 (`Monthly`, `Yearly`) or `Per unit` for a metered (usage-based) price.
 
+## Flags
+
+This command takes no flags.
+
 ## Examples
 
 ```

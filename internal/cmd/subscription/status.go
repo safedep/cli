@@ -197,7 +197,7 @@ func usageAlertHint(acct *AccountStatus) string {
 	}
 	for _, fu := range acct.OnDemand.Usage {
 		if fu.OverageUsed > 0 || fu.OverageUsedMinor > 0 || fu.SettlementPending || capReached(fu) {
-			return "Overage usage on your account. Usage report: safedep subscription ondemand status"
+			return "Your account has overage usage. Usage report: safedep subscription ondemand status"
 		}
 	}
 	return ""

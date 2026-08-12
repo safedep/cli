@@ -79,7 +79,7 @@ func runTrialEnable(ctx context.Context, svc trialSvc, form customerForm, wait b
 		// The backend allows one trial per tenant: a retry after the trial is
 		// consumed surfaces as AlreadyExists.
 		if status.Code(err) == codes.AlreadyExists {
-			return nil, false, errors.New("this account has already used its free trial. Consider subscribing to a plan with `safedep subscription create`")
+			return nil, false, errors.New("this account has already used its free trial: consider subscribing to a plan with `safedep subscription create`")
 		}
 		return nil, false, err
 	}

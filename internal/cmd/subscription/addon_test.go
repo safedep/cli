@@ -62,6 +62,7 @@ func TestStatusResult_AddOnsRenderAsSeparateTable(t *testing.T) {
 	}
 	assert.Contains(t, out, "Add-ons", "add-ons get their own titled table")
 	assert.NotContains(t, out, joined, "add-ons are one per row, never comma-joined in the panel")
+	assert.NotContains(t, out, strings.Join(addOns, ","), "no-space comma join must not appear either")
 
 	noAddOns := &statusResult{acct: &AccountStatus{Status: statusActive, Tier: "team"}}
 	assert.NotContains(t, noAddOns.RenderTable(), "Add-ons", "no add-on table when none are active")
@@ -88,13 +89,13 @@ func TestStatusResult_UsageAlertHint(t *testing.T) {
 			r := &statusResult{acct: &AccountStatus{Status: statusActive, Tier: "team",
 				OnDemand: &OnDemandState{Enabled: true, Usage: []FeatureUsage{tt.fu}}}}
 			out := r.RenderTable()
-			assert.Contains(t, out, "Overage usage")
+			assert.Contains(t, out, "overage usage")
 			assert.Contains(t, out, "safedep subscription ondemand status")
 		})
 	}
 
 	nilState := &statusResult{acct: &AccountStatus{Status: statusActive, Tier: "team"}}
-	assert.NotContains(t, nilState.RenderTable(), "Overage usage", "nil on-demand state stays quiet")
+	assert.NotContains(t, nilState.RenderTable(), "overage usage", "nil on-demand state stays quiet")
 }
 
 func TestAddOnTokens_ExcludesUnspecified(t *testing.T) {

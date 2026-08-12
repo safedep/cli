@@ -170,6 +170,21 @@ func TestRunTrialEnable_NoWaitDoesNotReadStatus(t *testing.T) {
 	assert.Nil(t, acct)
 }
 
+func TestRunTrialEnable_TrialAlreadyUsedIsFriendly(t *testing.T) {
+	t.Parallel()
+	svc := &fakeSvc{
+		getCustFn: customerExists(nil),
+		activateFn: func(context.Context) error {
+			return status.Error(codes.AlreadyExists, "trial already consumed")
+		},
+	}
+	_, _, err := runTrialEnable(context.Background(), svc, customerForm{}, false, time.Minute)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already used its free trial")
+	assert.Contains(t, err.Error(), "safedep subscription create")
+	assert.NotContains(t, err.Error(), "trial already consumed")
+}
+
 func TestRunTrialEnable_WaitConfirmsOnTrialStatus(t *testing.T) {
 	t.Parallel()
 	svc := &fakeSvc{

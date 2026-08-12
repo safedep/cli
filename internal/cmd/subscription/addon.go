@@ -133,9 +133,7 @@ func addonRemoveCmd(a *app.App) *cobra.Command {
 	return cmd
 }
 
-// addOnPriceLabel is a best-effort price string for the confirm prompt, e.g.
-// "$1999.00/mo, $23988.00/yr". It returns "" on any failure so a price lookup
-// never blocks the purchase confirmation.
+// addOnPriceLabel returns "" on any failure so a price lookup never blocks the confirm.
 func addOnPriceLabel(ctx context.Context, svc CatalogGetter, addOn string) string {
 	cat, err := svc.Catalog(ctx)
 	if err != nil {

@@ -77,6 +77,11 @@ type AddOnDetacher interface {
 	DetachAddOn(ctx context.Context, addOn string) ([]string, error)
 }
 
+type CatalogGetter interface {
+	// Catalog returns the price catalog: list prices for sellable products.
+	Catalog(ctx context.Context) (*Catalog, error)
+}
+
 type Service struct {
 	sub     ctv1grpc.SubscriptionServiceClient
 	billing ctv1grpc.BillingServiceClient
@@ -101,6 +106,7 @@ var (
 	_ OnDemandDisabler    = (*Service)(nil)
 	_ AddOnAttacher       = (*Service)(nil)
 	_ AddOnDetacher       = (*Service)(nil)
+	_ CatalogGetter       = (*Service)(nil)
 )
 
 // CLI-side types. Proto stays out of command code.
@@ -108,6 +114,27 @@ var (
 type TrialInfo struct {
 	DaysRemaining int32
 	ExpiresAt     time.Time
+}
+
+// Catalog is the price catalog: list prices for every sellable product. The
+// prices are the same for every tenant and carry no tenant-specific discount.
+type Catalog struct {
+	Products []CatalogProduct
+}
+
+type CatalogProduct struct {
+	DisplayName string
+	Kind        string // "subscription_tier" | "add_on" | "overage"
+	AddOn       string // add-on token when Kind is "add_on", else ""
+	PricingUnit string // selling unit ("seat", "scan"), empty for a flat product
+	Prices      []CatalogPrice
+}
+
+type CatalogPrice struct {
+	UnitAmountMinor int64
+	Currency        string
+	Interval        string // "monthly" | "yearly" | ""
+	Metered         bool
 }
 
 type AccountStatus struct {
@@ -388,6 +415,39 @@ func (s *Service) DetachAddOn(ctx context.Context, addOn string) ([]string, erro
 	return addOnTokens(res.GetActiveAddOns()), nil
 }
 
+func (s *Service) Catalog(ctx context.Context) (*Catalog, error) {
+	res, err := s.billing.GetBillingCatalog(ctx, &ctv1.GetBillingCatalogRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("subscription: get pricing: %w", err)
+	}
+	return catalogFromProto(res.GetCatalog()), nil
+}
+
+func catalogFromProto(pb *msgv1.BillingCatalog) *Catalog {
+	out := &Catalog{Products: make([]CatalogProduct, 0, len(pb.GetProducts()))}
+	for _, p := range pb.GetProducts() {
+		product := CatalogProduct{
+			DisplayName: p.GetDisplayName(),
+			Kind:        productKindToken(p.GetKind()),
+			PricingUnit: p.GetPricingUnit(),
+			Prices:      make([]CatalogPrice, 0, len(p.GetPrices())),
+		}
+		if p.HasAddOn() {
+			product.AddOn = addOnToken(p.GetAddOn())
+		}
+		for _, pr := range p.GetPrices() {
+			product.Prices = append(product.Prices, CatalogPrice{
+				UnitAmountMinor: pr.GetUnitAmountMinor(),
+				Currency:        pr.GetCurrency(),
+				Interval:        intervalToken(pr.GetInterval()),
+				Metered:         pr.GetUsageType() == msgv1.PriceUsageType_PRICE_USAGE_TYPE_METERED,
+			})
+		}
+		out.Products = append(out.Products, product)
+	}
+	return out
+}
+
 // mapAddOnAttachError routes the typed ErrorReason from an add-on purchase to
 // an actionable message naming the next command, matching the on-demand enable
 // path.
@@ -549,6 +609,25 @@ func intervalToken(i msgv1.BillingInterval) string {
 		return ""
 	}
 	return tui.EnumToken(i.String(), "BILLING_INTERVAL_")
+}
+
+func productKindToken(k msgv1.ProductKind) string {
+	return tui.EnumToken(k.String(), "PRODUCT_KIND_")
+}
+
+// formatMoney renders minor currency units as a display amount. USD gets a "$"
+// prefix; any other currency shows the amount with its ISO code, so an unknown
+// currency is never mislabeled as dollars.
+func formatMoney(minor int64, currency string) string {
+	sign := ""
+	if minor < 0 {
+		sign, minor = "-", -minor
+	}
+	whole, cents := minor/100, minor%100
+	if currency == "usd" {
+		return fmt.Sprintf("%s$%d.%02d", sign, whole, cents)
+	}
+	return fmt.Sprintf("%s%d.%02d %s", sign, whole, cents, strings.ToUpper(currency))
 }
 
 const addOnEnumPrefix = "BILLING_ADD_ON_"

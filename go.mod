@@ -3,8 +3,8 @@ module github.com/safedep/cli
 go 1.26.2
 
 require (
-	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260811125656-c67c32992790.1
-	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260811125656-c67c32992790.1
+	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260812124441-4160b989a6a8.1
+	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20260812124441-4160b989a6a8.1
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/cli/browser v1.3.0
@@ -21,12 +21,12 @@ require (
 	golang.org/x/text v0.40.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260729162451-8efbd57d26e0
 	google.golang.org/grpc v1.81.0
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.55.0
 )
 
 require (
-	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260709200747-435963d16310.1 // indirect
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260709200747-435963d16310.1 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/brunoga/deep v1.3.1 // indirect

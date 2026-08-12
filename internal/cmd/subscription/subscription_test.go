@@ -26,7 +26,10 @@ type fakeSvc struct {
 	checkoutFn   func(context.Context, CheckoutInput) (*CheckoutResult, error)
 	attachFn     func(context.Context, string, string) ([]string, error)
 	detachFn     func(context.Context, string) ([]string, error)
+	catalogFn    func(context.Context) (*Catalog, error)
 }
+
+func (f *fakeSvc) Catalog(ctx context.Context) (*Catalog, error) { return f.catalogFn(ctx) }
 
 func (f *fakeSvc) AttachAddOn(ctx context.Context, addOn, terms string) ([]string, error) {
 	return f.attachFn(ctx, addOn, terms)

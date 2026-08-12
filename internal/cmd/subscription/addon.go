@@ -75,7 +75,15 @@ func addonAddCmd(a *app.App) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			addOn := args[0]
 			if !acceptTerms {
-				tui.Warning("Buying the %q add-on charges your payment method on file immediately.", addOn)
+				price := ""
+				if client, err := a.ControlPlane(); err == nil {
+					price = addOnPriceLabel(cmd.Context(), NewService(client.Connection()), addOn)
+				}
+				if price != "" {
+					tui.Warning("Buying the %q add-on (%s) charges your payment method on file immediately.", addOn, price)
+				} else {
+					tui.Warning("Buying the %q add-on charges your payment method on file immediately.", addOn)
+				}
 				tui.Info("Terms: %s", termsURL)
 				return errors.New("re-run with --accept-terms to confirm")
 			}
@@ -123,6 +131,36 @@ func addonRemoveCmd(a *app.App) *cobra.Command {
 	cmd.Flags().BoolVar(&wait, "wait", true, "wait for the add-on to clear from the subscription")
 	cmd.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "maximum time to wait")
 	return cmd
+}
+
+// addOnPriceLabel returns "" on any failure so a price lookup never blocks the confirm.
+func addOnPriceLabel(ctx context.Context, svc CatalogGetter, addOn string) string {
+	cat, err := svc.Catalog(ctx)
+	if err != nil {
+		return ""
+	}
+	for _, p := range cat.Products {
+		if p.AddOn != addOn {
+			continue
+		}
+		parts := make([]string, 0, len(p.Prices))
+		for _, pr := range p.Prices {
+			parts = append(parts, formatMoney(pr.UnitAmountMinor, pr.Currency)+intervalSuffix(pr.Interval))
+		}
+		return strings.Join(parts, ", ")
+	}
+	return ""
+}
+
+func intervalSuffix(interval string) string {
+	switch interval {
+	case "monthly":
+		return "/mo"
+	case "yearly":
+		return "/yr"
+	default:
+		return ""
+	}
 }
 
 // addOnArg validates a single add-on token argument, listing valid tokens on a

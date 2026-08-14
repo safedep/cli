@@ -127,8 +127,8 @@ func (r *statusResult) RenderJSON() ([]byte, error) {
 		}
 	}
 	if eu := r.acct.Endpoints; eu != nil {
-		// Breakdown is always a list, never null, so consumers can iterate
-		// unconditionally.
+		// Emit [] rather than null when the server sends no breakdown rows,
+		// so consumers can iterate unconditionally.
 		breakdown := []map[string]any{}
 		for _, row := range eu.Breakdown {
 			breakdown = append(breakdown, map[string]any{

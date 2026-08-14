@@ -63,7 +63,7 @@ func priceLabel(prod CatalogProduct, p CatalogPrice) string {
 }
 
 // priceValue is the amount for a price row. A licensed price on a per-unit
-// product reads "$20.00 per seat"; the metered unit is already in the label.
+// product reads "$20.00 per endpoint"; the metered unit is already in the label.
 func priceValue(prod CatalogProduct, p CatalogPrice) string {
 	amount := formatMoney(p.UnitAmountMinor, p.Currency)
 	if !p.Metered && prod.PricingUnit != "" {

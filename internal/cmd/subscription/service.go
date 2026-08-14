@@ -146,6 +146,27 @@ type AccountStatus struct {
 	Trial        *TrialInfo // set only when in an active trial
 	Entitlements []string
 	OnDemand     *OnDemandState // best-effort; nil if unavailable
+	Endpoints    *EndpointUsage // best-effort; nil when the server omits it
+}
+
+// EndpointUsage is the account's SDLC Endpoint consumption for the current
+// billing period. Numbers come from the server as-is: the CLI performs no
+// billing math.
+type EndpointUsage struct {
+	UnitsUsed     int64
+	UnitsIncluded int64 // meaningful only when HasIncluded
+	HasIncluded   bool  // false when the account has no defined allotment
+	Breakdown     []AssetClassUsage
+	PeriodEnd     time.Time // reset instant; zero when the server omits it
+}
+
+// AssetClassUsage is one asset class row of the endpoint usage breakdown. It
+// is mandatory rendering data: the rows explain the units total.
+type AssetClassUsage struct {
+	DisplayName   string
+	ActiveAssets  int64
+	AssetsPerUnit int64
+	Units         int64
 }
 
 type OnDemandState struct {
@@ -257,11 +278,36 @@ func (s *Service) Status(ctx context.Context) (*AccountStatus, error) {
 	for _, e := range res.GetEntitlements() {
 		out.Entitlements = append(out.Entitlements, featureToken(e.GetEntitlement().GetFeature()))
 	}
+	if u := res.GetEndpointUsage(); u != nil {
+		out.Endpoints = endpointUsageFromProto(u)
+	}
 	// On-demand summary is best-effort: a failure here must not fail status.
 	if st, err := s.OnDemandState(ctx); err == nil {
 		out.OnDemand = st
 	}
 	return out, nil
+}
+
+func endpointUsageFromProto(u *msgv1.SdlcEndpointUsage) *EndpointUsage {
+	out := &EndpointUsage{
+		UnitsUsed:   u.GetUnitsUsed(),
+		HasIncluded: u.HasUnitsIncluded(),
+	}
+	if out.HasIncluded {
+		out.UnitsIncluded = u.GetUnitsIncluded()
+	}
+	if u.GetPeriodEnd() != nil {
+		out.PeriodEnd = u.GetPeriodEnd().AsTime()
+	}
+	for _, row := range u.GetBreakdown() {
+		out.Breakdown = append(out.Breakdown, AssetClassUsage{
+			DisplayName:   row.GetDisplayName(),
+			ActiveAssets:  row.GetActiveAssets(),
+			AssetsPerUnit: row.GetAssetsPerUnit(),
+			Units:         row.GetUnits(),
+		})
+	}
+	return out
 }
 
 func (s *Service) ActivateTrial(ctx context.Context) error {

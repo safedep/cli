@@ -126,6 +126,30 @@ func (r *statusResult) RenderJSON() ([]byte, error) {
 			"payment_posture":        r.acct.OnDemand.Posture,
 		}
 	}
+	if eu := r.acct.Endpoints; eu != nil {
+		// Emit [] rather than null when the server sends no breakdown rows,
+		// so consumers can iterate unconditionally.
+		breakdown := []map[string]any{}
+		for _, row := range eu.Breakdown {
+			breakdown = append(breakdown, map[string]any{
+				"class":           row.DisplayName,
+				"active_assets":   row.ActiveAssets,
+				"assets_per_unit": row.AssetsPerUnit,
+				"units":           row.Units,
+			})
+		}
+		endpoints := map[string]any{
+			"units_used": eu.UnitsUsed,
+			"breakdown":  breakdown,
+		}
+		if eu.HasIncluded {
+			endpoints["units_included"] = eu.UnitsIncluded
+		}
+		if !eu.PeriodEnd.IsZero() {
+			endpoints["resets_at"] = eu.PeriodEnd.UTC().Format("2006-01-02")
+		}
+		out["endpoint_usage"] = endpoints
+	}
 	return json.MarshalIndent(out, "", "  ")
 }
 
@@ -141,6 +165,17 @@ func (r *statusResult) RenderPlain() string {
 		fmt.Fprintf(&b, "trial_days_remaining\t%d\n", r.acct.Trial.DaysRemaining)
 	}
 	fmt.Fprintf(&b, "on_demand\t%s\n", onDemandSummary(r.acct.OnDemand))
+	if eu := r.acct.Endpoints; eu != nil {
+		if eu.HasIncluded {
+			fmt.Fprintf(&b, "endpoint_units\t%d / %d\n", eu.UnitsUsed, eu.UnitsIncluded)
+		} else {
+			fmt.Fprintf(&b, "endpoint_units\t%d\n", eu.UnitsUsed)
+		}
+		for _, row := range eu.Breakdown {
+			fmt.Fprintf(&b, "endpoint_class\t%s active=%d per_unit=%d units=%d\n",
+				row.DisplayName, row.ActiveAssets, row.AssetsPerUnit, row.Units)
+		}
+	}
 	if r.showEntitlements {
 		for _, e := range r.acct.Entitlements {
 			fmt.Fprintf(&b, "entitlement\t%s\n", e)
@@ -171,6 +206,9 @@ func (r *statusResult) RenderTable() string {
 			rows = append(rows, []string{a})
 		}
 		parts = append(parts, table.New().Title("Add-ons").Headers("Add-on").Rows(rows...).Render())
+	}
+	if r.acct.Endpoints != nil {
+		parts = append(parts, renderEndpointUsage(r.acct.Endpoints))
 	}
 	if r.showEntitlements && len(r.acct.Entitlements) > 0 {
 		rows := make([][]string, 0, len(r.acct.Entitlements))

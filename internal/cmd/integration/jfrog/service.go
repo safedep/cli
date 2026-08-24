@@ -3,6 +3,7 @@ package jfrog
 
 import (
 	"context"
+	"strings"
 
 	threatintelv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/threatintel/v1"
 	drytui "github.com/safedep/dry/tui"
@@ -73,7 +74,24 @@ func (s *feedService) handlePush(ctx context.Context, report *threatintelv1.Pack
 	}
 
 	name := report.GetPackage().GetName()
-	drytui.Success("Pushed: %s (%s)", name, ecosystemToJFrog(report.GetEcosystem()))
+	versions := displayVersions(report.GetPackage().GetVersions())
+	drytui.Success("Pushed: %s (%s) versions: %s", name, ecosystemToJFrog(report.GetEcosystem()), versions)
 	drytui.Info("  JFrog: %s [%d]", id, status)
 	return nil
+}
+
+// displayVersions renders a report's affected versions for operator logs.
+// An empty list (or one with only empty entries) means every version is
+// affected, mirroring the wire mapping in vulnerableVersionRanges.
+func displayVersions(versions []string) string {
+	cleaned := make([]string, 0, len(versions))
+	for _, v := range versions {
+		if v != "" {
+			cleaned = append(cleaned, v)
+		}
+	}
+	if len(cleaned) == 0 {
+		return "all"
+	}
+	return strings.Join(cleaned, ", ")
 }

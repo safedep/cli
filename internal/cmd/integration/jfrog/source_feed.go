@@ -60,7 +60,7 @@ func (s *feedSource) subscribe(ctx context.Context, onRecord recordHandler) erro
 		err := s.syncOnce(ctx, onRecord)
 		switch {
 		case err == nil:
-			drytui.Info("Feed cycle complete, next in %s", s.pollInterval)
+			drytui.Info("Feed cycle complete at %s, next in %s", time.Now().UTC().Format(time.RFC3339), s.pollInterval)
 		case ctx.Err() != nil:
 			return nil
 		case isCallbackError(err):

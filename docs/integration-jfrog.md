@@ -74,18 +74,16 @@ unwrapped error from `subscribe`.
 
 ## Why this seam
 
-`feedSource` is one realisation. A future stream-backed source (NATS / S2
-JetStream) is a drop-in alternative with different state semantics:
+The `packageSource` interface separates *how reports are fetched* (paging, the
+`updated_at` cursor, the interval loop) from *what we do with them* (validate
+JFrog once, push each report). `feedService` and `jfrogClient` depend only on
+the interface and on `*threatintelv1.PackageReport`, never on the feed
+transport.
 
-| Concern | `feedSource` | stream source (future) |
-|---|---|---|
-| Resume position | KV cursor (client-side `updated_at`) | Consumer offset (server-side) |
-| Delivery loop | Sleep + re-drain | Block on subscription |
-| Acknowledgment | Cursor advance after page | Per-message ack to broker |
-| Network | gRPC unary, paged | Persistent stream |
-
-Any SafeDep source yields `*threatintelv1.PackageReport`, so `feedService` and
-`jfrogClient` do not change when a new source lands.
+`feedSource` is the source. It replaced the earlier malysis
+`ListPackageAnalysisRecords` poll source, which is gone. If SafeDep later
+exposes a different transport for the same reports, it implements
+`packageSource` and nothing in `feedService` or `jfrogClient` changes.
 
 ## Adding a new source
 

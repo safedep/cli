@@ -54,6 +54,7 @@ func newFeedSource(svc threatintelv1grpc.ThreatIntelServiceClient, kv *storage.K
 // cycles is honoured immediately.
 func (s *feedSource) subscribe(ctx context.Context, onRecord recordHandler) error {
 	drytui.Info("Starting JFrog threat intel feed (interval: %s)", s.pollInterval)
+	s.logStartMode(ctx)
 
 	for {
 		err := s.syncOnce(ctx, onRecord)
@@ -78,6 +79,25 @@ func (s *feedSource) subscribe(ctx context.Context, onRecord recordHandler) erro
 			return nil
 		case <-time.After(s.pollInterval):
 		}
+	}
+}
+
+// logStartMode reports once, at startup, whether this run resumes from a
+// saved cursor or starts fresh (with an optional backfill window). syncOnce
+// owns the authoritative cursor read for each drain. A load error here is not
+// fatal to logging: syncOnce surfaces the real error on the first cycle.
+func (s *feedSource) logStartMode(ctx context.Context) {
+	state, err := s.cursor.load(ctx)
+	if err != nil {
+		return
+	}
+	switch {
+	case !state.LastSeenAt.IsZero():
+		drytui.Info("Resuming from saved cursor (last update %s)", state.LastSeenAt.UTC().Format(time.RFC3339))
+	case s.backfillWindow > 0:
+		drytui.Info("No saved cursor: backfilling reports from the last %s", s.backfillWindow)
+	default:
+		drytui.Info("No saved cursor: starting fresh from now")
 	}
 }
 

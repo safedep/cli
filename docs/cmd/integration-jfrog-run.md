@@ -44,7 +44,9 @@ safedep integration jfrog run
 `--backfill 168h` for 7 days). It only affects the **first** run on a fresh
 install: with no stored cursor, the command requests reports updated after
 `now - backfill`. Once a cursor exists, `--backfill` is ignored and the command
-resumes from the last processed report.
+resumes from the last processed report. At startup the command logs which mode
+it uses: resuming from the saved cursor, or starting fresh (with the backfill
+window when set).
 
 ## Environment variables
 
@@ -63,11 +65,12 @@ deployments or CI where passing secrets as CLI arguments is undesirable.
   (`--backfill 0`). It does not pull historical reports unless you set
   `--backfill`.
 - **Malicious only.** Suspicious packages are dropped by the feed before they
-  reach the command. Only malicious reports are pushed to XRay.
+  reach the command. Only malicious reports are pushed to XRay, the same as the
+  previous CLI.
 - **Withdrawn reports.** When SafeDep retracts a report (for example a false
   positive), the feed re-delivers it as withdrawn. The command logs it and, for
-  now, takes no action. Removing the XRay issue on retraction is a planned
-  follow-up.
+  now, takes no action. Deleting the XRay issue on retraction is planned for
+  Stage 2 of this integration.
 - **Resume.** The cursor is stored per SafeDep profile. Restarting the command
   resumes from the last processed report. Switching `--profile` switches the
   cursor.

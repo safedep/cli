@@ -12,11 +12,10 @@ version, which is also `v1` in the path `/xray/api/v1/events`.
 
 `safedep integration jfrog run` ingests verified malicious packages into JFrog XRay
 as Custom Issues. Today it pulls from the malysis `ListPackageAnalysisRecords` API.
-Move the default data source to the ThreatIntel Feed
-(`ThreatIntelService.ListPackageReports`), keeping identical downstream behaviour:
-skip suspicious packages, push malicious ones.
+Move to the ThreatIntel Feed (`ThreatIntelService.ListPackageReports`), keeping identical
+downstream behaviour: skip suspicious packages, push malicious ones.
 
-The existing poll source stays available behind `--source poll`. Feed is the default.
+The Feed becomes the only source. The malysis poll source is removed.
 
 ## Problems this migration solves
 
@@ -50,17 +49,18 @@ seam (see "Withdrawn handling seam"), targeted for a follow-up rather than this 
 
 ## Decisions (confirmed)
 
-1. First run (no cursor): backfill last N days, default 7d, configurable via `--backfill`.
-2. Suspicious: dropped server-side via `Filters.verdict = THREAT_VERDICT_MALICIOUS`.
-3. Withdrawn reports: carried through the pipeline but not acted on yet (logged no-op).
+1. Source: ThreatIntel Feed only. The malysis poll source is removed (no `--source` flag).
+2. First run (no cursor): start fresh from now by default (`--backfill 0`). Extendable via
+   `--backfill` (e.g. `7d`), which seeds `since = now - backfill`.
+3. Suspicious: dropped server-side via `Filters.verdict = THREAT_VERDICT_MALICIOUS`.
+4. Withdrawn reports: carried through the pipeline but not acted on yet (logged no-op).
    Code is structured so retraction handling (XRay issue deletion) can be added later
    without a redesign. See "Withdrawn handling seam".
-4. Poll source: kept selectable via `--source poll|feed`, default `feed`.
 5. Out of scope: indicators/IOCs, campaigns, snapshots.
 
 ## Key API differences (malysis List vs ThreatIntel Feed)
 
-| Concern | Old (malysis) | New (threatintel feed) |
+| Concern | Old (malysis, removed) | New (threatintel feed) |
 |---|---|---|
 | Service / method | `MalwareAnalysisService.ListPackageAnalysisRecords` | `ThreatIntelService.ListPackageReports` |
 | Transport | gRPC over data-plane conn | same gRPC data-plane conn (no new transport) |
@@ -68,44 +68,44 @@ seam (see "Withdrawn handling seam"), targeted for a follow-up rather than this 
 | Verdict select | `FilterOption{OnlyMalware, OnlyVerified}` | `Filters.verdict = MALICIOUS` |
 | Time filter | `start_from` on `created_at`, 7-day cutoff | `filters.since` strict `>` on `updatedAt`, no documented cutoff |
 | Sort | implicit | ascending required for reliable incremental sync |
-| First run | server default now-1h | full backfill (we override to now minus `backfill`) |
+| First run | server default now-1h | `since = now - backfill`, default backfill 0 (fresh from now) |
 | Cursor watermark | max `created_at` | max `updatedAt` |
 | Versions | single string, `"0"` = all | `[]string`, empty = all |
 | Issue id source | `AnalysisId` (ULID) | `ReportId` (`SD-<reportId>`), typically 29 chars, guarded at 32 (see "Issue id") |
 | Withdrawn | n/a | `withdrawn: true` re-delivery (carried through, no-op for now) |
 
-Note: the Feed is still an incremental pull (paged, cursor-based). "Not polling"
-means "no longer the malysis List API", not "no interval loop". The feed source reuses
-the same interval-loop shape as the poll source. The endpoint and semantics change.
+Note: the Feed is still an incremental pull (paged, cursor-based). Removing "polling" means
+removing the malysis List API, not the interval loop. The feed source keeps an interval
+loop (sleep between drains); the `--poll-interval` flag is retained and now paces feed
+cycles.
 
-## Architecture: source-agnostic DTO seam
+## Architecture (retype to the feed proto, remove poll)
 
-Today `packageSource`, `recordHandler`, and `jfrogClient` are all typed on
-`*malysisv1...AnalysisRecord`. The feed emits `*threatintelv1.PackageReport`. With both
-sources coexisting, introduce a neutral internal DTO so `jfrogClient` depends on neither
-proto. This aligns with the existing "jfrogClient owns JFrog details, sources own
-delivery" design in [integration-jfrog.md](./integration-jfrog.md).
+Keep the existing seams described in [integration-jfrog.md](./integration-jfrog.md):
+`feedService` validates JFrog once, then delegates to a `packageSource`; `jfrogClient` owns
+all JFrog protocol details. The migration:
 
-```go
-// maliciousPackage is the source-agnostic unit handed to jfrogClient.
-// Both sources translate their wire type into this.
-type maliciousPackage struct {
-    id        string              // stable id for the XRay issue (analysisId or reportId)
-    name      string              // component name
-    ecosystem packagev1.Ecosystem // reused across both sources
-    versions  []string            // empty => all versions affected
-    withdrawn bool                // feed retraction; always false from the poll source
-}
-```
+- Removes the poll source (`poller.go`, `source_poll.go`, `poller_test.go`) and the malysis
+  dependency from this package.
+- Adds `feedSource` implementing `packageSource`.
+- Retypes `recordHandler` and the `jfrogClient` methods from
+  `*malysisv1...AnalysisRecord` to `*threatintelv1.PackageReport`.
 
-`recordHandler` becomes `func(maliciousPackage) error`.
-`jfrogClient` methods take `maliciousPackage`:
+No neutral DTO. With a single source, a translation layer would be dead weight, and
+`jfrogClient` is already coupled to a SafeDep proto today - this swaps which one. Any future
+SafeDep source (e.g. a `streamSource`) also yields `PackageReport`, so the `packageSource`
+seam still generalises.
 
-- `issueID(mp) string` returns `"SD-" + mp.id`
-- `pushMaliciousPackage(ctx, mp) (id string, status int, err error)`
-- `buildEvent(mp) (jfrogEvent, bool)`
-- (future) `deleteMaliciousPackage(ctx, mp) error` slots in here for withdrawn handling.
-  Not built now. See "Withdrawn handling seam".
+`jfrogClient` surface (retyped):
+
+- `issueID(report) string` returns `"SD-" + report.GetReportId()`
+- `pushMaliciousPackage(ctx, report) (id string, status int, err error)`
+- `buildEvent(report) (jfrogEvent, bool)`
+- (future) `deleteMaliciousPackage(ctx, report) error` slots in here. See "Withdrawn
+  handling seam".
+
+`recordHandler` becomes `func(*threatintelv1.PackageReport) error`. `callbackError`
+(source.go) is unchanged and still distinguishes handler errors from transient infra errors.
 
 ### Issue id (reproducible, stable, length-guarded)
 
@@ -114,10 +114,9 @@ construction must be deterministic and stable. Deletion has no way to look an is
 name, so it must reconstruct the exact id that was pushed. This only works if the id is a
 pure, reproducible function of the report.
 
-Format: `issueID(mp) = "SD-" + mp.id`, where `mp.id` is the feed `report_id` (or the poll
-`analysis_id`). This must be documented for operators in
-[integration-jfrog.md](./integration-jfrog.md) so an admin can map an XRay issue back to a
-SafeDep report and vice versa.
+Format: `issueID(report) = "SD-" + report.GetReportId()`. This must be documented for
+operators in [integration-jfrog.md](./integration-jfrog.md) so an admin can map an XRay
+issue back to a SafeDep report and vice versa.
 
 Reproducibility contract (required for deletion):
 
@@ -137,80 +136,77 @@ The schema comment calls `report_id` "the originating investigation ULID" (26-ch
 Crockford Base32 in practice, the same id space as the old `AnalysisId`). But the only
 machine-enforced constraint is buf.validate `min_len=1, max_len=128`. There is NO ULID
 pattern or fixed-length rule. JFrog silently drops any event whose `id` exceeds 32 chars,
-and `"SD-" + report_id` could reach 131. So `buildEvent` skips when `len(issueID(mp)) > 32`
+and `"SD-" + report_id` could reach 131. So `buildEvent` skips when `len(issueID(report)) > 32`
 with a `drytui.Warning`. The `SD-` prefix also satisfies JFrog's id rules (must not start
 with "Xray", not literally "JFrog").
 
-### Skip-rule split (documented change)
+### Skip rules
 
-Currently all skip rules live in `buildEvent`. With a neutral DTO, source-specific
-validity moves into each translator. `buildEvent` keeps only what it can judge from the DTO:
+With a single source, skip rules stay in `buildEvent` (co-located with the wire format, as
+today):
 
-- `buildEvent` skips when `name == ""` (cannot build a component). Empty `versions`
-  is now valid (means all versions) and must NOT be skipped.
-- Poll translator skips: nil `PackageVersion`, empty name, empty version (unchanged
-  behaviour), and maps `"0"` to empty slice (all versions). Always sets `withdrawn=false`.
-- Feed translator skips: nil package, empty name. It does NOT drop `withdrawn` reports.
-  It sets `mp.withdrawn` and delivers them so the destination layer decides what to do
-  (see "Withdrawn handling seam").
-
-[integration-jfrog.md](./integration-jfrog.md) is updated to reflect this split.
+- Skip when the package is nil or `name == ""` (cannot build a component), with a
+  `drytui.Warning`.
+- Empty `versions` is valid (means all versions) and is NOT skipped.
+- Withdrawn reports are NOT skipped in `buildEvent`. The source delivers them and
+  `feedService.handleRecord` decides (no-op now). See "Withdrawn handling seam".
 
 ## Version mapping
 
-Replace single-value `vulnerableVersions(version string) string` with
 `vulnerableVersionRanges(versions []string) []string`:
 
 - `len(versions) == 0` maps to `["(,)"]` (all versions)
 - otherwise maps to `["[v1]", "[v2]", ...]` (bracket notation per version)
 
-This lets one report flag multiple malicious versions in a single XRay component,
-matching `ReportPackage.versions` semantics. The `"0"` sentinel is handled only in the
-poll translator (legacy), never in the feed path.
+One report can flag multiple malicious versions in a single XRay component, matching
+`ReportPackage.versions`. There is no `"0"` sentinel: the feed signals all-versions with an
+empty slice.
 
 ## Feed source (source_feed.go)
 
-`feedSource` implements `packageSource`, mirroring `pollSource`'s interval loop:
+`feedSource` implements `packageSource` with an interval loop:
 
 ```
 subscribe(ctx, onRecord):
   loop until ctx.Done():
     syncOnce(ctx, onRecord)   // one full drain
-    sleep(pollInterval)       // reuse existing interval flag
+    sleep(pollInterval)       // paces feed cycles (--poll-interval)
 ```
 
 `syncOnce` (one drain):
 
-1. Load feed cursor (max `updatedAt`). If zero, `since = now - backfillWindow`.
-2. Fix `since` for the whole drain (same "constant per session" rule as poll's
-   `start_from`. Only the page token advances).
+1. Load cursor (max `updatedAt`). If none, `since = now - backfillWindow`
+   (default backfill 0 -> `since = now`, i.e. fresh).
+2. Fix `since` for the whole drain (constant per session; only the page token advances).
 3. Request per page:
    - `Filters{ since, verdict: MALICIOUS }`
    - `Pagination{ pageSize: 100, sortOrder: ASCENDING, pageToken }`
 4. Per report (ascending):
-   - translate to `maliciousPackage` (carry `withdrawn`), call `onRecord`.
+   - call `onRecord(report)` (which carries `withdrawn` downstream).
    - track max `updatedAt` for every report, withdrawn included, so the cursor advances
      past retractions too.
 5. After each page, persist cursor = max `updatedAt` seen so far (monotonic, forward-only).
 6. Stop when `nextPageToken == ""`. Persist final watermark.
 
-Transient errors (gRPC blip, save failure): log and retry next cycle (unchanged pattern).
-`callbackError` still surfaces from subscribe per the recordHandler contract.
+Transient errors (gRPC blip, save failure): log and retry next cycle. `callbackError`
+surfaces from subscribe per the recordHandler contract.
 
-### Feed cursor storage
+Never omit `since`. Omitting it would request the full feed history; a fresh start is
+`since = now` (backfill 0), not an omitted filter.
 
-Reuse `cursorStore` and `cursorState{LastSeenAt}` from store.go, but under a separate key
-so poll (`created_at`) and feed (`updatedAt`) watermarks never clobber each other when
-switching `--source`:
+### Cursor storage
 
-- poll key: `"cursor"` (existing, unchanged)
-- feed key: `"feed-cursor"` (new const)
+Single profile-scoped KV (via `app.ProfileKV`), namespace `integration-jfrog`, key
+`"cursor"`, value `cursorState{LastSeenAt}` = max `updatedAt`. `store.go` (`cursorStore`,
+`cursorState`) is reused unchanged. Poll is gone, so there is no second key.
 
-Same namespace `integration-jfrog`, still profile-scoped via `app.ProfileKV`.
+Upgrade note: a deployment upgrading from the poll build may have a `"cursor"` value that
+was a `created_at` watermark. It is still a timestamp and remains usable as `since`
+(harmless, at worst re-delivers a little). Fresh installs have no cursor -> `since = now - backfill`.
 
-No 7-day-cutoff reset logic for the feed (not documented for ThreatIntel). If the API
-later rejects a stale `since`, that surfaces as a transient cycle error and is logged.
-Adding auto-reset is a follow-up if needed.
+No 7-day-cutoff reset logic (not documented for ThreatIntel). If the API later rejects a
+stale `since`, that surfaces as a transient cycle error and is logged; auto-reset is a
+follow-up if needed.
 
 ### Idempotency / re-delivery
 
@@ -225,20 +221,18 @@ later iteration, see "Planned upsert design".
 We do not act on retractions yet, but the pipeline is built so we can enable it later
 without a redesign:
 
-- `maliciousPackage` carries `withdrawn bool`. The feed translator sets it from
-  `PackageReport.GetWithdrawn()`; the poll translator always sets false (malysis has no
-  retraction concept).
 - Withdrawn reports are delivered (not dropped at the source) and counted toward the
   cursor, so no report is lost when deletion is later turned on.
-- `feedService.handleRecord` branches on `mp.withdrawn`. Today the withdrawn branch is a
-  logged no-op: `drytui.Info("Withdrawn report %s (%s): retraction handling not yet enabled, skipping", id, name)`.
-  It does NOT push. Later it calls `jfrogClient.deleteMaliciousPackage(ctx, mp)`.
+- `feedService.handleRecord` branches on `report.GetWithdrawn()`. Today the withdrawn
+  branch is a logged no-op:
+  `drytui.Info("Withdrawn report %s (%s): retraction handling not yet enabled, skipping", id, name)`.
+  It does NOT push. Later it calls `jfrogClient.deleteMaliciousPackage(ctx, report)`.
 - `jfrogClient.do` already accepts any HTTP method, so deletion is a small addition
   (`DELETE <eventsPath>/<issueID>`). The exact JFrog contract is confirmed, see
   "Planned deletion design" below.
 
 Net effect: enabling deletion later touches only `handleRecord`'s withdrawn branch and one
-new client method. The source, cursor, DTO shape, and wire-format code are untouched.
+new client method. The source, cursor, and wire-format code are untouched.
 
 ### Planned deletion design (post-migration)
 
@@ -257,8 +251,8 @@ JFrog Delete Issue Event API (Custom Issues V1), confirmed from JFrog docs:
 New client method (only real addition on the client side):
 
 ```go
-func (c *jfrogClient) deleteMaliciousPackage(ctx context.Context, mp maliciousPackage) (int, error) {
-    id := c.issueID(mp)
+func (c *jfrogClient) deleteMaliciousPackage(ctx context.Context, report *threatintelv1.PackageReport) (int, error) {
+    id := c.issueID(report)
     if len(id) > 32 {
         // Over-length ids are never pushed (see "Issue id"), so nothing to delete.
         return 0, nil
@@ -281,13 +275,13 @@ Response handling (best-effort, mirrors push):
 `handleRecord` wiring (replaces the no-op branch):
 
 ```go
-if mp.withdrawn {
-    return s.handleWithdrawn(ctx, mp) // calls client.deleteMaliciousPackage
+if report.GetWithdrawn() {
+    return s.handleWithdrawn(ctx, report) // calls client.deleteMaliciousPackage
 }
 ```
 
-Everything else (source, cursor, DTO, id construction, over-length guard) is already in
-place from this migration, which is the point of the seam.
+Everything else (source, cursor, id construction, over-length guard) is already in place
+from this migration, which is the point of the seam.
 
 ### Planned upsert design (2nd iteration, after deletion)
 
@@ -319,58 +313,62 @@ Reuses the same reproducible id and over-length guard as push and delete.
 
 ## Config and flags (run.go, types.go)
 
-New flags on `run`:
+New flag on `run`:
 
-| Flag | Env | Default | Applies |
+| Flag | Env | Default | Meaning |
 |---|---|---|---|
-| `--source` | `SAFEDEP_INTEGRATION_JFROG_SOURCE` | `feed` | selects `feed` or `poll` |
-| `--backfill` | `SAFEDEP_INTEGRATION_JFROG_BACKFILL` | `168h` (7d) | feed first-run window |
+| `--backfill` | `SAFEDEP_INTEGRATION_JFROG_BACKFILL` | `0` | first-run window; `0` = fresh from now |
 
 Existing flags unchanged: `--instance-url`, `--instance-access-token`, `--poll-interval`.
+The `--source` flag is not added (feed is the only source).
 
-`sourceConfig` gains `kind` (feed|poll) and `backfillWindow time.Duration`.
-`resolveConfig` validates the `--source` value and `--backfill > 0`.
+`sourceConfig` drops any source-kind field and gains `backfillWindow time.Duration`.
+`resolveConfig` validates `--backfill >= 0` (0 is valid; negative is rejected).
 
-`runCmd` wiring:
-
-- `kind == feed`: build `feedSource` with
-  `threatintelv1grpc.NewThreatIntelServiceClient(conn)`, feed cursor KV, pollInterval,
-  backfillWindow.
-- `kind == poll`: existing `pollSource` wiring (unchanged).
+`runCmd` wiring: build `feedSource` with
+`threatintelv1grpc.NewThreatIntelServiceClient(conn)`, the cursor KV, `pollInterval`, and
+`backfillWindow`; hand it to `feedService` which validates JFrog then runs.
 
 ## Files
 
 New:
 
-- `source_feed.go`: feedSource, syncOnce, feed translator.
-- `source_feed_test.go`: fake `ThreatIntelServiceClient`, real `*storage.KV` from temp DB
-  (mirror poller_test.go). Covers: first-run backfill window, cursor advance, ascending
-  paging, malicious-only (verdict filter set), withdrawn delivered and handled as a no-op
-  with the cursor still advancing past it, multi-version mapping, all-versions (empty)
-  mapping, callbackError surfacing.
+- `source_feed.go`: feedSource, syncOnce.
+- `source_feed_test.go`: fake `ThreatIntelServiceClient`, real `*storage.KV` from temp DB.
+  Covers: fresh first run (backfill 0 -> `since = now`), non-zero backfill window, cursor
+  advance, ascending paging, malicious-only (verdict filter set), withdrawn delivered and
+  handled as a no-op with the cursor still advancing past it, multi-version mapping,
+  all-versions (empty) mapping, callbackError surfacing.
+
+Removed:
+
+- `poller.go`, `source_poll.go`, `poller_test.go`: the malysis poll source. Also drop
+  malysis imports elsewhere in the package.
 
 Modified:
 
-- `source.go`: `recordHandler` to `func(maliciousPackage) error`, add `maliciousPackage`
-  DTO (or new small `package.go`).
-- `client.go`: method signatures take `maliciousPackage`, `vulnerableVersions` to
-  `vulnerableVersionRanges`, `buildEvent` skip rule = name only.
-- `service.go`: `handleRecord` uses DTO fields (`mp.name`, `mp.ecosystem`, joined versions),
-  and branches on `mp.withdrawn` (logged no-op for now, the future deletion point).
-- `poller.go` / `source_poll.go`: translate `AnalysisRecord` to `maliciousPackage`
-  (poll-specific skips plus `"0"` to all), loop unchanged.
-- `run.go`: `--source`, `--backfill`, validation, branch wiring.
-- `types.go`: `sourceConfig.kind`, `sourceConfig.backfillWindow`.
-- `client_test.go`: DTO inputs, assert multi-version and all-versions wire payload,
+- `source.go`: `recordHandler` to `func(*threatintelv1.PackageReport) error`. `callbackError`
+  unchanged.
+- `client.go`: methods take `*threatintelv1.PackageReport`; `vulnerableVersions` to
+  `vulnerableVersionRanges`; `buildEvent` skips nil package / empty name; add over-length id
+  guard; `issueID` uses `GetReportId()`.
+- `service.go`: `handleRecord` reads report fields and branches on `report.GetWithdrawn()`
+  (logged no-op for now, the future deletion point).
+- `run.go`: drop `--source`; add `--backfill` (default 0); feed-only wiring.
+- `types.go`: drop source-kind; add `sourceConfig.backfillWindow`.
+- `cmd.go`: help text touch-up if needed.
+- `client_test.go`: report inputs; assert multi-version and all-versions wire payload,
   over-length issue id (> 32 chars) is skipped, and the id is a pure reproducible function
   of the report (same report yields the same `SD-` id every call).
+- `store.go`: reused unchanged.
 
 Docs:
 
-- `docs/integration-jfrog.md`: add feed source row, DTO seam, feed cursor key, skip split,
-  and update the "Issue ID format" section for `report_id` plus the id reproducibility and
-  delete contract.
-- `docs/cmd/integration-jfrog-run.md`: `--source`, `--backfill`, first-run/suspicious/withdrawn.
+- `docs/integration-jfrog.md`: replace the poll/pollSource content with the feed source,
+  update the cursor semantics (updatedAt, single key), the DTO-free client boundary, and the
+  "Issue ID format" section for `report_id` plus the id reproducibility and delete contract.
+- `docs/cmd/integration-jfrog-run.md`: `--backfill` (default 0, fresh), remove `--source`,
+  first-run/suspicious/withdrawn behaviour.
 
 ## Wire payload (unchanged shape, richer versions)
 
@@ -400,9 +398,7 @@ IOCs/indicators, campaigns, snapshots bulk download, feed `since` cutoff auto-re
   withdrawn. This migration does NOT act on withdrawals yet, but deliberately keeps the
   window open (see "Withdrawn handling seam"): the `withdrawn` flag is plumbed end to end
   and counted toward the cursor, so only `handleRecord`'s withdrawn branch plus one
-  `deleteMaliciousPackage` client method remain. Issue deletion has never been supported by
-  this integration (the poll source has no such path either), so it is a net-new
-  capability, not something this migration drops. The XRay delete contract is already
+  `deleteMaliciousPackage` client method remain. The XRay delete contract is already
   confirmed and captured in "Planned deletion design (post-migration)", so the follow-up is
   a small, known change.
 - Existence-aware upsert of changed reports (GET v2 + create-or-update), replacing the blind
@@ -414,10 +410,6 @@ IOCs/indicators, campaigns, snapshots bulk download, feed `since` cutoff auto-re
 - XRay upsert semantics on duplicate issue `id` (affects re-delivery and version updates).
   Carried as an accepted risk for this migration only: the robust fix is the 2nd-iteration
   "Planned upsert design" (existence check + create-or-update), which does not depend on it.
-
-Decided (recorded here to avoid re-litigating): the server-side `withdrawn` filter is left
-unset so withdrawn reports ARE delivered. This is required to keep the deletion seam viable
-later. The `handleRecord` no-op is what suppresses action for now, not a filter.
 
 ## Test / verification
 

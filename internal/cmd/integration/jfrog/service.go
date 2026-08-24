@@ -4,13 +4,13 @@ package jfrog
 import (
 	"context"
 
-	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
+	threatintelv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/threatintel/v1"
 	drytui "github.com/safedep/dry/tui"
 )
 
 // feedService bridges a packageSource to a jfrogClient. The source owns
 // delivery cadence and resume state; feedService handles pre-flight
-// validation, the per-record push, and operator-visible logging.
+// validation, the per-report push, and operator-visible logging.
 type feedService struct {
 	source packageSource
 	client *jfrogClient
@@ -33,32 +33,47 @@ func (s *feedService) run(ctx context.Context) error {
 	}
 	drytui.Success("JFrog connectivity OK (URL + token verified)")
 
-	return s.source.subscribe(ctx, func(record *malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) error {
-		return s.handleRecord(ctx, record)
+	return s.source.subscribe(ctx, func(report *threatintelv1.PackageReport) error {
+		return s.handleRecord(ctx, report)
 	})
 }
 
-// handleRecord pushes a single record and emits user-visible logs.
-// Push errors are logged and swallowed (best-effort delivery): returning
-// nil keeps the source running for the next record.
+// handleRecord routes one report to the right JFrog action.
 //
-// The client's contract: (id="", status==0, nil err) means the record
-// was skipped before any HTTP call (nil PackageVersion, empty name, or
-// empty version). The client already logged the reason, so we must not
+// A withdrawn report is a retraction: the package is no longer considered
+// malicious. Stage 1 carries it through the pipeline (so the cursor
+// advances past it and nothing is lost) but does not act on it yet.
+// Stage 2 replaces this branch with a delete of the XRay issue.
+func (s *feedService) handleRecord(ctx context.Context, report *threatintelv1.PackageReport) error {
+	if report.GetWithdrawn() {
+		drytui.Info("Withdrawn report %s (%s): retraction handling not yet enabled, skipping",
+			s.client.issueID(report), report.GetPackage().GetName())
+		return nil
+	}
+
+	return s.handlePush(ctx, report)
+}
+
+// handlePush pushes a single report and emits user-visible logs. Push
+// errors are logged and swallowed (best-effort delivery): returning nil
+// keeps the source running for the next report.
+//
+// The client's contract: (id="", status==0, nil err) means the report
+// was skipped before any HTTP call (no package, empty name, or
+// over-length id). The client already logged the reason, so we must not
 // emit a misleading "Pushed:" line.
-func (s *feedService) handleRecord(ctx context.Context, record *malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) error {
-	id, status, err := s.client.pushMaliciousPackage(ctx, record)
+func (s *feedService) handlePush(ctx context.Context, report *threatintelv1.PackageReport) error {
+	id, status, err := s.client.pushMaliciousPackage(ctx, report)
 	if err != nil {
-		drytui.Warning("Push failed for %s: %v", record.GetAnalysisId(), err)
+		drytui.Warning("Push failed for %s: %v", report.GetReportId(), err)
 		return nil
 	}
 	if status == 0 {
 		return nil
 	}
-	pv := record.GetTarget().GetPackageVersion()
-	name := pv.GetPackage().GetName()
-	version := pv.GetVersion()
-	drytui.Success("Pushed: %s@%s (%s)", name, version, ecosystemToJFrog(pv.GetPackage().GetEcosystem()))
+
+	name := report.GetPackage().GetName()
+	drytui.Success("Pushed: %s (%s)", name, ecosystemToJFrog(report.GetEcosystem()))
 	drytui.Info("  JFrog: %s [%d]", id, status)
 	return nil
 }

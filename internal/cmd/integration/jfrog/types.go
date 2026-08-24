@@ -11,10 +11,15 @@ type cmdConfig struct {
 	jfrog  jfrogConfig
 }
 
-// sourceConfig groups the SafeDep-side polling parameters.
+// sourceConfig groups the SafeDep-side feed parameters.
 type sourceConfig struct {
-	// PollInterval is the sleep duration between successful poll cycles.
+	// pollInterval is the sleep duration between feed drains.
 	pollInterval time.Duration
+
+	// backfillWindow seeds the first-run since filter: on a fresh install
+	// with no cursor, since = now - backfillWindow. The default of 0 means
+	// a fresh start from now (no history pulled).
+	backfillWindow time.Duration
 }
 
 // jfrogConfig groups the XRay HTTP endpoint and bearer credential. The URL

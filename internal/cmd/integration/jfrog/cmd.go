@@ -14,9 +14,9 @@ func Register(parent *cobra.Command, a *app.App) {
 		Short: "JFrog XRay integration commands",
 		Long: `Integrate SafeDep malicious package threat intelligence with JFrog XRay.
 
-The integration polls the SafeDep Threat Intelligence API for verified malicious
-packages and pushes each finding to JFrog XRay as a Custom Issue. Once an issue
-is recorded, any XRay security policy with a malware-block action automatically
+The integration streams verified malicious packages from the SafeDep ThreatIntel
+Feed and pushes each finding to JFrog XRay as a Custom Issue. Once an issue is
+recorded, any XRay security policy with a malware-block action automatically
 prevents those packages from being downloaded across the JFrog instance.
 
 Authentication uses the active SafeDep profile (see 'safedep auth login') for

@@ -36,21 +36,26 @@ func TestRegister_buildsJFrogTree(t *testing.T) {
 		assert.NotNil(t, leaf.Flags().Lookup("instance-url"))
 		assert.NotNil(t, leaf.Flags().Lookup("instance-access-token"))
 		assert.NotNil(t, leaf.Flags().Lookup("poll-interval"))
+		assert.NotNil(t, leaf.Flags().Lookup("backfill"))
 		// --cursor-file removed: cursor is now stored in the profile-scoped KV store.
 		assert.Nil(t, leaf.Flags().Lookup("cursor-file"))
+		// --source removed: the ThreatIntel Feed is the only source.
+		assert.Nil(t, leaf.Flags().Lookup("source"))
 	})
 }
 
 func TestResolveConfig(t *testing.T) {
 	tests := []struct {
-		name      string
-		in        runInput
-		envURL    string
-		envToken  string
-		wantURL   string
-		wantToken string
-		wantPoll  time.Duration
-		wantErr   bool
+		name         string
+		in           runInput
+		envURL       string
+		envToken     string
+		envBackfill  string
+		wantURL      string
+		wantToken    string
+		wantPoll     time.Duration
+		wantBackfill time.Duration
+		wantErr      bool
 	}{
 		{
 			name: "flags supply both url and token",
@@ -156,6 +161,52 @@ func TestResolveConfig(t *testing.T) {
 			wantToken: "flag-tok",
 			wantPoll:  time.Second,
 		},
+		{
+			name: "backfill flag carried through",
+			in: runInput{
+				InstanceURL:         "https://example.jfrog.io",
+				InstanceAccessToken: "tok",
+				PollInterval:        time.Second,
+				Backfill:            24 * time.Hour,
+			},
+			wantURL:      "https://example.jfrog.io",
+			wantToken:    "tok",
+			wantPoll:     time.Second,
+			wantBackfill: 24 * time.Hour,
+		},
+		{
+			name: "backfill from env when flag unset",
+			in: runInput{
+				InstanceURL:         "https://example.jfrog.io",
+				InstanceAccessToken: "tok",
+				PollInterval:        time.Second,
+			},
+			envBackfill:  "168h",
+			wantURL:      "https://example.jfrog.io",
+			wantToken:    "tok",
+			wantPoll:     time.Second,
+			wantBackfill: 168 * time.Hour,
+		},
+		{
+			name: "invalid backfill env rejected",
+			in: runInput{
+				InstanceURL:         "https://example.jfrog.io",
+				InstanceAccessToken: "tok",
+				PollInterval:        time.Second,
+			},
+			envBackfill: "not-a-duration",
+			wantErr:     true,
+		},
+		{
+			name: "negative backfill flag rejected",
+			in: runInput{
+				InstanceURL:         "https://example.jfrog.io",
+				InstanceAccessToken: "tok",
+				PollInterval:        time.Second,
+				Backfill:            -1 * time.Hour,
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -165,6 +216,7 @@ func TestResolveConfig(t *testing.T) {
 			// cannot pollute this case.
 			t.Setenv(envJFrogURL, tt.envURL)
 			t.Setenv(envJFrogToken, tt.envToken)
+			t.Setenv(envJFrogBackfill, tt.envBackfill)
 
 			cfg, err := resolveConfig(tt.in)
 			if tt.wantErr {
@@ -175,6 +227,7 @@ func TestResolveConfig(t *testing.T) {
 			assert.Equal(t, tt.wantURL, cfg.jfrog.url)
 			assert.Equal(t, tt.wantToken, cfg.jfrog.accessToken)
 			assert.Equal(t, tt.wantPoll, cfg.source.pollInterval)
+			assert.Equal(t, tt.wantBackfill, cfg.source.backfillWindow)
 		})
 	}
 }

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	malysisv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
+	threatintelv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/threatintel/v1/threatintelv1grpc"
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/config"
 	"github.com/spf13/cobra"
@@ -21,11 +21,14 @@ const (
 	// is read at runtime via config.EnvVar.
 	envJFrogToken = "SAFEDEP_INTEGRATION_JFROG_ARTIFACTORY_ACCESS_TOKEN" // #nosec G101
 
+	// envJFrogBackfill is the env fallback for --backfill.
+	envJFrogBackfill = "SAFEDEP_INTEGRATION_JFROG_BACKFILL"
+
 	// kvNamespace is the profile-scoped KV namespace for this integration.
 	// Must match ^[a-z][a-z0-9_-]{0,63}$.
 	kvNamespace = "integration-jfrog"
 
-	// cursorKey is the single KV key used to store the poll cursor.
+	// cursorKey is the single KV key used to store the feed cursor.
 	kvCursorKey = "cursor"
 )
 
@@ -35,6 +38,7 @@ type runInput struct {
 	InstanceURL         string
 	InstanceAccessToken string
 	PollInterval        time.Duration
+	Backfill            time.Duration
 }
 
 func runCmd(a *app.App) *cobra.Command {
@@ -43,7 +47,7 @@ func runCmd(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Run the JFrog XRay malicious package feed",
-		Long:  "Poll SafeDep for verified malicious packages and push them to JFrog XRay as Custom Issues.",
+		Long:  "Stream verified malicious packages from the SafeDep ThreatIntel Feed and push them to JFrog XRay as Custom Issues.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, err := a.DataPlane()
 			if err != nil {
@@ -63,10 +67,11 @@ func runCmd(a *app.App) *cobra.Command {
 				return fmt.Errorf("run: open cursor store: %w", err)
 			}
 
-			source := newPollSource(
-				malysisv1grpc.NewMalwareAnalysisServiceClient(client.Connection()),
+			source := newFeedSource(
+				threatintelv1grpc.NewThreatIntelServiceClient(client.Connection()),
 				kv,
 				cfg.source.pollInterval,
+				cfg.source.backfillWindow,
 			)
 			jc := newJFrogClient(cfg.jfrog)
 
@@ -76,7 +81,8 @@ func runCmd(a *app.App) *cobra.Command {
 
 	cmd.Flags().StringVar(&in.InstanceURL, "instance-url", "", "JFrog instance URL (or "+envJFrogURL+")")
 	cmd.Flags().StringVar(&in.InstanceAccessToken, "instance-access-token", "", "JFrog access token (or "+envJFrogToken+")")
-	cmd.Flags().DurationVar(&in.PollInterval, "poll-interval", 60*time.Second, "sleep duration between poll cycles")
+	cmd.Flags().DurationVar(&in.PollInterval, "poll-interval", 60*time.Second, "sleep duration between feed drains")
+	cmd.Flags().DurationVar(&in.Backfill, "backfill", 0, "first-run window to seed the cursor (e.g. 24h, 168h); 0 starts fresh from now (or "+envJFrogBackfill+")")
 
 	return cmd
 }
@@ -85,8 +91,8 @@ func runCmd(a *app.App) *cobra.Command {
 // runtime Config. Resolution precedence (highest to lowest):
 //
 //  1. Explicit CLI flag value
-//  2. Corresponding SAFEDEP_INTEGRATION_JFROG_ARTIFACTORY_* environment variable
-//  3. Built-in default (only for poll interval)
+//  2. Corresponding SAFEDEP_INTEGRATION_JFROG_* environment variable
+//  3. Built-in default (poll interval, backfill window)
 //
 // Required parameters that cannot be defaulted (URL, access token) cause a
 // hard error so the daemon fails fast at startup rather than running blind.
@@ -116,15 +122,34 @@ func resolveConfig(in runInput) (cmdConfig, error) {
 	}
 
 	// time.After(<= 0) fires immediately. A zero or negative interval would
-	// turn the poll loop into a tight infinite hammer on the SafeDep API
-	// with no backoff — refuse rather than silently DoS the upstream.
+	// turn the feed loop into a tight infinite hammer on the SafeDep API
+	// with no backoff. Refuse rather than silently DoS the upstream.
 	if in.PollInterval <= 0 {
 		return cmdConfig{}, fmt.Errorf("run: --poll-interval must be positive, got %s", in.PollInterval)
 	}
 
+	// A zero backfill (the default) means a fresh start from now. The env
+	// fallback is read only when the flag was left at its default: both a
+	// missing flag and --backfill 0 mean the same thing, so distinguishing
+	// them is unnecessary.
+	backfill := in.Backfill
+	if backfill == 0 {
+		if v := config.EnvVar(envJFrogBackfill); v != "" {
+			d, err := time.ParseDuration(v)
+			if err != nil {
+				return cmdConfig{}, fmt.Errorf("run: invalid %s %q: %w", envJFrogBackfill, v, err)
+			}
+			backfill = d
+		}
+	}
+	if backfill < 0 {
+		return cmdConfig{}, fmt.Errorf("run: --backfill must be >= 0, got %s", backfill)
+	}
+
 	return cmdConfig{
 		source: sourceConfig{
-			pollInterval: in.PollInterval,
+			pollInterval:   in.PollInterval,
+			backfillWindow: backfill,
 		},
 		jfrog: jfrogConfig{
 			url:         url,

@@ -4,21 +4,21 @@ import (
 	"context"
 	"errors"
 
-	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
+	threatintelv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/threatintel/v1"
 )
 
-// packageSource delivers verified malicious package records to the
-// supplied callback. Implementations may pull (poll the gRPC API) or
-// push (subscribe to a stream); feedService is agnostic to the delivery
+// packageSource delivers malicious package reports to the supplied
+// callback. Implementations own how reports are fetched (a paged gRPC
+// pull today, a stream later). feedService is agnostic to the delivery
 // mechanism.
 //
 // Each source owns its own cadence and resume state:
-//   - pollSource owns a KV cursor and the poll-interval sleep loop.
+//   - feedSource owns a KV cursor and the interval sleep loop.
 //
-// feedService never sees these details — it only consumes the records.
+// feedService never sees these details. It only consumes the reports.
 type packageSource interface {
-	// Subscribe blocks until ctx is cancelled. For each verified
-	// malicious package the source invokes onRecord exactly once.
+	// Subscribe blocks until ctx is cancelled. For each malicious
+	// package report the source invokes onRecord exactly once.
 	//
 	// Transient errors (gRPC failures, network blips) are logged
 	// internally and the source continues. Only fatal startup errors
@@ -26,10 +26,10 @@ type packageSource interface {
 	subscribe(ctx context.Context, onRecord recordHandler) error
 }
 
-// recordHandler is the per-record callback invoked by a packageSource.
+// recordHandler is the per-report callback invoked by a packageSource.
 // Returning a non-nil error stops further delivery for the current
 // session; the source surfaces the error from Subscribe.
-type recordHandler func(*malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) error
+type recordHandler func(*threatintelv1.PackageReport) error
 
 // callbackError wraps an error returned by a recordHandler. Sources use
 // this wrapper to distinguish a callback error (which must surface from

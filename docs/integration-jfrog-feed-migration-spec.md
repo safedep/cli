@@ -153,14 +153,42 @@ today):
 
 ## Version mapping
 
+A report's `ReportPackage.versions` may be empty (all versions) or list one or more exact
+versions. All of them map into a single component's `vulnerable_versions` (one report = one
+issue = one component, regardless of version count).
+
 `vulnerableVersionRanges(versions []string) []string`:
 
-- `len(versions) == 0` maps to `["(,)"]` (all versions)
-- otherwise maps to `["[v1]", "[v2]", ...]` (bracket notation per version)
+- Bracket every non-empty entry: `"1.0.0"` -> `"[1.0.0]"`.
+- Drop empty-string entries. The feed's per-item validate rule bounds each version to
+  <= 256 chars but has NO min length, so an empty entry is possible, and `"[]"` is silently
+  dropped by XRay. Skipping it avoids a malformed range slipping into an otherwise valid list.
+- If nothing remains (input was empty, or every entry was empty) return `["(,)"]`
+  (all versions).
 
-One report can flag multiple malicious versions in a single XRay component, matching
-`ReportPackage.versions`. There is no `"0"` sentinel: the feed signals all-versions with an
-empty slice.
+```go
+func vulnerableVersionRanges(versions []string) []string {
+    ranges := make([]string, 0, len(versions))
+    for _, v := range versions {
+        if v == "" {
+            continue // "[]" is silently dropped by XRay
+        }
+        ranges = append(ranges, "["+v+"]")
+    }
+    if len(ranges) == 0 {
+        return []string{"(,)"} // empty list => every version affected
+    }
+    return ranges
+}
+```
+
+Examples:
+
+- `[]` -> `["(,)"]` (all versions)
+- `["1.0.0"]` -> `["[1.0.0]"]`
+- `["1.0.0","1.0.1","2.0.0"]` -> `["[1.0.0]","[1.0.1]","[2.0.0]"]` (one component)
+
+There is no `"0"` sentinel: the feed signals all-versions with an empty slice.
 
 ## Feed source (source_feed.go)
 

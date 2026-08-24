@@ -1,8 +1,8 @@
 # Spec: Migrate JFrog integration from malysis polling to ThreatIntel Feed
 
 Status: proposed. Scope: `internal/cmd/integration/jfrog/`.
-Companion docs: [integration-jfrog.md](./integration-jfrog.md) (developer guide),
-[cmd/integration-jfrog-run.md](./cmd/integration-jfrog-run.md) (end-user).
+Companion docs: [integration-jfrog.md](../integration-jfrog.md) (developer guide),
+[cmd/integration-jfrog-run.md](../cmd/integration-jfrog-run.md) (end-user).
 
 Delivered in three stages (see "Staged delivery"). "Stage N" is our delivery phase and is
 unrelated to the JFrog XRay API version, which appears as `v1`/`v2` in paths like
@@ -92,7 +92,7 @@ cycles.
 
 ## Architecture (Stage 1: retype to the feed proto, remove poll)
 
-Keep the existing seams described in [integration-jfrog.md](./integration-jfrog.md):
+Keep the existing seams described in [integration-jfrog.md](../integration-jfrog.md):
 `feedService` validates JFrog once, then delegates to a `packageSource`; `jfrogClient` owns
 all JFrog protocol details. Stage 1:
 
@@ -126,7 +126,7 @@ to look an issue up by name; they must reconstruct the exact id that was pushed.
 works if the id is a pure, reproducible function of the report.
 
 Format: `issueID(report) = "SD-" + report.GetReportId()`. This must be documented for
-operators in [integration-jfrog.md](./integration-jfrog.md) so an admin can map an XRay
+operators in [integration-jfrog.md](../integration-jfrog.md) so an admin can map an XRay
 issue back to a SafeDep report and vice versa.
 
 Reproducibility contract (required for Stages 2 and 3):

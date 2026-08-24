@@ -53,7 +53,7 @@ func newFeedSource(svc threatintelv1grpc.ThreatIntelServiceClient, kv *storage.K
 // single bad cycle must not bring down the daemon. Cancellation between
 // cycles is honoured immediately.
 func (s *feedSource) subscribe(ctx context.Context, onRecord recordHandler) error {
-	drytui.Info("Starting JFrog threat intel feed (interval: %s)", s.pollInterval)
+	drytui.Info("Starting JFrog Syncing with SafeDep Threat Intel Feed")
 	s.logStartMode(ctx)
 
 	for {

@@ -263,6 +263,21 @@ longer considered malicious (for example a false positive is retracted).
   a logged no-op. Stage 2 replaces this branch with a `DELETE` of the XRay issue
   keyed by the reproducible `SD-<report_id>`.
 
+## Issue summary and description
+
+The XRay Custom Issue carries a `summary` (short headline) and a `description`
+(longer body). Both come from the feed's human-authored text:
+
+- `summary` <- `report.GetTitle()`
+- `description` <- `report.GetSummary()`
+
+Either field can be empty on a report (for example an automated report that is
+not human-verified). When empty, `buildEvent` falls back to a synthesized line
+so the issue never carries a blank field:
+
+- summary fallback: `MALICIOUS PACKAGE: <name> contains malicious code`
+- description fallback: `<name> has been identified as a malicious package by SafeDep threat intelligence.`
+
 ## Testing the wire format
 
 `client_test.go` uses `httptest.NewServer` to capture requests and assert

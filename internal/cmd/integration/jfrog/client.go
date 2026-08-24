@@ -200,6 +200,19 @@ func (c *jfrogClient) buildEvent(report *threatintelv1.PackageReport) (jfrogEven
 		return jfrogEvent{}, false
 	}
 
+	// Prefer the feed's human-authored title and summary. They are richer
+	// than anything we can synthesize, but they can be empty on a report
+	// (for example automated, not human-verified), so fall back to a
+	// synthesized line rather than push a blank field.
+	summary := report.GetTitle()
+	if summary == "" {
+		summary = fmt.Sprintf("MALICIOUS PACKAGE: %s contains malicious code", name)
+	}
+	description := report.GetSummary()
+	if description == "" {
+		description = fmt.Sprintf("%s has been identified as a malicious package by SafeDep threat intelligence.", name)
+	}
+
 	return jfrogEvent{
 		ID:          id,
 		Type:        "Security",
@@ -207,8 +220,8 @@ func (c *jfrogClient) buildEvent(report *threatintelv1.PackageReport) (jfrogEven
 		PackageType: ecosystemToJFrog(report.GetEcosystem()),
 		Severity:    "Critical",
 		IssueKind:   1,
-		Summary:     fmt.Sprintf("MALICIOUS PACKAGE: %s contains malicious code", name),
-		Description: fmt.Sprintf("%s has been identified as a malicious package by SafeDep threat intelligence.", name),
+		Summary:     summary,
+		Description: description,
 		Properties:  map[string]any{},
 		Components: []jfrogComponent{{
 			ID:                 name,

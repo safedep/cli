@@ -101,6 +101,32 @@ func TestPush_HappyPath_ConstructsCorrectRequest(t *testing.T) {
 
 	require.Len(t, event.Sources, 1)
 	assert.Equal(t, "safedep-threat-intel", event.Sources[0].SourceID)
+
+	// No feed title/summary on this report, so both fields fall back to
+	// the synthesized text.
+	assert.Equal(t, "MALICIOUS PACKAGE: make-array contains malicious code", event.Summary)
+	assert.Equal(t, "make-array has been identified as a malicious package by SafeDep threat intelligence.", event.Description)
+}
+
+func TestPush_UsesFeedTitleAndSummary(t *testing.T) {
+	srv, cap := newJFrogMock(t, http.StatusCreated, "")
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+
+	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "secretkey-2fa", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
+	report.SetTitle("secretkey-2fa exfiltrates 2FA secrets")
+	report.SetSummary("The package steals TOTP seeds on install and posts them to an attacker-controlled host.")
+	_, _, err := c.pushMaliciousPackage(context.Background(), report)
+	require.NoError(t, err)
+
+	require.Len(t, *cap, 1)
+	var event jfrogEvent
+	require.NoError(t, json.Unmarshal((*cap)[0].body, &event))
+
+	// The feed's human-authored text takes precedence over synthesized text.
+	assert.Equal(t, "secretkey-2fa exfiltrates 2FA secrets", event.Summary,
+		"XRay summary uses the report title when present")
+	assert.Equal(t, "The package steals TOTP seeds on install and posts them to an attacker-controlled host.", event.Description,
+		"XRay description uses the report summary when present")
 }
 
 func TestPush_MultipleVersions_OneComponentManyRanges(t *testing.T) {

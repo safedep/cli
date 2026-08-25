@@ -167,8 +167,9 @@ func (c *jfrogClient) buildEvent(report *threatintelv1.PackageReport) (jfrogEven
 		return jfrogEvent{}, false
 	}
 
-	// Skip, do not truncate: a truncated id breaks Stage 2/3 reconstruction,
-	// and an id too long to push is too long to delete.
+	// JFrog silently drops an event whose id is too long, so skip it. Skip
+	// rather than truncate: the id must stay a pure function of report_id so
+	// Stage 2/3 can reconstruct it.
 	id := c.issueID(report)
 	if len(id) > maxIssueIDLen {
 		drytui.Warning("Skipping report %s: issue id %q exceeds JFrog %d-char limit", report.GetReportId(), id, maxIssueIDLen)

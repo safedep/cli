@@ -47,6 +47,5 @@ func (c *printClient) pushMaliciousPackage(_ context.Context, report *threatinte
 	versions := displayVersions(report.GetPackage().GetVersions())
 	drytui.Success("Would push: %s (%s) versions: %s", report.GetPackage().GetName(), event.PackageType, versions)
 	drytui.Info("  JFrog issue id: %s", event.ID)
-	drytui.Info("  summary: %s", event.Summary)
 	return event.ID, 0, nil
 }

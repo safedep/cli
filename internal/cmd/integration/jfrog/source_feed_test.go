@@ -316,6 +316,51 @@ func TestSubscribe_NotEntitled_StopsImmediately(t *testing.T) {
 	assert.Len(t, fake.captured, 1, "must not retry after an entitlement failure")
 }
 
+func TestSyncOnce_AuthFailure_ReturnsAuthError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "internal status naming the api key",
+			err:  status.Error(codes.Internal, "unauthenticated: api key auth failed: api key does not belong to tenant"),
+		},
+		{
+			name: "unauthenticated status",
+			err:  status.Error(codes.Unauthenticated, "missing credentials"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := &fakeThreatIntelClient{queue: []fakeReportsResp{{err: tt.err}}}
+			src := newFeedSource(fake, newTestKV(t), time.Minute, 0)
+
+			handler, _ := drainHandler()
+			err := src.syncOnce(context.Background(), handler)
+			require.ErrorIs(t, err, errFeedAuth, "a data-plane auth failure maps to the friendly auth error")
+		})
+	}
+}
+
+func TestSubscribe_AuthFailure_StopsImmediately(t *testing.T) {
+	authErr := status.Error(codes.Internal, "unauthenticated: api key auth failed: api key does not belong to tenant")
+	fake := &fakeThreatIntelClient{queue: []fakeReportsResp{{err: authErr}}}
+
+	// Long interval so a wrongly-retrying implementation would hang the test.
+	src := newFeedSource(fake, newTestKV(t), time.Hour, 0)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	handler, _ := drainHandler()
+	err := src.subscribe(ctx, handler)
+
+	require.ErrorIs(t, err, errFeedAuth, "the auth error must surface from subscribe")
+	require.NoError(t, ctx.Err(), "subscribe must stop immediately, not wait for the interval")
+	assert.Len(t, fake.captured, 1, "must not retry after an auth failure")
+}
+
 func TestSyncOnce_CallbackError_StopsAndWraps(t *testing.T) {
 	base := time.Now().UTC().Add(-30 * time.Minute).Truncate(time.Second)
 	fake := &fakeThreatIntelClient{queue: []fakeReportsResp{{resp: makeReportsPage(base, "",

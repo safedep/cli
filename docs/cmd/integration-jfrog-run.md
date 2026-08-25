@@ -88,10 +88,25 @@ Requires **Manage Xray Metadata** permission on your JFrog instance.
 
 ## SafeDep authentication
 
+The feed reads the SafeDep data plane (`api.safedep.io`), which authenticates
+with an **API key** that belongs to your tenant. Authenticate with one of:
+
+```bash
+# API key login
+safedep auth login --tenant your-tenant.safedep.io --api-key --api-key-value YOUR_API_KEY
+
+# or environment variables (no login needed)
+export SAFEDEP_TENANT_ID=your-tenant.safedep.io
+export SAFEDEP_API_KEY=YOUR_API_KEY
+```
+
 Credentials are resolved in this order:
 
 1. `SAFEDEP_API_KEY` + `SAFEDEP_TENANT_ID` environment variables
 2. Keychain credentials stored by `safedep auth login`
+
+An OAuth-only login does not provide the data-plane API key, so the command
+stops with a message telling you to authenticate with an API key.
 
 Use `--profile` to switch between multiple SafeDep tenants:
 

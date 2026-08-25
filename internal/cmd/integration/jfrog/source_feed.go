@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	threatintelv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/threatintel/v1/threatintelv1grpc"
@@ -23,6 +24,26 @@ import (
 var errFeedNotEntitled = errors.New(
 	"the SafeDep JFrog XRay integration is available with the Threat Intel Feed add-on, " +
 		"which is not enabled for this tenant. See the pricing page: https://safedep.io/pricing/#ti")
+
+// errFeedAuth marks the data-plane rejecting the SafeDep credential (wrong or
+// missing API key for the tenant, often after an OAuth-only login). Not
+// transient, so subscribe stops with how to authenticate for the feed.
+var errFeedAuth = errors.New(
+	"SafeDep authentication failed for the Threat Intel Feed. The feed reads the data plane " +
+		"(api.safedep.io), which needs an API key that belongs to your tenant. Authenticate with an API key:\n" +
+		"  safedep auth login --tenant <tenant>.safedep.io --api-key --api-key-value <API_KEY>\n" +
+		"or set SAFEDEP_API_KEY and SAFEDEP_TENANT_ID in the environment.")
+
+// isFeedAuthError reports whether the feed rejected our SafeDep credential. The
+// server returns Unauthenticated, or wraps the auth failure in an Internal
+// status whose message names the API key.
+func isFeedAuthError(err error) bool {
+	if status.Code(err) == codes.Unauthenticated {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "api key auth failed") || strings.Contains(msg, "does not belong to tenant")
+}
 
 // feedSource pulls malicious package reports from the ThreatIntel Feed on an
 // interval, resuming from a profile-scoped cursor (see store.go).
@@ -65,8 +86,8 @@ func (s *feedSource) subscribe(ctx context.Context, onRecord recordHandler) erro
 		case isCallbackError(err):
 			// A handler error must surface. Unwrap the internal wrapper first.
 			return errors.Unwrap(err)
-		case errors.Is(err, errFeedNotEntitled):
-			// Not transient: the tenant lacks the add-on. Stop, don't loop.
+		case errors.Is(err, errFeedNotEntitled), errors.Is(err, errFeedAuth):
+			// Not transient (missing add-on or bad credential). Stop, don't loop.
 			return err
 		default:
 			// Transient infra error. Log and retry next cycle.
@@ -139,10 +160,14 @@ func (s *feedSource) syncOnce(ctx context.Context, onRecord recordHandler) error
 
 		resp, err := s.svc.ListPackageReports(ctx, req)
 		if err != nil {
-			if status.Code(err) == codes.PermissionDenied {
+			switch {
+			case status.Code(err) == codes.PermissionDenied:
 				return errFeedNotEntitled
+			case isFeedAuthError(err):
+				return errFeedAuth
+			default:
+				return fmt.Errorf("feed: list reports: %w", err)
 			}
-			return fmt.Errorf("feed: list reports: %w", err)
 		}
 
 		for _, report := range resp.GetPackageReports() {

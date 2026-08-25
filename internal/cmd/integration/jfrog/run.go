@@ -128,10 +128,8 @@ func resolveConfig(in runInput) (cmdConfig, error) {
 		return cmdConfig{}, fmt.Errorf("run: --poll-interval must be positive, got %s", in.PollInterval)
 	}
 
-	// A zero backfill (the default) means a fresh start from now. The env
-	// fallback is read only when the flag was left at its default: both a
-	// missing flag and --backfill 0 mean the same thing, so distinguishing
-	// them is unnecessary.
+	// Read the env fallback only when the flag is unset. 0 and unset both mean
+	// "fresh from now", so there is nothing to disambiguate.
 	backfill := in.Backfill
 	if backfill == 0 {
 		if v := config.EnvVar(envJFrogBackfill); v != "" {

@@ -15,15 +15,12 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// feedSource is a packageSource backed by the SafeDep ThreatIntel Feed
-// (ThreatIntelService.ListPackageReports). It runs an interval loop,
-// sleeping pollInterval between drains, and uses a profile-scoped KV
-// cursor (see store.go) to resume across restarts.
+// feedSource pulls malicious package reports from the ThreatIntel Feed on an
+// interval, resuming from a profile-scoped cursor (see store.go).
 //
-// The cursor watermark is the max updated_at seen. Unlike a creation-time
-// list, the feed re-delivers a report on every material change (a
-// suspicious to malicious upgrade, a new affected version, a withdrawal),
-// so an updated_at cursor never moves past a report before it is verified.
+// The cursor is the max updated_at seen. The feed re-delivers a report on any
+// change (verification, new version, withdrawal), so unlike a created_at list
+// the cursor never skips a report before it is verified.
 type feedSource struct {
 	svc            threatintelv1grpc.ThreatIntelServiceClient
 	cursor         *cursorStore
@@ -31,11 +28,8 @@ type feedSource struct {
 	backfillWindow time.Duration
 }
 
-const (
-	// feedPageSize is the number of reports requested per page. The server
-	// caps reports at 100, so ask for exactly that.
-	feedPageSize = 100
-)
+// feedPageSize matches the server's cap of 100 reports per page.
+const feedPageSize = 100
 
 func newFeedSource(svc threatintelv1grpc.ThreatIntelServiceClient, kv *storage.KV[cursorState], pollInterval, backfillWindow time.Duration) *feedSource {
 	return &feedSource{
@@ -46,12 +40,8 @@ func newFeedSource(svc threatintelv1grpc.ThreatIntelServiceClient, kv *storage.K
 	}
 }
 
-// subscribe drives the feed loop until ctx is cancelled.
-//
-// Per-cycle errors (gRPC failures, transient network, cursor save
-// failures) are surfaced via drytui.Warning and the loop continues. A
-// single bad cycle must not bring down the daemon. Cancellation between
-// cycles is honoured immediately.
+// subscribe drives the feed loop until ctx is cancelled. A bad cycle is logged
+// and retried, never fatal.
 func (s *feedSource) subscribe(ctx context.Context, onRecord recordHandler) error {
 	drytui.Info("Starting JFrog Syncing with SafeDep Threat Intel Feed")
 	s.logStartMode(ctx)
@@ -64,13 +54,10 @@ func (s *feedSource) subscribe(ctx context.Context, onRecord recordHandler) erro
 		case ctx.Err() != nil:
 			return nil
 		case isCallbackError(err):
-			// Per the recordHandler contract, callback errors must surface
-			// from Subscribe. Unwrap so the caller sees the original error,
-			// not our internal wrapper.
+			// A handler error must surface. Unwrap the internal wrapper first.
 			return errors.Unwrap(err)
 		default:
-			// Transient infrastructure error (gRPC blip, network reset, cursor
-			// save failure). Log and retry on the next cycle.
+			// Transient infra error. Log and retry next cycle.
 			drytui.Warning("Feed cycle error: %v", err)
 		}
 
@@ -82,10 +69,8 @@ func (s *feedSource) subscribe(ctx context.Context, onRecord recordHandler) erro
 	}
 }
 
-// logStartMode reports once, at startup, whether this run resumes from a
-// saved cursor or starts fresh (with an optional backfill window). syncOnce
-// owns the authoritative cursor read for each drain. A load error here is not
-// fatal to logging: syncOnce surfaces the real error on the first cycle.
+// logStartMode tells the operator, once at startup, whether we resume or start
+// fresh. A load error here is ignored: syncOnce surfaces the real one.
 func (s *feedSource) logStartMode(ctx context.Context) {
 	state, err := s.cursor.load(ctx)
 	if err != nil {
@@ -101,18 +86,13 @@ func (s *feedSource) logStartMode(ctx context.Context) {
 	}
 }
 
-// syncOnce drains the feed once: it pages through every malicious report
-// newer than the cursor and calls onRecord for each one, advancing the
-// cursor as it goes.
+// syncOnce pages through every malicious report newer than the cursor,
+// delivering each and advancing the cursor.
 //
-// since semantics (ThreatIntel Feed):
-//   - filters.since is a STRICT > filter on updated_at.
-//   - First run (no cursor): since = now - backfillWindow. With the
-//     default backfill of 0 this is now, i.e. a fresh start. since is
-//     never omitted: an omitted filter would pull the full feed history.
-//   - since is fixed for the whole drain. Only the page token advances.
-//   - Reports are requested in ascending updated_at order so an
-//     interrupted drain resumes without gaps.
+// since is a strict > filter on updated_at, fixed for the whole drain (only the
+// page token moves). First run uses now - backfill; it is never omitted, since
+// that would pull the full history. Ascending order lets an interrupted drain
+// resume without gaps.
 func (s *feedSource) syncOnce(ctx context.Context, onRecord recordHandler) error {
 	state, err := s.cursor.load(ctx)
 	if err != nil {
@@ -124,9 +104,8 @@ func (s *feedSource) syncOnce(ctx context.Context, onRecord recordHandler) error
 		since = time.Now().UTC().Add(-s.backfillWindow)
 	}
 
-	// maxSeen is the watermark for this drain. It starts at the loaded
-	// cursor so it only ever moves forward, and it counts withdrawn
-	// reports too so the cursor advances past retractions.
+	// Watermark starts at the cursor so it only moves forward, and counts
+	// withdrawn reports too so it advances past retractions.
 	maxSeen := state.LastSeenAt
 
 	var pageToken string
@@ -153,8 +132,7 @@ func (s *feedSource) syncOnce(ctx context.Context, onRecord recordHandler) error
 
 		for _, report := range resp.GetPackageReports() {
 			if err := onRecord(report); err != nil {
-				// Wrap so subscribe can tell this apart from infra errors
-				// and surface it instead of logging and retrying.
+				// Wrap so subscribe surfaces it instead of retrying.
 				return &callbackError{err: err}
 			}
 			if t := report.GetUpdatedAt(); t != nil {
@@ -164,9 +142,7 @@ func (s *feedSource) syncOnce(ctx context.Context, onRecord recordHandler) error
 			}
 		}
 
-		// Persist after each page so a crash mid-drain resumes from the
-		// last page, not the start. Forward-only: never move the cursor
-		// backward.
+		// Persist per page so a mid-drain crash resumes from here, forward-only.
 		if maxSeen.After(state.LastSeenAt) {
 			if err := s.cursor.save(ctx, cursorState{LastSeenAt: maxSeen}); err != nil {
 				return fmt.Errorf("feed: save cursor: %w", err)

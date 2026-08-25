@@ -9,9 +9,8 @@ import (
 	drytui "github.com/safedep/dry/tui"
 )
 
-// feedService bridges a packageSource to a jfrogClient. The source owns
-// delivery cadence and resume state; feedService handles pre-flight
-// validation, the per-report push, and operator-visible logging.
+// feedService bridges a packageSource to a jfrogClient: validate once, then
+// route each report the source delivers.
 type feedService struct {
 	source packageSource
 	client *jfrogClient
@@ -21,12 +20,8 @@ func newFeedService(source packageSource, client *jfrogClient) *feedService {
 	return &feedService{source: source, client: client}
 }
 
-// Run validates JFrog connectivity once, then hands off to the source.
-// Run blocks until ctx is cancelled or the source returns a fatal error.
-//
-// Pre-flight validation lives here (not in the source) because it is a
-// destination-side concern: every source pushes to the same JFrog
-// instance, so the check belongs with the client's owner.
+// run validates JFrog once, then blocks in the source until ctx is cancelled.
+// Validation is a destination concern, so it lives here, not in the source.
 func (s *feedService) run(ctx context.Context) error {
 	drytui.Info("Validating JFrog connectivity")
 	if err := s.client.validate(ctx); err != nil {
@@ -39,12 +34,8 @@ func (s *feedService) run(ctx context.Context) error {
 	})
 }
 
-// handleRecord routes one report to the right JFrog action.
-//
-// A withdrawn report is a retraction: the package is no longer considered
-// malicious. Stage 1 carries it through the pipeline (so the cursor
-// advances past it and nothing is lost) but does not act on it yet.
-// Stage 2 replaces this branch with a delete of the XRay issue.
+// handleRecord routes one report. Stage 1 carries withdrawals through (so the
+// cursor advances) but does not act on them; Stage 2 will delete the issue here.
 func (s *feedService) handleRecord(ctx context.Context, report *threatintelv1.PackageReport) error {
 	if report.GetWithdrawn() {
 		drytui.Info("Withdrawn report %s (%s): retraction handling not yet enabled, skipping",
@@ -55,14 +46,9 @@ func (s *feedService) handleRecord(ctx context.Context, report *threatintelv1.Pa
 	return s.handlePush(ctx, report)
 }
 
-// handlePush pushes a single report and emits user-visible logs. Push
-// errors are logged and swallowed (best-effort delivery): returning nil
-// keeps the source running for the next report.
-//
-// The client's contract: (id="", status==0, nil err) means the report
-// was skipped before any HTTP call (no package, empty name, or
-// over-length id). The client already logged the reason, so we must not
-// emit a misleading "Pushed:" line.
+// handlePush pushes a report best-effort: errors are logged, never fatal. A
+// status of 0 means the client skipped it (and already logged why), so stay
+// quiet rather than print a misleading "Pushed:" line.
 func (s *feedService) handlePush(ctx context.Context, report *threatintelv1.PackageReport) error {
 	id, status, err := s.client.pushMaliciousPackage(ctx, report)
 	if err != nil {
@@ -80,9 +66,8 @@ func (s *feedService) handlePush(ctx context.Context, report *threatintelv1.Pack
 	return nil
 }
 
-// displayVersions renders a report's affected versions for operator logs.
-// An empty list (or one with only empty entries) means every version is
-// affected, mirroring the wire mapping in vulnerableVersionRanges.
+// displayVersions renders affected versions for the log line. Empty means all
+// versions, mirroring vulnerableVersionRanges.
 func displayVersions(versions []string) string {
 	cleaned := make([]string, 0, len(versions))
 	for _, v := range versions {

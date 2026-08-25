@@ -60,11 +60,9 @@ const (
 	// it must not start with "Xray" and must not be literally "JFrog".
 	issueIDPrefix = "SD-"
 
-	// maxIssueIDLen is JFrog's hard limit on a Custom Issue id. JFrog
-	// SILENTLY drops any event whose id exceeds this, so buildEvent skips
-	// an over-length id rather than pushing an event that never lands.
-	// report_id is only contractually <= 128 chars (not a guaranteed
-	// 26-char ULID), so "SD-" + report_id can exceed the limit.
+	// maxIssueIDLen is JFrog's id limit. It silently drops longer ids, and
+	// report_id is only bounded at 128 chars, so buildEvent skips over-length
+	// ids rather than push events that never land.
 	maxIssueIDLen = 32
 )
 
@@ -93,15 +91,9 @@ type jfrogSource struct {
 	SourceID string `json:"source_id"`
 }
 
-// issueID returns the XRay Custom Issue id for the supplied report.
-//
-// It is a pure, reproducible function of report_id: no randomness, no
-// timestamps, no truncation, no hashing. This is a hard requirement for
-// later stages. Delete and update have no way to look an issue up by
-// name, so they reconstruct the exact id that was pushed. report_id is
-// permanent across the report lifecycle (verification, late indicators,
-// and withdrawal are updates to the same id), so a re-delivery always
-// carries the id originally pushed.
+// issueID is a pure function of the permanent report_id: no randomness, no
+// truncation. Stage 2/3 delete and update rely on reconstructing the exact id
+// that was pushed, since XRay has no lookup by name.
 func (c *jfrogClient) issueID(report *threatintelv1.PackageReport) string {
 	return issueIDPrefix + report.GetReportId()
 }
@@ -140,19 +132,9 @@ func (c *jfrogClient) validate(ctx context.Context) error {
 	}
 }
 
-// pushMaliciousPackage submits an XRay Custom Issue for the supplied
-// malicious package report.
-//
-// Returns:
-//   - issueID: the XRay Custom Issue id constructed for this report.
-//     Empty when the report is skipped before any HTTP call.
-//   - status: HTTP status code from JFrog (0 when skipped pre-call).
-//   - err: non-nil on transport failure, build error, or non-2xx response.
-//
-// Reports are skipped (and ("", 0, nil) returned) when the report has no
-// package, an empty name, or an over-length issue id. See buildEvent for
-// the skip rules. Pushing such a report would produce a payload XRay
-// silently drops.
+// pushMaliciousPackage submits an XRay Custom Issue for the report. It returns
+// the issue id, the HTTP status, and an error on transport or non-2xx. A
+// skipped report (see buildEvent) returns ("", 0, nil).
 func (c *jfrogClient) pushMaliciousPackage(ctx context.Context, report *threatintelv1.PackageReport) (string, int, error) {
 	event, ok := c.buildEvent(report)
 	if !ok {
@@ -174,14 +156,9 @@ func (c *jfrogClient) pushMaliciousPackage(ctx context.Context, report *threatin
 	return event.ID, status, nil
 }
 
-// buildEvent constructs the XRay payload and reports whether the report
-// has all the fields XRay requires. Skip rules live here so the wire
-// format and the skip contract stay co-located.
-//
-// Ecosystem lives on the report, not the package. Empty versions are
-// valid (they mean every version is affected) and are NOT a skip.
-// Withdrawn reports are NOT skipped here either: the source delivers
-// them and feedService decides what to do (Stage 1: a logged no-op).
+// buildEvent builds the XRay payload, or returns false to skip. Skip rules live
+// here, beside the wire format. Note: ecosystem is on the report, not the
+// package, and empty versions (all versions) are valid, not a skip.
 func (c *jfrogClient) buildEvent(report *threatintelv1.PackageReport) (jfrogEvent, bool) {
 	pkg := report.GetPackage()
 	name := pkg.GetName()
@@ -190,20 +167,15 @@ func (c *jfrogClient) buildEvent(report *threatintelv1.PackageReport) (jfrogEven
 		return jfrogEvent{}, false
 	}
 
-	// JFrog silently drops any event whose id exceeds maxIssueIDLen. Skip
-	// rather than push a lost event. The guard skips, it does not
-	// truncate: a truncated id would break reproducibility for delete and
-	// update, and an id too long to push is also too long to delete.
+	// Skip, do not truncate: a truncated id breaks Stage 2/3 reconstruction,
+	// and an id too long to push is too long to delete.
 	id := c.issueID(report)
 	if len(id) > maxIssueIDLen {
 		drytui.Warning("Skipping report %s: issue id %q exceeds JFrog %d-char limit", report.GetReportId(), id, maxIssueIDLen)
 		return jfrogEvent{}, false
 	}
 
-	// Prefer the feed's human-authored title and summary. They are richer
-	// than anything we can synthesize, but they can be empty on a report
-	// (for example automated, not human-verified), so fall back to a
-	// synthesized line rather than push a blank field.
+	// Prefer the feed's human text, falling back when a report has none.
 	summary := report.GetTitle()
 	if summary == "" {
 		summary = fmt.Sprintf("MALICIOUS PACKAGE: %s contains malicious code", name)
@@ -271,17 +243,9 @@ func (c *jfrogClient) do(ctx context.Context, method, path string, body []byte) 
 	return resp.StatusCode, respBody, nil
 }
 
-// vulnerableVersionRanges maps a report's affected versions to JFrog
-// XRay's range notation for a single component. XRay requires bracket
-// notation for an exact version and "(,)" for an open-ended range.
-// Without brackets XRay silently drops the event.
-//
-// A report may carry zero, one, or many exact versions. An empty slice
-// means every version is affected. Empty-string entries are dropped: the
-// feed bounds each version to <= 256 chars but has no min length, and
-// "[]" is silently dropped by XRay, so an empty entry must not slip into
-// an otherwise valid list. When nothing remains, the result is the
-// open-ended "(,)" (all versions).
+// vulnerableVersionRanges renders affected versions in XRay's bracket notation
+// for one component. Empty entries are dropped ("[]" is silently dropped by
+// XRay), and an empty result means all versions: "(,)".
 func vulnerableVersionRanges(versions []string) []string {
 	ranges := make([]string, 0, len(versions))
 	for _, v := range versions {

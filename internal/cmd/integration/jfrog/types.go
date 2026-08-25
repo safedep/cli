@@ -16,9 +16,8 @@ type sourceConfig struct {
 	// pollInterval is the sleep duration between feed drains.
 	pollInterval time.Duration
 
-	// backfillWindow seeds the first-run since filter: on a fresh install
-	// with no cursor, since = now - backfillWindow. The default of 0 means
-	// a fresh start from now (no history pulled).
+	// backfillWindow seeds the first-run cursor: since = now - backfillWindow.
+	// 0 (default) starts fresh from now.
 	backfillWindow time.Duration
 }
 

@@ -81,7 +81,7 @@ func runCmd(a *app.App) *cobra.Command {
 
 	cmd.Flags().StringVar(&in.InstanceURL, "instance-url", "", "JFrog instance URL (or "+envJFrogURL+")")
 	cmd.Flags().StringVar(&in.InstanceAccessToken, "instance-access-token", "", "JFrog access token (or "+envJFrogToken+")")
-	cmd.Flags().DurationVar(&in.PollInterval, "poll-interval", 60*time.Second, "sleep duration between feed drains")
+	cmd.Flags().DurationVar(&in.PollInterval, "poll-interval", 5*time.Minute, "sleep duration between feed drains")
 	cmd.Flags().DurationVar(&in.Backfill, "backfill", 0, "first-run window to seed the cursor (e.g. 24h, 168h); 0 starts fresh from now (or "+envJFrogBackfill+")")
 
 	return cmd

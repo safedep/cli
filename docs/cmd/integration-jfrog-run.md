@@ -34,7 +34,7 @@ safedep integration jfrog run
 |---|---|---|---|
 | `--instance-url` | yes* | — | JFrog instance base URL. Must be `https://`. |
 | `--instance-access-token` | yes* | — | JFrog access token scoped to XRay. |
-| `--poll-interval` | no | `60s` | Sleep duration between feed drains (`30s`, `5m`, `1h`). |
+| `--poll-interval` | no | `5m` | Sleep duration between feed drains (`30s`, `5m`, `1h`). |
 | `--backfill` | no | `0` | First-run window used to seed the cursor. `0` starts fresh from now. |
 | `--profile` | no | `"default"` | SafeDep credential profile (inherited from root). |
 

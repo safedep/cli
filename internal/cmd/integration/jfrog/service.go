@@ -9,25 +9,26 @@ import (
 	drytui "github.com/safedep/dry/tui"
 )
 
-// feedService bridges a packageSource to a jfrogClient: validate once, then
-// route each report the source delivers.
+// feedService bridges a packageSource to an xrayClient: validate once, then
+// route each report the source delivers. The client is a port (client.go), so
+// a real push and a dry-run preview share this file unchanged, differing only
+// in which xrayClient is wired in.
 type feedService struct {
 	source packageSource
-	client *jfrogClient
+	client xrayClient
 }
 
-func newFeedService(source packageSource, client *jfrogClient) *feedService {
+func newFeedService(source packageSource, client xrayClient) *feedService {
 	return &feedService{source: source, client: client}
 }
 
-// run validates JFrog once, then blocks in the source until ctx is cancelled.
-// Validation is a destination concern, so it lives here, not in the source.
+// run validates the client once, then blocks in the source until ctx is
+// cancelled. Validation is a destination concern, so it lives here, not in the
+// source. Each xrayClient owns its own validate messaging.
 func (s *feedService) run(ctx context.Context) error {
-	drytui.Info("Validating JFrog connectivity")
 	if err := s.client.validate(ctx); err != nil {
 		return err
 	}
-	drytui.Success("JFrog connectivity OK (URL + token verified)")
 
 	return s.source.subscribe(ctx, func(report *threatintelv1.PackageReport) error {
 		return s.handleRecord(ctx, report)
@@ -48,7 +49,8 @@ func (s *feedService) handleRecord(ctx context.Context, report *threatintelv1.Pa
 
 // handlePush pushes a report best-effort: errors are logged, never fatal. A
 // status of 0 means the client skipped it (and already logged why), so stay
-// quiet rather than print a misleading "Pushed:" line.
+// quiet rather than print a misleading "Pushed:" line. The print client also
+// returns 0, having already logged its own "Would push:" line.
 func (s *feedService) handlePush(ctx context.Context, report *threatintelv1.PackageReport) error {
 	id, status, err := s.client.pushMaliciousPackage(ctx, report)
 	if err != nil {

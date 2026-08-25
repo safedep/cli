@@ -25,6 +25,7 @@ var AllowedVerbs = map[string]struct{}{
 	"open":      {},
 	"pricing":   {},
 	"remove":    {},
+	"reset":     {},
 	"run":       {},
 	"set":       {},
 	"show":      {},

@@ -67,3 +67,12 @@ func (s *cursorStore) save(ctx context.Context, state cursorState) error {
 	}
 	return nil
 }
+
+// reset removes the stored cursor so the next run starts fresh. Deleting a
+// missing key is a no-op, so reset is safe to call when nothing is stored.
+func (s *cursorStore) reset(ctx context.Context) error {
+	if err := s.kv.Delete(ctx, kvCursorKey); err != nil {
+		return fmt.Errorf("cursor: delete: %w", err)
+	}
+	return nil
+}

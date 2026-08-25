@@ -145,6 +145,7 @@ Push SafeDep malware findings to external security tools. JFrog XRay is supporte
 | [`safedep protect mcp install`](./docs/cmd/protect-mcp-install.md) | Inject SafeDep MCP server config into detected AI agents |
 | [`safedep protect mcp uninstall`](./docs/cmd/protect-mcp-uninstall.md) | Remove SafeDep MCP server config from detected AI agents |
 | [`safedep integration jfrog run`](./docs/cmd/integration-jfrog-run.md) | Push SafeDep malware findings to JFrog XRay |
+| [`safedep integration jfrog cursor reset`](./docs/cmd/integration-jfrog-cursor-reset.md) | Clear the saved JFrog feed cursor for the active profile |
 | [`safedep setup mcp install`](./docs/cmd/setup-mcp-install.md) | Guided onboarding: authenticate and configure AI agents |
 | [`safedep version`](./docs/cmd/version.md) | Print CLI version |
 

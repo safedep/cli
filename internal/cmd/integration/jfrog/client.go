@@ -113,6 +113,7 @@ func (c *jfrogClient) issueID(report *threatintelv1.PackageReport) string {
 //   - 404          : URL points somewhere that is not an XRay instance
 //   - other / net  : surfaced verbatim with the response body for diagnosis
 func (c *jfrogClient) validate(ctx context.Context) error {
+	drytui.Info("Validating JFrog connectivity")
 	status, body, err := c.do(ctx, http.MethodGet, policiesPath, nil)
 	if err != nil {
 		return fmt.Errorf("jfrog validate: cannot reach %s: %w", c.cfg.url, err)
@@ -120,6 +121,7 @@ func (c *jfrogClient) validate(ctx context.Context) error {
 
 	switch status {
 	case http.StatusOK:
+		drytui.Success("JFrog connectivity OK (URL + token verified)")
 		return nil
 	case http.StatusUnauthorized:
 		return fmt.Errorf("jfrog validate: 401 Unauthorized - access token is invalid or expired")

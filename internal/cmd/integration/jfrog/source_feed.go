@@ -29,10 +29,10 @@ var errFeedNotEntitled = errors.New(
 // missing API key for the tenant, often after an OAuth-only login). Not
 // transient, so subscribe stops with how to authenticate for the feed.
 var errFeedAuth = errors.New(
-	"SafeDep authentication failed for the Threat Intel Feed. The feed reads the data plane " +
-		"(api.safedep.io), which needs an API key that belongs to your tenant. Authenticate with an API key:\n" +
-		"  safedep auth login --tenant <tenant>.safedep.io --api-key --api-key-value <API_KEY>\n" +
-		"or set SAFEDEP_API_KEY and SAFEDEP_TENANT_ID in the environment.")
+	"SafeDep authentication failed for the Threat Intel Feed: the feed reads the data plane " +
+		"(api.safedep.io) and needs an API key for your tenant, so log in with " +
+		"'safedep auth login --tenant <tenant>.safedep.io --api-key --api-key-value <API_KEY>' " +
+		"or set SAFEDEP_API_KEY and SAFEDEP_TENANT_ID")
 
 // isFeedAuthError reports whether the feed rejected our SafeDep credential. The
 // server returns Unauthenticated, or wraps the auth failure in an Internal

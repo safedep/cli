@@ -16,6 +16,15 @@ import (
 	drytui "github.com/safedep/dry/tui"
 )
 
+// xrayClient is the port the feed service pushes through. jfrogClient is the
+// real adapter (HTTP to XRay); printClient (printclient.go) is the dry-run
+// adapter that prints what would be pushed and sends nothing. Swapping the
+// adapter is the only difference between a real run and a dry-run.
+type xrayClient interface {
+	validate(ctx context.Context) error
+	pushMaliciousPackage(ctx context.Context, report *threatintelv1.PackageReport) (string, int, error)
+}
+
 // jfrogClient is the single source of truth for JFrog XRay protocol
 // details: HTTP endpoints, authentication, payload format, issue ID
 // rules, version range notation, and ecosystem mapping.
@@ -27,6 +36,8 @@ type jfrogClient struct {
 	cfg  jfrogConfig
 	http *http.Client
 }
+
+var _ xrayClient = (*jfrogClient)(nil)
 
 func newJFrogClient(cfg jfrogConfig) *jfrogClient {
 	return &jfrogClient{

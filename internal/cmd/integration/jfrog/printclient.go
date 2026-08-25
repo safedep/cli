@@ -7,19 +7,7 @@ import (
 	drytui "github.com/safedep/dry/tui"
 )
 
-// xrayClient is the port the feed service pushes through. jfrogClient is the
-// real adapter (HTTP to XRay); printClient is the dry-run adapter that prints
-// what would be pushed and sends nothing. Swapping the adapter is the only
-// difference between a real run and a dry-run.
-type xrayClient interface {
-	validate(ctx context.Context) error
-	pushMaliciousPackage(ctx context.Context, report *threatintelv1.PackageReport) (string, int, error)
-}
-
-var (
-	_ xrayClient = (*jfrogClient)(nil)
-	_ xrayClient = (*printClient)(nil)
-)
+var _ xrayClient = (*printClient)(nil)
 
 // printClient is the dry-run adapter. It builds the event the real client would
 // push, via the shared buildEvent, then prints it instead of sending. It holds

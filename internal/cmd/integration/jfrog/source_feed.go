@@ -22,7 +22,7 @@ import (
 // message instead of retrying every cycle.
 var errFeedNotEntitled = errors.New(
 	"the SafeDep JFrog XRay integration is available with the Threat Intel Feed add-on, " +
-		"which is not enabled for this tenant. Run 'safedep subscription pricing' to view plans and enable it")
+		"which is not enabled for this tenant. See the pricing page: https://safedep.io/pricing/#ti")
 
 // feedSource pulls malicious package reports from the ThreatIntel Feed on an
 // interval, resuming from a profile-scoped cursor (see store.go).

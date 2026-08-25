@@ -113,7 +113,7 @@ This integration is available with the **Threat Intel Feed add-on**. If the
 tenant does not have it, the command stops with:
 
 ```
-The SafeDep JFrog XRay integration is available with the Threat Intel Feed add-on, which is not enabled for this tenant. Run 'safedep subscription pricing' to view plans and enable it
+The SafeDep JFrog XRay integration is available with the Threat Intel Feed add-on, which is not enabled for this tenant. See the pricing page: https://safedep.io/pricing/#ti
 ```
 
-Run `safedep subscription pricing` to view plans and enable the add-on.
+See the [pricing page](https://safedep.io/pricing/#ti) to enable the add-on.

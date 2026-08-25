@@ -36,6 +36,7 @@ safedep integration jfrog run
 | `--instance-access-token` | yes* | — | JFrog access token scoped to XRay. |
 | `--poll-interval` | no | `5m` | Sleep duration between feed drains (`30s`, `5m`, `1h`). |
 | `--backfill` | no | `0` | First-run window used to seed the cursor. `0` starts fresh from now. |
+| `--dry-run` | no | `false` | Preview the feed and print what would be pushed, without sending to JFrog. See [Dry run](#dry-run). |
 | `--profile` | no | `"default"` | SafeDep credential profile (inherited from root). |
 
 *Required unless the corresponding environment variable is set.
@@ -57,7 +58,32 @@ deployments or CI where passing secrets as CLI arguments is undesirable.
 |---|---|
 | `SAFEDEP_INTEGRATION_JFROG_ARTIFACTORY_URL` | `--instance-url` |
 | `SAFEDEP_INTEGRATION_JFROG_ARTIFACTORY_ACCESS_TOKEN` | `--instance-access-token` |
-| `SAFEDEP_INTEGRATION_JFROG_BACKFILL` | `--backfill` |
+
+`--backfill` is a flag only: it is a one-time first-run window, not a secret, so
+it has no environment variable.
+
+## Dry run
+
+`--dry-run` previews the feed and prints each finding as a `Would push:` line,
+without sending to JFrog. Use it to check the feed before connecting a JFrog
+instance.
+
+It tests the whole pipeline as-is. The only difference from a real run is the
+destination: it prints instead of calling JFrog.
+
+- No JFrog credentials needed.
+- `--backfill` works the same as a real run (default `0`). Pass `--backfill 24h`
+  to preview recent history.
+- It advances the same saved cursor. Run
+  [`cursor remove`](./integration-jfrog-cursor-remove.md) before the first real
+  run, or that run skips what the preview consumed.
+
+```bash
+# Preview the last 24 hours, then run for real
+safedep integration jfrog run --dry-run --backfill 24h
+safedep integration jfrog cursor remove
+safedep integration jfrog run --instance-url https://yourcompany.jfrog.io --instance-access-token YOUR_JFROG_TOKEN
+```
 
 ## Behaviour
 
@@ -73,7 +99,9 @@ deployments or CI where passing secrets as CLI arguments is undesirable.
   Stage 2 of this integration.
 - **Resume.** The cursor is stored per SafeDep profile. Restarting the command
   resumes from the last processed report. Switching `--profile` switches the
-  cursor.
+  cursor. Re-process from a chosen point with
+  [`cursor set`](./integration-jfrog-cursor-set.md), or from scratch with
+  [`cursor remove`](./integration-jfrog-cursor-remove.md).
 
 ## Issue id
 

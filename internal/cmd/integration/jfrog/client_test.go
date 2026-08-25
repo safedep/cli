@@ -237,19 +237,17 @@ func TestPush_SkipConditions_ReturnZeroStatusNoCallNoError(t *testing.T) {
 	}
 }
 
-func TestClient_IssueID_ReproducibleAndGuarded(t *testing.T) {
-	c := newJFrogClient(jfrogConfig{url: "https://example.jfrog.io", accessToken: "tok"})
-
+func TestIssueID_ReproducibleAndGuarded(t *testing.T) {
 	t.Run("SD- prefix and pure function of report id", func(t *testing.T) {
 		report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "foo", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
 
-		id := c.issueID(report)
+		id := issueID(report)
 		assert.Equal(t, "SD-01KR0EKN6PMW0ZRFRN992H1PKX", id)
 
 		// Reproducibility: the same report must yield the same id every
 		// call. Stage 2 delete and Stage 3 update rely on this to
 		// reconstruct the pushed id with no stored name-to-id mapping.
-		assert.Equal(t, id, c.issueID(report), "issue id must be a pure function of the report")
+		assert.Equal(t, id, issueID(report), "issue id must be a pure function of the report")
 
 		assert.LessOrEqual(t, len(id), maxIssueIDLen, "issue id must fit the JFrog limit")
 		assert.False(t, strings.HasPrefix(id, "Xray"), "issue id must not start with Xray")
@@ -259,7 +257,7 @@ func TestClient_IssueID_ReproducibleAndGuarded(t *testing.T) {
 	t.Run("distinct report ids yield distinct issue ids", func(t *testing.T) {
 		a := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "foo", packagev1.Ecosystem_ECOSYSTEM_NPM)
 		b := newTestReport("01KR0F5ZQ3J8Y2WBHPD7XKMVNT", "foo", packagev1.Ecosystem_ECOSYSTEM_NPM)
-		assert.NotEqual(t, c.issueID(a), c.issueID(b))
+		assert.NotEqual(t, issueID(a), issueID(b))
 	})
 }
 

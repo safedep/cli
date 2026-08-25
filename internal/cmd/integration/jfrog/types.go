@@ -9,6 +9,7 @@ import "time"
 type cmdConfig struct {
 	source sourceConfig
 	jfrog  jfrogConfig
+	dryRun bool
 }
 
 // sourceConfig groups the SafeDep-side feed parameters.

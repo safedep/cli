@@ -24,6 +24,6 @@ the SafeDep API and a JFrog access token with Manage Xray Metadata permission
 for the JFrog side.`,
 	}
 
-	cmd.AddCommand(runCmd(a))
+	cmd.AddCommand(runCmd(a), cursorCmd(a))
 	parent.AddCommand(cmd)
 }

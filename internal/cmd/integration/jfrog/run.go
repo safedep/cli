@@ -21,9 +21,6 @@ const (
 	// is read at runtime via config.EnvVar.
 	envJFrogToken = "SAFEDEP_INTEGRATION_JFROG_ARTIFACTORY_ACCESS_TOKEN" // #nosec G101
 
-	// envJFrogBackfill is the env fallback for --backfill.
-	envJFrogBackfill = "SAFEDEP_INTEGRATION_JFROG_BACKFILL"
-
 	// kvNamespace is the profile-scoped KV namespace for this integration.
 	// Must match ^[a-z][a-z0-9_-]{0,63}$.
 	kvNamespace = "integration-jfrog"
@@ -39,9 +36,8 @@ type runInput struct {
 	InstanceAccessToken string
 	PollInterval        time.Duration
 	Backfill            time.Duration
-	// BackfillSet records whether --backfill was passed explicitly, so an
-	// explicit --backfill 0 wins over the env var (flag > env precedence).
-	BackfillSet bool
+	// DryRun previews the feed and sends nothing to JFrog.
+	DryRun bool
 }
 
 func runCmd(a *app.App) *cobra.Command {
@@ -57,38 +53,51 @@ func runCmd(a *app.App) *cobra.Command {
 				return err
 			}
 
-			in.BackfillSet = cmd.Flags().Changed("backfill")
 			cfg, err := resolveConfig(in)
 			if err != nil {
 				return err
 			}
 
-			// Cursor is stored in the profile-scoped KV store so each
-			// SafeDep credential profile has an independent cursor.
-			// Switching --profile automatically switches the cursor.
-			kv, err := app.ProfileKV[cursorState](a, kvNamespace)
+			svc := threatintelv1grpc.NewThreatIntelServiceClient(client.Connection())
+
+			source, xc, err := buildSourceAndClient(a, svc, cfg)
 			if err != nil {
-				return fmt.Errorf("run: open cursor store: %w", err)
+				return err
 			}
 
-			source := newFeedSource(
-				threatintelv1grpc.NewThreatIntelServiceClient(client.Connection()),
-				kv,
-				cfg.source.pollInterval,
-				cfg.source.backfillWindow,
-			)
-			jc := newJFrogClient(cfg.jfrog)
-
-			return newFeedService(source, jc).run(cmd.Context())
+			return newFeedService(source, xc).run(cmd.Context())
 		},
 	}
 
 	cmd.Flags().StringVar(&in.InstanceURL, "instance-url", "", "JFrog instance URL (or "+envJFrogURL+")")
 	cmd.Flags().StringVar(&in.InstanceAccessToken, "instance-access-token", "", "JFrog access token (or "+envJFrogToken+")")
 	cmd.Flags().DurationVar(&in.PollInterval, "poll-interval", 5*time.Minute, "sleep duration between feed drains")
-	cmd.Flags().DurationVar(&in.Backfill, "backfill", 0, "first-run window to seed the cursor (e.g. 24h, 168h); 0 starts fresh from now (or "+envJFrogBackfill+")")
+	cmd.Flags().DurationVar(&in.Backfill, "backfill", 0, "first-run window to seed the cursor (e.g. 24h, 168h); 0 starts fresh from now")
+	cmd.Flags().BoolVar(&in.DryRun, "dry-run", false, "preview the feed and print what would be pushed, without sending to JFrog (no JFrog credentials needed)")
 
 	return cmd
+}
+
+// buildSourceAndClient wires the feed source and XRay client port for the
+// resolved config. Both modes share the same feed and the same persistent,
+// profile-scoped cursor: a dry-run tests the pipeline as-is and differs only in
+// the client (print instead of JFrog). A dry-run advances the saved cursor, so
+// run `cursor remove` before the first real run to re-process what it previewed.
+func buildSourceAndClient(a *app.App, svc threatintelv1grpc.ThreatIntelServiceClient, cfg cmdConfig) (*feedSource, xrayClient, error) {
+	// Cursor is stored in the profile-scoped KV store so each SafeDep
+	// credential profile has an independent cursor. Switching --profile
+	// automatically switches the cursor.
+	kv, err := app.ProfileKV[cursorState](a, kvNamespace)
+	if err != nil {
+		return nil, nil, fmt.Errorf("run: open cursor store: %w", err)
+	}
+
+	source := newFeedSource(svc, kv, cfg.source.pollInterval, cfg.source.backfillWindow)
+
+	if cfg.dryRun {
+		return source, newPrintClient(), nil
+	}
+	return source, newJFrogClient(cfg.jfrog), nil
 }
 
 // resolveConfig collapses CLI flags + environment variables into a single
@@ -98,15 +107,56 @@ func runCmd(a *app.App) *cobra.Command {
 //  2. Corresponding SAFEDEP_INTEGRATION_JFROG_* environment variable
 //  3. Built-in default (poll interval, backfill window)
 //
-// Required parameters that cannot be defaulted (URL, access token) cause a
-// hard error so the daemon fails fast at startup rather than running blind.
+// A dry-run sends nothing to JFrog, so the URL and access token are optional in
+// that mode; a real run requires both and fails fast at startup if either is
+// missing rather than running blind.
 func resolveConfig(in runInput) (cmdConfig, error) {
+	source, err := resolveSourceConfig(in)
+	if err != nil {
+		return cmdConfig{}, err
+	}
+
+	if in.DryRun {
+		return cmdConfig{source: source, dryRun: true}, nil
+	}
+
+	jfrog, err := resolveJFrogConfig(in)
+	if err != nil {
+		return cmdConfig{}, err
+	}
+
+	return cmdConfig{source: source, jfrog: jfrog}, nil
+}
+
+// resolveSourceConfig resolves the SafeDep-side feed parameters. These are
+// identical for a real run and a dry-run: a dry-run mirrors production, so the
+// operator picks --backfill the same way in both modes.
+func resolveSourceConfig(in runInput) (sourceConfig, error) {
+	// time.After(<= 0) fires immediately. A zero or negative interval would
+	// turn the feed loop into a tight infinite hammer on the SafeDep API
+	// with no backoff. Refuse rather than silently DoS the upstream.
+	if in.PollInterval <= 0 {
+		return sourceConfig{}, fmt.Errorf("run: --poll-interval must be positive, got %s", in.PollInterval)
+	}
+	if in.Backfill < 0 {
+		return sourceConfig{}, fmt.Errorf("run: --backfill must be >= 0, got %s", in.Backfill)
+	}
+
+	return sourceConfig{
+		pollInterval:   in.PollInterval,
+		backfillWindow: in.Backfill,
+	}, nil
+}
+
+// resolveJFrogConfig resolves and validates the JFrog destination. Required for
+// a real run only.
+func resolveJFrogConfig(in runInput) (jfrogConfig, error) {
 	url := in.InstanceURL
 	if url == "" {
 		url = config.EnvVar(envJFrogURL)
 	}
 	if url == "" {
-		return cmdConfig{}, fmt.Errorf("run: --instance-url or %s is required", envJFrogURL)
+		return jfrogConfig{}, fmt.Errorf("run: --instance-url or %s is required", envJFrogURL)
 	}
 	// Force https. JFrog XRay will accept tokens over plain HTTP, but doing
 	// so leaks the bearer token over the wire. Better to silently upgrade
@@ -122,41 +172,8 @@ func resolveConfig(in runInput) (cmdConfig, error) {
 		token = config.EnvVar(envJFrogToken)
 	}
 	if token == "" {
-		return cmdConfig{}, fmt.Errorf("run: --instance-access-token or %s is required", envJFrogToken)
+		return jfrogConfig{}, fmt.Errorf("run: --instance-access-token or %s is required", envJFrogToken)
 	}
 
-	// time.After(<= 0) fires immediately. A zero or negative interval would
-	// turn the feed loop into a tight infinite hammer on the SafeDep API
-	// with no backoff. Refuse rather than silently DoS the upstream.
-	if in.PollInterval <= 0 {
-		return cmdConfig{}, fmt.Errorf("run: --poll-interval must be positive, got %s", in.PollInterval)
-	}
-
-	// Flag wins over env. The env fallback applies only when --backfill was not
-	// passed, so an explicit --backfill 0 forces a fresh start even when the
-	// env var sets a window.
-	backfill := in.Backfill
-	if !in.BackfillSet {
-		if v := config.EnvVar(envJFrogBackfill); v != "" {
-			d, err := time.ParseDuration(v)
-			if err != nil {
-				return cmdConfig{}, fmt.Errorf("run: invalid %s %q: %w", envJFrogBackfill, v, err)
-			}
-			backfill = d
-		}
-	}
-	if backfill < 0 {
-		return cmdConfig{}, fmt.Errorf("run: --backfill must be >= 0, got %s", backfill)
-	}
-
-	return cmdConfig{
-		source: sourceConfig{
-			pollInterval:   in.PollInterval,
-			backfillWindow: backfill,
-		},
-		jfrog: jfrogConfig{
-			url:         url,
-			accessToken: token,
-		},
-	}, nil
+	return jfrogConfig{url: url, accessToken: token}, nil
 }

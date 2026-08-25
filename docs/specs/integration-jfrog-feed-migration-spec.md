@@ -348,7 +348,7 @@ New flag on `run` (Stage 1):
 
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
-| `--backfill` | `SAFEDEP_INTEGRATION_JFROG_BACKFILL` | `0` | first-run window; `0` = fresh from now |
+| `--backfill` | none | `0` | first-run window; `0` = fresh from now |
 
 Existing flags unchanged: `--instance-url`, `--instance-access-token`, `--poll-interval`.
 The `--source` flag is not added (feed is the only source).

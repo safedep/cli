@@ -37,11 +37,23 @@ func TestRegister_buildsJFrogTree(t *testing.T) {
 		assert.NotNil(t, leaf.Flags().Lookup("instance-access-token"))
 		assert.NotNil(t, leaf.Flags().Lookup("poll-interval"))
 		assert.NotNil(t, leaf.Flags().Lookup("backfill"))
+		assert.NotNil(t, leaf.Flags().Lookup("dry-run"))
 		// --cursor-file removed: cursor is now stored in the profile-scoped KV store.
 		assert.Nil(t, leaf.Flags().Lookup("cursor-file"))
 		// --source removed: the ThreatIntel Feed is the only source.
 		assert.Nil(t, leaf.Flags().Lookup("source"))
 	})
+
+	for _, verb := range []string{"set", "remove"} {
+		t.Run("cursor "+verb, func(t *testing.T) {
+			leaf, _, err := root.Find([]string{"integration", "jfrog", "cursor", verb})
+			require.NoError(t, err)
+			require.NotNil(t, leaf)
+			assert.Equal(t, verb, leaf.Name())
+			assert.NotEmpty(t, leaf.Short)
+			assert.NotEmpty(t, leaf.Long)
+		})
+	}
 }
 
 func TestResolveConfig(t *testing.T) {
@@ -50,11 +62,11 @@ func TestResolveConfig(t *testing.T) {
 		in           runInput
 		envURL       string
 		envToken     string
-		envBackfill  string
 		wantURL      string
 		wantToken    string
 		wantPoll     time.Duration
 		wantBackfill time.Duration
+		wantDryRun   bool
 		wantErr      bool
 	}{
 		{
@@ -168,52 +180,11 @@ func TestResolveConfig(t *testing.T) {
 				InstanceAccessToken: "tok",
 				PollInterval:        time.Second,
 				Backfill:            24 * time.Hour,
-				BackfillSet:         true,
 			},
 			wantURL:      "https://example.jfrog.io",
 			wantToken:    "tok",
 			wantPoll:     time.Second,
 			wantBackfill: 24 * time.Hour,
-		},
-		{
-			name: "backfill from env when flag unset",
-			in: runInput{
-				InstanceURL:         "https://example.jfrog.io",
-				InstanceAccessToken: "tok",
-				PollInterval:        time.Second,
-			},
-			envBackfill:  "168h",
-			wantURL:      "https://example.jfrog.io",
-			wantToken:    "tok",
-			wantPoll:     time.Second,
-			wantBackfill: 168 * time.Hour,
-		},
-		{
-			// Flag > env: an explicit --backfill 0 forces fresh even with the
-			// env var set.
-			name: "explicit backfill flag overrides env",
-			in: runInput{
-				InstanceURL:         "https://example.jfrog.io",
-				InstanceAccessToken: "tok",
-				PollInterval:        time.Second,
-				Backfill:            0,
-				BackfillSet:         true,
-			},
-			envBackfill:  "168h",
-			wantURL:      "https://example.jfrog.io",
-			wantToken:    "tok",
-			wantPoll:     time.Second,
-			wantBackfill: 0,
-		},
-		{
-			name: "invalid backfill env rejected",
-			in: runInput{
-				InstanceURL:         "https://example.jfrog.io",
-				InstanceAccessToken: "tok",
-				PollInterval:        time.Second,
-			},
-			envBackfill: "not-a-duration",
-			wantErr:     true,
 		},
 		{
 			name: "negative backfill flag rejected",
@@ -222,7 +193,39 @@ func TestResolveConfig(t *testing.T) {
 				InstanceAccessToken: "tok",
 				PollInterval:        time.Second,
 				Backfill:            -1 * time.Hour,
-				BackfillSet:         true,
+			},
+			wantErr: true,
+		},
+		{
+			// Dry-run sends nothing to JFrog, so URL and token are not
+			// required. Backfill resolves the same as a real run: default 0.
+			name: "dry-run needs no jfrog creds and mirrors run backfill",
+			in: runInput{
+				PollInterval: time.Second,
+				DryRun:       true,
+			},
+			wantURL:      "",
+			wantToken:    "",
+			wantPoll:     time.Second,
+			wantBackfill: 0,
+			wantDryRun:   true,
+		},
+		{
+			name: "dry-run carries an explicit backfill",
+			in: runInput{
+				PollInterval: time.Second,
+				DryRun:       true,
+				Backfill:     2 * time.Hour,
+			},
+			wantPoll:     time.Second,
+			wantBackfill: 2 * time.Hour,
+			wantDryRun:   true,
+		},
+		{
+			name: "dry-run still rejects a zero poll interval",
+			in: runInput{
+				PollInterval: 0,
+				DryRun:       true,
 			},
 			wantErr: true,
 		},
@@ -235,7 +238,6 @@ func TestResolveConfig(t *testing.T) {
 			// cannot pollute this case.
 			t.Setenv(envJFrogURL, tt.envURL)
 			t.Setenv(envJFrogToken, tt.envToken)
-			t.Setenv(envJFrogBackfill, tt.envBackfill)
 
 			cfg, err := resolveConfig(tt.in)
 			if tt.wantErr {
@@ -247,6 +249,7 @@ func TestResolveConfig(t *testing.T) {
 			assert.Equal(t, tt.wantToken, cfg.jfrog.accessToken)
 			assert.Equal(t, tt.wantPoll, cfg.source.pollInterval)
 			assert.Equal(t, tt.wantBackfill, cfg.source.backfillWindow)
+			assert.Equal(t, tt.wantDryRun, cfg.dryRun)
 		})
 	}
 }

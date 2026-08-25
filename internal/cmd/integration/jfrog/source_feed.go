@@ -23,7 +23,7 @@ import (
 // message instead of retrying every cycle.
 var errFeedNotEntitled = errors.New(
 	"the SafeDep JFrog XRay integration is available with the Threat Intel Feed add-on, " +
-		"which is not enabled for this tenant. See the pricing page: https://safedep.io/pricing/#ti")
+		"which is not enabled for this tenant. See the pricing page: https://safedep.io/pricing/#threat-intel")
 
 // errFeedAuth marks the data-plane rejecting the SafeDep credential (wrong or
 // missing API key for the tenant, often after an OAuth-only login). Not

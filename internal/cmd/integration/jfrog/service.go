@@ -3,6 +3,7 @@ package jfrog
 
 import (
 	"context"
+	"net/http"
 	"strings"
 
 	threatintelv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/threatintel/v1"
@@ -35,13 +36,11 @@ func (s *feedService) run(ctx context.Context) error {
 	})
 }
 
-// handleRecord routes one report. Stage 1 carries withdrawals through (so the
-// cursor advances) but does not act on them; Stage 2 will delete the issue here.
+// handleRecord routes one report: a withdrawn report deletes its XRay issue, any
+// other malicious report is pushed.
 func (s *feedService) handleRecord(ctx context.Context, report *threatintelv1.PackageReport) error {
 	if report.GetWithdrawn() {
-		drytui.Info("Withdrawn report %s (%s): retraction handling not yet enabled, skipping",
-			issueID(report), report.GetPackage().GetName())
-		return nil
+		return s.handleDelete(ctx, report)
 	}
 
 	return s.handlePush(ctx, report)
@@ -64,6 +63,31 @@ func (s *feedService) handlePush(ctx context.Context, report *threatintelv1.Pack
 	name := report.GetPackage().GetName()
 	versions := displayVersions(report.GetPackage().GetVersions())
 	drytui.Success("Pushed: %s (%s) versions: %s", name, ecosystemToJFrog(report.GetEcosystem()), versions)
+	drytui.Info("  JFrog: %s [%d]", id, status)
+	return nil
+}
+
+// handleDelete removes the XRay issue for a withdrawn report best-effort:
+// errors are logged, never fatal. A status of 0 means the client skipped it
+// (never pushed, or the print client already logged its preview), so stay quiet.
+// A 404 is benign: the issue is already absent.
+func (s *feedService) handleDelete(ctx context.Context, report *threatintelv1.PackageReport) error {
+	id, status, err := s.client.deleteMaliciousPackage(ctx, report)
+	if err != nil {
+		drytui.Warning("Delete failed for %s: %v", report.GetReportId(), err)
+		return nil
+	}
+	if status == 0 {
+		return nil
+	}
+
+	name := report.GetPackage().GetName()
+	if status == http.StatusNotFound {
+		drytui.Info("Withdrawn %s (%s): issue %s already absent in XRay", report.GetReportId(), name, id)
+		return nil
+	}
+
+	drytui.Success("Deleted: %s (%s)", name, ecosystemToJFrog(report.GetEcosystem()))
 	drytui.Info("  JFrog: %s [%d]", id, status)
 	return nil
 }

@@ -23,6 +23,7 @@ import (
 type xrayClient interface {
 	validate(ctx context.Context) error
 	pushMaliciousPackage(ctx context.Context, report *threatintelv1.PackageReport) (string, int, error)
+	deleteMaliciousPackage(ctx context.Context, report *threatintelv1.PackageReport) (string, int, error)
 }
 
 // jfrogClient is the single source of truth for JFrog XRay protocol
@@ -103,7 +104,7 @@ type jfrogSource struct {
 }
 
 // issueID is a pure function of the permanent report_id: no randomness, no
-// truncation. Stage 2/3 delete and update rely on reconstructing the exact id
+// truncation. Delete and Stage 3 update rely on reconstructing the exact id
 // that was pushed, since XRay has no lookup by name. It is a package function,
 // not a method, so both the real and print clients share one definition.
 func issueID(report *threatintelv1.PackageReport) string {
@@ -170,6 +171,31 @@ func (c *jfrogClient) pushMaliciousPackage(ctx context.Context, report *threatin
 	return event.ID, status, nil
 }
 
+// deleteMaliciousPackage deletes the XRay Custom Issue for a withdrawn report.
+// It returns the issue id, the HTTP status, and an error on transport or an
+// unexpected non-2xx. An id that would have been too long to push is skipped
+// (return "", 0, nil), and a 404 is benign: the issue is already absent, which
+// is the state a delete aims for.
+func (c *jfrogClient) deleteMaliciousPackage(ctx context.Context, report *threatintelv1.PackageReport) (string, int, error) {
+	id := issueID(report)
+	if len(id) > maxIssueIDLen {
+		// Never pushed (see buildEvent), so nothing to delete.
+		return "", 0, nil
+	}
+
+	status, respBody, err := c.do(ctx, http.MethodDelete, eventsPath+"/"+id, nil)
+	if err != nil {
+		return id, 0, fmt.Errorf("jfrog client: http: %w", err)
+	}
+	if status == http.StatusNotFound {
+		return id, status, nil
+	}
+	if status < 200 || status >= 300 {
+		return id, status, fmt.Errorf("jfrog client: delete %s: status %d: %s", id, status, string(respBody))
+	}
+	return id, status, nil
+}
+
 // buildEvent builds the XRay payload, or returns false to skip. Skip rules live
 // here, beside the wire format. It is a package function so the print client can
 // build the exact same preview the real client would push. Note: ecosystem is
@@ -185,7 +211,7 @@ func buildEvent(report *threatintelv1.PackageReport) (jfrogEvent, bool) {
 
 	// JFrog silently drops an event whose id is too long, so skip it. Skip
 	// rather than truncate: the id must stay a pure function of report_id so
-	// Stage 2/3 can reconstruct it.
+	// delete and Stage 3 update can reconstruct it.
 	id := issueID(report)
 	if len(id) > maxIssueIDLen {
 		drytui.Warning("Skipping report %s: issue id %q exceeds JFrog %d-char limit", report.GetReportId(), id, maxIssueIDLen)

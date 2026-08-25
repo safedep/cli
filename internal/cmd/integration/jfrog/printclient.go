@@ -14,7 +14,6 @@ import (
 type xrayClient interface {
 	validate(ctx context.Context) error
 	pushMaliciousPackage(ctx context.Context, report *threatintelv1.PackageReport) (string, int, error)
-	issueID(report *threatintelv1.PackageReport) string
 }
 
 var (
@@ -22,16 +21,12 @@ var (
 	_ xrayClient = (*printClient)(nil)
 )
 
-// printClient is the dry-run adapter. It embeds a credential-less jfrogClient to
-// reuse buildEvent and issueID, so the preview is the exact event the real push
-// would build, then prints instead of sending. It never opens a connection.
-type printClient struct {
-	*jfrogClient
-}
+// printClient is the dry-run adapter. It builds the event the real client would
+// push, via the shared buildEvent, then prints it instead of sending. It holds
+// no state and never opens a connection, so it needs no JFrog credentials.
+type printClient struct{}
 
-func newPrintClient() *printClient {
-	return &printClient{jfrogClient: newJFrogClient(jfrogConfig{})}
-}
+func newPrintClient() *printClient { return &printClient{} }
 
 func (c *printClient) validate(_ context.Context) error {
 	drytui.Info("Dry run: previewing the feed, nothing is sent to JFrog (no JFrog credentials needed)")
@@ -43,7 +38,7 @@ func (c *printClient) validate(_ context.Context) error {
 // logged the preview line). A skipped report returns ("", 0, nil), matching the
 // real client.
 func (c *printClient) pushMaliciousPackage(_ context.Context, report *threatintelv1.PackageReport) (string, int, error) {
-	event, ok := c.buildEvent(report)
+	event, ok := buildEvent(report)
 	if !ok {
 		// buildEvent already logged why it is skipped.
 		return "", 0, nil

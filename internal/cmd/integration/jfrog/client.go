@@ -93,8 +93,9 @@ type jfrogSource struct {
 
 // issueID is a pure function of the permanent report_id: no randomness, no
 // truncation. Stage 2/3 delete and update rely on reconstructing the exact id
-// that was pushed, since XRay has no lookup by name.
-func (c *jfrogClient) issueID(report *threatintelv1.PackageReport) string {
+// that was pushed, since XRay has no lookup by name. It is a package function,
+// not a method, so both the real and print clients share one definition.
+func issueID(report *threatintelv1.PackageReport) string {
 	return issueIDPrefix + report.GetReportId()
 }
 
@@ -138,7 +139,7 @@ func (c *jfrogClient) validate(ctx context.Context) error {
 // the issue id, the HTTP status, and an error on transport or non-2xx. A
 // skipped report (see buildEvent) returns ("", 0, nil).
 func (c *jfrogClient) pushMaliciousPackage(ctx context.Context, report *threatintelv1.PackageReport) (string, int, error) {
-	event, ok := c.buildEvent(report)
+	event, ok := buildEvent(report)
 	if !ok {
 		return "", 0, nil
 	}
@@ -159,9 +160,11 @@ func (c *jfrogClient) pushMaliciousPackage(ctx context.Context, report *threatin
 }
 
 // buildEvent builds the XRay payload, or returns false to skip. Skip rules live
-// here, beside the wire format. Note: ecosystem is on the report, not the
-// package, and empty versions (all versions) are valid, not a skip.
-func (c *jfrogClient) buildEvent(report *threatintelv1.PackageReport) (jfrogEvent, bool) {
+// here, beside the wire format. It is a package function so the print client can
+// build the exact same preview the real client would push. Note: ecosystem is
+// on the report, not the package, and empty versions (all versions) are valid,
+// not a skip.
+func buildEvent(report *threatintelv1.PackageReport) (jfrogEvent, bool) {
 	pkg := report.GetPackage()
 	name := pkg.GetName()
 	if name == "" {
@@ -172,7 +175,7 @@ func (c *jfrogClient) buildEvent(report *threatintelv1.PackageReport) (jfrogEven
 	// JFrog silently drops an event whose id is too long, so skip it. Skip
 	// rather than truncate: the id must stay a pure function of report_id so
 	// Stage 2/3 can reconstruct it.
-	id := c.issueID(report)
+	id := issueID(report)
 	if len(id) > maxIssueIDLen {
 		drytui.Warning("Skipping report %s: issue id %q exceeds JFrog %d-char limit", report.GetReportId(), id, maxIssueIDLen)
 		return jfrogEvent{}, false

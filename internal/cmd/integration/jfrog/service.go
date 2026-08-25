@@ -40,7 +40,7 @@ func (s *feedService) run(ctx context.Context) error {
 func (s *feedService) handleRecord(ctx context.Context, report *threatintelv1.PackageReport) error {
 	if report.GetWithdrawn() {
 		drytui.Info("Withdrawn report %s (%s): retraction handling not yet enabled, skipping",
-			s.client.issueID(report), report.GetPackage().GetName())
+			issueID(report), report.GetPackage().GetName())
 		return nil
 	}
 

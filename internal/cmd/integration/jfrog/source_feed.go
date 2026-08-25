@@ -12,8 +12,17 @@ import (
 	threatintelsvcv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/threatintel/v1"
 	"github.com/safedep/cli/internal/storage"
 	drytui "github.com/safedep/dry/tui"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+// errFeedNotEntitled marks the feed rejecting the tenant for lack of the Threat
+// Intel Feed add-on. It is not transient, so subscribe stops with a friendly
+// message instead of retrying every cycle.
+var errFeedNotEntitled = errors.New(
+	"the SafeDep JFrog XRay integration is available with the Threat Intel Feed add-on, " +
+		"which is not enabled for this tenant. Run 'safedep subscription pricing' to view plans and enable it")
 
 // feedSource pulls malicious package reports from the ThreatIntel Feed on an
 // interval, resuming from a profile-scoped cursor (see store.go).
@@ -56,6 +65,9 @@ func (s *feedSource) subscribe(ctx context.Context, onRecord recordHandler) erro
 		case isCallbackError(err):
 			// A handler error must surface. Unwrap the internal wrapper first.
 			return errors.Unwrap(err)
+		case errors.Is(err, errFeedNotEntitled):
+			// Not transient: the tenant lacks the add-on. Stop, don't loop.
+			return err
 		default:
 			// Transient infra error. Log and retry next cycle.
 			drytui.Warning("Feed cycle error: %v", err)
@@ -127,6 +139,9 @@ func (s *feedSource) syncOnce(ctx context.Context, onRecord recordHandler) error
 
 		resp, err := s.svc.ListPackageReports(ctx, req)
 		if err != nil {
+			if status.Code(err) == codes.PermissionDenied {
+				return errFeedNotEntitled
+			}
 			return fmt.Errorf("feed: list reports: %w", err)
 		}
 

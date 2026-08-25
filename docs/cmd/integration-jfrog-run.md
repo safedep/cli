@@ -109,5 +109,11 @@ package). Without a policy, issues are recorded but packages are not blocked.
 
 ## Subscription
 
-The ThreatIntel Feed requires a paid SafeDep subscription. Unauthorized tenants
-get a permission error from the API.
+This integration is available with the **Threat Intel Feed add-on**. If the
+tenant does not have it, the command stops with:
+
+```
+The SafeDep JFrog XRay integration is available with the Threat Intel Feed add-on, which is not enabled for this tenant. Run 'safedep subscription pricing' to view plans and enable it
+```
+
+Run `safedep subscription pricing` to view plans and enable the add-on.

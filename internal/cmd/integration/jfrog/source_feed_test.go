@@ -16,6 +16,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -283,6 +285,35 @@ func TestSyncOnce_GRPCFailure_PropagatesAndKeepsCursor(t *testing.T) {
 	saved, err := store.load(context.Background())
 	require.NoError(t, err)
 	assert.True(t, saved.LastSeenAt.Equal(original), "cursor must not advance after a gRPC error; got %v want %v", saved.LastSeenAt, original)
+}
+
+func TestSyncOnce_PermissionDenied_ReturnsNotEntitled(t *testing.T) {
+	entErr := status.Error(codes.PermissionDenied,
+		"entitlement verification failed: required entitlement is not available for tenant")
+	fake := &fakeThreatIntelClient{queue: []fakeReportsResp{{err: entErr}}}
+	src := newFeedSource(fake, newTestKV(t), time.Minute, 0)
+
+	handler, _ := drainHandler()
+	err := src.syncOnce(context.Background(), handler)
+	require.ErrorIs(t, err, errFeedNotEntitled, "PermissionDenied maps to the friendly add-on error")
+}
+
+func TestSubscribe_NotEntitled_StopsImmediately(t *testing.T) {
+	entErr := status.Error(codes.PermissionDenied, "required entitlement is not available for tenant")
+	fake := &fakeThreatIntelClient{queue: []fakeReportsResp{{err: entErr}}}
+
+	// Long interval so a wrongly-retrying implementation would hang the test.
+	src := newFeedSource(fake, newTestKV(t), time.Hour, 0)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	handler, _ := drainHandler()
+	err := src.subscribe(ctx, handler)
+
+	require.ErrorIs(t, err, errFeedNotEntitled, "the add-on error must surface from subscribe")
+	require.NoError(t, ctx.Err(), "subscribe must stop immediately, not wait for the interval")
+	assert.Len(t, fake.captured, 1, "must not retry after an entitlement failure")
 }
 
 func TestSyncOnce_CallbackError_StopsAndWraps(t *testing.T) {

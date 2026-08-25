@@ -82,7 +82,7 @@ func runCmd(a *app.App) *cobra.Command {
 // resolved config. Both modes share the same feed and the same persistent,
 // profile-scoped cursor: a dry-run tests the pipeline as-is and differs only in
 // the client (print instead of JFrog). A dry-run advances the saved cursor, so
-// run `cursor reset` before the first real run to re-process what it previewed.
+// run `cursor remove` before the first real run to re-process what it previewed.
 func buildSourceAndClient(a *app.App, svc threatintelv1grpc.ThreatIntelServiceClient, cfg cmdConfig) (*feedSource, xrayClient, error) {
 	// Cursor is stored in the profile-scoped KV store so each SafeDep
 	// credential profile has an independent cursor. Switching --profile

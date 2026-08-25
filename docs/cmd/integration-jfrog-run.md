@@ -75,13 +75,13 @@ destination: it prints instead of calling JFrog.
 - `--backfill` works the same as a real run (default `0`). Pass `--backfill 24h`
   to preview recent history.
 - It advances the same saved cursor. Run
-  [`cursor reset`](./integration-jfrog-cursor-reset.md) before the first real run,
-  or that run skips what the preview consumed.
+  [`cursor remove`](./integration-jfrog-cursor-remove.md) before the first real
+  run, or that run skips what the preview consumed.
 
 ```bash
 # Preview the last 24 hours, then run for real
 safedep integration jfrog run --dry-run --backfill 24h
-safedep integration jfrog cursor reset
+safedep integration jfrog cursor remove
 safedep integration jfrog run --instance-url https://yourcompany.jfrog.io --instance-access-token YOUR_JFROG_TOKEN
 ```
 
@@ -99,8 +99,9 @@ safedep integration jfrog run --instance-url https://yourcompany.jfrog.io --inst
   Stage 2 of this integration.
 - **Resume.** The cursor is stored per SafeDep profile. Restarting the command
   resumes from the last processed report. Switching `--profile` switches the
-  cursor. To re-process from scratch, clear it with
-  [`safedep integration jfrog cursor reset`](./integration-jfrog-cursor-reset.md).
+  cursor. Re-process from a chosen point with
+  [`cursor set`](./integration-jfrog-cursor-set.md), or from scratch with
+  [`cursor remove`](./integration-jfrog-cursor-remove.md).
 
 ## Issue id
 

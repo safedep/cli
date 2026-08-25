@@ -44,14 +44,16 @@ func TestRegister_buildsJFrogTree(t *testing.T) {
 		assert.Nil(t, leaf.Flags().Lookup("source"))
 	})
 
-	t.Run("cursor reset", func(t *testing.T) {
-		leaf, _, err := root.Find([]string{"integration", "jfrog", "cursor", "reset"})
-		require.NoError(t, err)
-		require.NotNil(t, leaf)
-		assert.Equal(t, "reset", leaf.Name())
-		assert.NotEmpty(t, leaf.Short)
-		assert.NotEmpty(t, leaf.Long)
-	})
+	for _, verb := range []string{"set", "remove"} {
+		t.Run("cursor "+verb, func(t *testing.T) {
+			leaf, _, err := root.Find([]string{"integration", "jfrog", "cursor", verb})
+			require.NoError(t, err)
+			require.NotNil(t, leaf)
+			assert.Equal(t, verb, leaf.Name())
+			assert.NotEmpty(t, leaf.Short)
+			assert.NotEmpty(t, leaf.Long)
+		})
+	}
 }
 
 func TestResolveConfig(t *testing.T) {

@@ -182,19 +182,28 @@ func (s *feedSource) syncOnce(ctx context.Context, onRecord recordHandler) error
 			}
 		}
 
-		// Persist per page so a mid-drain crash resumes from here, forward-only.
-		if maxSeen.After(state.LastSeenAt) {
-			if err := s.cursor.save(ctx, cursorState{LastSeenAt: maxSeen}); err != nil {
-				return fmt.Errorf("feed: save cursor: %w", err)
-			}
-			state.LastSeenAt = maxSeen
-		}
-
 		nextToken := resp.GetPagination().GetNextPageToken()
 		if nextToken == "" {
 			break
 		}
 		pageToken = nextToken
+	}
+
+	// Persist once, after the full drain. Saving per page would strand reports
+	// that share an updated_at across a page boundary: a crash after saving that
+	// timestamp makes the next run's strict > since skip the rest.
+	switch {
+	case maxSeen.After(state.LastSeenAt):
+		if err := s.cursor.save(ctx, cursorState{LastSeenAt: maxSeen}); err != nil {
+			return fmt.Errorf("feed: save cursor: %w", err)
+		}
+	case state.LastSeenAt.IsZero():
+		// First run that saw nothing new: anchor since so the next cycle resumes
+		// from it. Otherwise since slides forward by pollInterval each cycle and
+		// misses reports updated inside the gap.
+		if err := s.cursor.save(ctx, cursorState{LastSeenAt: since}); err != nil {
+			return fmt.Errorf("feed: save cursor: %w", err)
+		}
 	}
 
 	return nil

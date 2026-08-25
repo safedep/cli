@@ -39,6 +39,9 @@ type runInput struct {
 	InstanceAccessToken string
 	PollInterval        time.Duration
 	Backfill            time.Duration
+	// BackfillSet records whether --backfill was passed explicitly, so an
+	// explicit --backfill 0 wins over the env var (flag > env precedence).
+	BackfillSet bool
 }
 
 func runCmd(a *app.App) *cobra.Command {
@@ -54,6 +57,7 @@ func runCmd(a *app.App) *cobra.Command {
 				return err
 			}
 
+			in.BackfillSet = cmd.Flags().Changed("backfill")
 			cfg, err := resolveConfig(in)
 			if err != nil {
 				return err
@@ -128,10 +132,11 @@ func resolveConfig(in runInput) (cmdConfig, error) {
 		return cmdConfig{}, fmt.Errorf("run: --poll-interval must be positive, got %s", in.PollInterval)
 	}
 
-	// Read the env fallback only when the flag is unset. 0 and unset both mean
-	// "fresh from now", so there is nothing to disambiguate.
+	// Flag wins over env. The env fallback applies only when --backfill was not
+	// passed, so an explicit --backfill 0 forces a fresh start even when the
+	// env var sets a window.
 	backfill := in.Backfill
-	if backfill == 0 {
+	if !in.BackfillSet {
 		if v := config.EnvVar(envJFrogBackfill); v != "" {
 			d, err := time.ParseDuration(v)
 			if err != nil {

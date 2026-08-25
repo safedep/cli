@@ -287,6 +287,33 @@ func TestSyncOnce_GRPCFailure_PropagatesAndKeepsCursor(t *testing.T) {
 	assert.True(t, saved.LastSeenAt.Equal(original), "cursor must not advance after a gRPC error; got %v want %v", saved.LastSeenAt, original)
 }
 
+func TestSyncOnce_FirstRunNoReports_AnchorsCursor(t *testing.T) {
+	fake := &fakeThreatIntelClient{queue: []fakeReportsResp{
+		{resp: makeReportsPage(time.Now().UTC(), "")}, // cycle 1: empty
+		{resp: makeReportsPage(time.Now().UTC(), "")}, // cycle 2: empty
+	}}
+	store := newCursorStore(newTestKV(t))
+	src := &feedSource{svc: fake, cursor: store, pollInterval: time.Minute, backfillWindow: 24 * time.Hour}
+
+	handler, _ := drainHandler()
+	require.NoError(t, src.syncOnce(context.Background(), handler))
+
+	saved, err := store.load(context.Background())
+	require.NoError(t, err)
+	require.False(t, saved.LastSeenAt.IsZero(), "first-run anchor must persist even with zero reports")
+	anchor := saved.LastSeenAt
+
+	// A second empty drain must resume from the same anchor, not slide forward.
+	require.NoError(t, src.syncOnce(context.Background(), handler))
+	require.Len(t, fake.captured, 2)
+	assert.True(t, sinceTime(fake.captured[1]).Equal(anchor),
+		"since must stay anchored across empty cycles; got %v want %v", sinceTime(fake.captured[1]), anchor)
+
+	saved2, err := store.load(context.Background())
+	require.NoError(t, err)
+	assert.True(t, saved2.LastSeenAt.Equal(anchor), "cursor must not slide on the second empty cycle")
+}
+
 func TestSyncOnce_PermissionDenied_ReturnsNotEntitled(t *testing.T) {
 	entErr := status.Error(codes.PermissionDenied,
 		"entitlement verification failed: required entitlement is not available for tenant")

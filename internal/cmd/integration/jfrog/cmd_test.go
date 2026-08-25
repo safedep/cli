@@ -168,6 +168,7 @@ func TestResolveConfig(t *testing.T) {
 				InstanceAccessToken: "tok",
 				PollInterval:        time.Second,
 				Backfill:            24 * time.Hour,
+				BackfillSet:         true,
 			},
 			wantURL:      "https://example.jfrog.io",
 			wantToken:    "tok",
@@ -188,6 +189,23 @@ func TestResolveConfig(t *testing.T) {
 			wantBackfill: 168 * time.Hour,
 		},
 		{
+			// Flag > env: an explicit --backfill 0 forces fresh even with the
+			// env var set.
+			name: "explicit backfill flag overrides env",
+			in: runInput{
+				InstanceURL:         "https://example.jfrog.io",
+				InstanceAccessToken: "tok",
+				PollInterval:        time.Second,
+				Backfill:            0,
+				BackfillSet:         true,
+			},
+			envBackfill:  "168h",
+			wantURL:      "https://example.jfrog.io",
+			wantToken:    "tok",
+			wantPoll:     time.Second,
+			wantBackfill: 0,
+		},
+		{
 			name: "invalid backfill env rejected",
 			in: runInput{
 				InstanceURL:         "https://example.jfrog.io",
@@ -204,6 +222,7 @@ func TestResolveConfig(t *testing.T) {
 				InstanceAccessToken: "tok",
 				PollInterval:        time.Second,
 				Backfill:            -1 * time.Hour,
+				BackfillSet:         true,
 			},
 			wantErr: true,
 		},

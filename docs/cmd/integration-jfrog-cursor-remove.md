@@ -31,4 +31,4 @@ safedep --profile customer-a integration jfrog cursor remove
 ## Notes
 
 The command prints the SQLite path it uses. Editing that file by hand is not
-supported; use `cursor remove` or `cursor set` instead.
+supported. Use `cursor remove` or `cursor set` instead.

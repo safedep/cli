@@ -9,9 +9,6 @@ import "time"
 type cmdConfig struct {
 	source sourceConfig
 	jfrog  jfrogConfig
-
-	// dryRun previews the feed and sends nothing to JFrog. In this mode the
-	// JFrog URL and token are optional and the cursor is not persisted.
 	dryRun bool
 }
 

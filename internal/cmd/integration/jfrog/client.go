@@ -11,7 +11,7 @@ import (
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
-	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
+	threatintelv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/threatintel/v1"
 	"github.com/safedep/dry/log"
 	drytui "github.com/safedep/dry/tui"
 )
@@ -55,10 +55,15 @@ const (
 	eventsPath   = "/xray/api/v1/events"
 	policiesPath = "/xray/api/v1/policies"
 
-	// issueIDPrefix is prepended to the SafeDep analysis ULID to produce
-	// the XRay Custom Issue id. "SD-" + 26-char ULID = 29 chars, well
-	// under JFrog's 32-char limit.
+	// issueIDPrefix is prepended to the SafeDep report id to produce the
+	// XRay Custom Issue id. The prefix also satisfies JFrog's id rules:
+	// it must not start with "Xray" and must not be literally "JFrog".
 	issueIDPrefix = "SD-"
+
+	// maxIssueIDLen is JFrog's id limit. It silently drops longer ids, and
+	// report_id is only bounded at 128 chars, so buildEvent skips over-length
+	// ids rather than push events that never land.
+	maxIssueIDLen = 32
 )
 
 // XRay Custom Issue wire format. Field tags must match what JFrog accepts;
@@ -86,11 +91,11 @@ type jfrogSource struct {
 	SourceID string `json:"source_id"`
 }
 
-// IssueID returns the XRay Custom Issue id we use for the supplied
-// SafeDep analysis record. Stable, backend-traceable, and protocol-safe
-// (29 chars, no "Xray" prefix, not literally "JFrog").
-func (c *jfrogClient) issueID(record *malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) string {
-	return issueIDPrefix + record.GetAnalysisId()
+// issueID is a pure function of the permanent report_id: no randomness, no
+// truncation. Stage 2/3 delete and update rely on reconstructing the exact id
+// that was pushed, since XRay has no lookup by name.
+func (c *jfrogClient) issueID(report *threatintelv1.PackageReport) string {
+	return issueIDPrefix + report.GetReportId()
 }
 
 // Validate performs a pre-flight check that proves three things in a
@@ -127,20 +132,11 @@ func (c *jfrogClient) validate(ctx context.Context) error {
 	}
 }
 
-// PushMaliciousPackage submits an XRay Custom Issue for the supplied
-// SafeDep malware analysis record.
-//
-// Returns:
-//   - issueID: the XRay Custom Issue id constructed for this record.
-//     Empty when the record is skipped before any HTTP call.
-//   - status: HTTP status code from JFrog (0 when skipped pre-call).
-//   - err: non-nil on transport failure, build error, or non-2xx response.
-//
-// Records are skipped (and (\"\", 0, nil) returned) when the record's
-// PackageVersion, package name, or version is missing — pushing such a
-// record would produce a payload XRay silently drops.
-func (c *jfrogClient) pushMaliciousPackage(ctx context.Context, record *malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) (string, int, error) {
-	event, ok := c.buildEvent(record)
+// pushMaliciousPackage submits an XRay Custom Issue for the report. It returns
+// the issue id, the HTTP status, and an error on transport or non-2xx. A
+// skipped report (see buildEvent) returns ("", 0, nil).
+func (c *jfrogClient) pushMaliciousPackage(ctx context.Context, report *threatintelv1.PackageReport) (string, int, error) {
+	event, ok := c.buildEvent(report)
 	if !ok {
 		return "", 0, nil
 	}
@@ -160,43 +156,49 @@ func (c *jfrogClient) pushMaliciousPackage(ctx context.Context, record *malysisv
 	return event.ID, status, nil
 }
 
-// buildEvent constructs the XRay payload and reports whether the record
-// has all the fields XRay requires. Skip rules live here so the wire
-// format and the skip contract stay co-located.
-func (c *jfrogClient) buildEvent(record *malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) (jfrogEvent, bool) {
-	pv := record.GetTarget().GetPackageVersion()
-	if pv == nil {
-		drytui.Warning("Skipping record %s: nil package version", record.GetAnalysisId())
-		return jfrogEvent{}, false
-	}
-	pkg := pv.GetPackage()
+// buildEvent builds the XRay payload, or returns false to skip. Skip rules live
+// here, beside the wire format. Note: ecosystem is on the report, not the
+// package, and empty versions (all versions) are valid, not a skip.
+func (c *jfrogClient) buildEvent(report *threatintelv1.PackageReport) (jfrogEvent, bool) {
+	pkg := report.GetPackage()
 	name := pkg.GetName()
-	version := pv.GetVersion()
 	if name == "" {
-		drytui.Warning("Skipping record %s: empty package name", record.GetAnalysisId())
-		return jfrogEvent{}, false
-	}
-	// Empty version would render as "[]" in XRay's range notation, which
-	// the API silently drops. Refuse rather than push a record that will
-	// not flag.
-	if version == "" {
-		drytui.Warning("Skipping record %s: empty version", record.GetAnalysisId())
+		drytui.Warning("Skipping report %s: missing package name", report.GetReportId())
 		return jfrogEvent{}, false
 	}
 
+	// JFrog silently drops an event whose id is too long, so skip it. Skip
+	// rather than truncate: the id must stay a pure function of report_id so
+	// Stage 2/3 can reconstruct it.
+	id := c.issueID(report)
+	if len(id) > maxIssueIDLen {
+		drytui.Warning("Skipping report %s: issue id %q exceeds JFrog %d-char limit", report.GetReportId(), id, maxIssueIDLen)
+		return jfrogEvent{}, false
+	}
+
+	// Prefer the feed's human text, falling back when a report has none.
+	summary := report.GetTitle()
+	if summary == "" {
+		summary = fmt.Sprintf("MALICIOUS PACKAGE: %s contains malicious code", name)
+	}
+	description := report.GetSummary()
+	if description == "" {
+		description = fmt.Sprintf("%s has been identified as a malicious package by SafeDep threat intelligence.", name)
+	}
+
 	return jfrogEvent{
-		ID:          c.issueID(record),
+		ID:          id,
 		Type:        "Security",
 		Provider:    "SafeDep",
-		PackageType: ecosystemToJFrog(pkg.GetEcosystem()),
+		PackageType: ecosystemToJFrog(report.GetEcosystem()),
 		Severity:    "Critical",
 		IssueKind:   1,
-		Summary:     fmt.Sprintf("MALICIOUS PACKAGE: %s contains malicious code", name),
-		Description: fmt.Sprintf("%s %s has been identified as a malicious package by SafeDep threat intelligence.", name, version),
+		Summary:     summary,
+		Description: description,
 		Properties:  map[string]any{},
 		Components: []jfrogComponent{{
 			ID:                 name,
-			VulnerableVersions: []string{vulnerableVersions(version)},
+			VulnerableVersions: vulnerableVersionRanges(pkg.GetVersions()),
 		}},
 		Sources: []jfrogSource{{SourceID: "safedep-threat-intel"}},
 	}, true
@@ -242,15 +244,21 @@ func (c *jfrogClient) do(ctx context.Context, method, path string, body []byte) 
 	return resp.StatusCode, respBody, nil
 }
 
-// vulnerableVersions maps a SafeDep version string to JFrog XRay's range
-// notation. SafeDep sends "0" as a wildcard meaning all versions; XRay
-// requires bracket notation for exact versions and "(,)" for an
-// open-ended range. Without brackets XRay silently drops the record.
-func vulnerableVersions(version string) string {
-	if version == "0" {
-		return "(,)"
+// vulnerableVersionRanges renders affected versions in XRay's bracket notation
+// for one component. Empty entries are dropped ("[]" is silently dropped by
+// XRay), and an empty result means all versions: "(,)".
+func vulnerableVersionRanges(versions []string) []string {
+	ranges := make([]string, 0, len(versions))
+	for _, v := range versions {
+		if v == "" {
+			continue
+		}
+		ranges = append(ranges, "["+v+"]")
 	}
-	return "[" + version + "]"
+	if len(ranges) == 0 {
+		return []string{"(,)"}
+	}
+	return ranges
 }
 
 // ecosystemToJFrog maps a SafeDep ecosystem enum to the JFrog XRay

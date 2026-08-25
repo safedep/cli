@@ -9,31 +9,26 @@ import (
 	"strings"
 	"testing"
 
-	malysismsgv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/malysis/v1"
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
-	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
+	threatintelv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/threatintel/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// newTestRecord builds an AnalysisRecord with the given name, version, and ecosystem.
-// Centralised so tests stay focused on behaviour, not proto plumbing.
-func newTestRecord(name, version string, eco packagev1.Ecosystem) *malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord {
-	pkg := &packagev1.Package{}
+// newTestReport builds a PackageReport with the given report id, name,
+// ecosystem, and affected versions. Centralised so tests stay focused on
+// behaviour, not proto plumbing.
+func newTestReport(reportID, name string, eco packagev1.Ecosystem, versions ...string) *threatintelv1.PackageReport {
+	pkg := &threatintelv1.ReportPackage{}
 	pkg.SetName(name)
-	pkg.SetEcosystem(eco)
+	pkg.SetVersions(versions)
 
-	pv := &packagev1.PackageVersion{}
-	pv.SetPackage(pkg)
-	pv.SetVersion(version)
-
-	target := &malysismsgv1.PackageAnalysisTarget{}
-	target.SetPackageVersion(pv)
-
-	rec := &malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord{}
-	rec.SetAnalysisId("test-analysis-id")
-	rec.SetTarget(target)
-	return rec
+	report := &threatintelv1.PackageReport{}
+	report.SetReportId(reportID)
+	report.SetEcosystem(eco)
+	report.SetVerdict(threatintelv1.ThreatVerdict_THREAT_VERDICT_MALICIOUS)
+	report.SetPackage(pkg)
+	return report
 }
 
 // captured holds what the JFrog mock server received so tests can assert on it.
@@ -69,8 +64,8 @@ func TestPush_HappyPath_ConstructsCorrectRequest(t *testing.T) {
 	srv, cap := newJFrogMock(t, http.StatusCreated, "")
 	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
 
-	rec := newTestRecord("make-array", "0.1.2", packagev1.Ecosystem_ECOSYSTEM_NPM)
-	_, status, err := c.pushMaliciousPackage(context.Background(), rec)
+	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "make-array", packagev1.Ecosystem_ECOSYSTEM_NPM, "0.1.2")
+	_, status, err := c.pushMaliciousPackage(context.Background(), report)
 
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusCreated, status)
@@ -87,13 +82,13 @@ func TestPush_HappyPath_ConstructsCorrectRequest(t *testing.T) {
 	// These are the constraints that silently break delivery if wrong.
 	var event jfrogEvent
 	require.NoError(t, json.Unmarshal(got.body, &event))
-	assert.Equal(t, "SD-test-analysis-id", event.ID,
-		"id is SD- prefix + the backend analysis ULID")
+	assert.Equal(t, "SD-01KR0EKN6PMW0ZRFRN992H1PKX", event.ID,
+		"id is SD- prefix + the report id")
 	assert.Equal(t, "Security", event.Type)
 	assert.Equal(t, "SafeDep", event.Provider)
 	assert.NotEqual(t, "JFrog", event.Provider, "provider must not be JFrog")
 	assert.False(t, strings.HasPrefix(event.ID, "Xray"), "id must not start with Xray")
-	assert.LessOrEqual(t, len(event.ID), 32)
+	assert.LessOrEqual(t, len(event.ID), maxIssueIDLen)
 	assert.Equal(t, "npm", event.PackageType)
 	assert.Equal(t, "Critical", event.Severity)
 	assert.Equal(t, 1, event.IssueKind, "issue_kind=1 marks it as malicious_package in XRay")
@@ -102,35 +97,82 @@ func TestPush_HappyPath_ConstructsCorrectRequest(t *testing.T) {
 	assert.Equal(t, "make-array", event.Components[0].ID, "component id is name only, never URI")
 	require.Len(t, event.Components[0].VulnerableVersions, 1)
 	assert.Equal(t, "[0.1.2]", event.Components[0].VulnerableVersions[0],
-		"bracket notation required — XRay silently drops without it")
+		"bracket notation required - XRay silently drops without it")
 
 	require.Len(t, event.Sources, 1)
 	assert.Equal(t, "safedep-threat-intel", event.Sources[0].SourceID)
+
+	// No feed title/summary on this report, so both fields fall back to
+	// the synthesized text.
+	assert.Equal(t, "MALICIOUS PACKAGE: make-array contains malicious code", event.Summary)
+	assert.Equal(t, "make-array has been identified as a malicious package by SafeDep threat intelligence.", event.Description)
 }
 
-func TestPush_WildcardVersion_OpenRange(t *testing.T) {
+func TestPush_UsesFeedTitleAndSummary(t *testing.T) {
 	srv, cap := newJFrogMock(t, http.StatusCreated, "")
 	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
 
-	rec := newTestRecord("evil", "0", packagev1.Ecosystem_ECOSYSTEM_PYPI)
-	_, _, err := c.pushMaliciousPackage(context.Background(), rec)
+	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "secretkey-2fa", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
+	report.SetTitle("secretkey-2fa exfiltrates 2FA secrets")
+	report.SetSummary("The package steals TOTP seeds on install and posts them to an attacker-controlled host.")
+	_, _, err := c.pushMaliciousPackage(context.Background(), report)
 	require.NoError(t, err)
 
 	require.Len(t, *cap, 1)
 	var event jfrogEvent
 	require.NoError(t, json.Unmarshal((*cap)[0].body, &event))
-	// Wildcard handling now lives only in the vulnerable_versions field;
-	// the ID is derived from the analysis ULID and is independent of version.
+
+	// The feed's human-authored text takes precedence over synthesized text.
+	assert.Equal(t, "secretkey-2fa exfiltrates 2FA secrets", event.Summary,
+		"XRay summary uses the report title when present")
+	assert.Equal(t, "The package steals TOTP seeds on install and posts them to an attacker-controlled host.", event.Description,
+		"XRay description uses the report summary when present")
+}
+
+func TestPush_MultipleVersions_OneComponentManyRanges(t *testing.T) {
+	srv, cap := newJFrogMock(t, http.StatusCreated, "")
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+
+	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "express-logger-pro",
+		packagev1.Ecosystem_ECOSYSTEM_NPM, "9.9.9", "9.9.10", "2.0.0")
+	_, _, err := c.pushMaliciousPackage(context.Background(), report)
+	require.NoError(t, err)
+
+	require.Len(t, *cap, 1)
+	var event jfrogEvent
+	require.NoError(t, json.Unmarshal((*cap)[0].body, &event))
+
+	// One report is one issue is one component regardless of version count.
+	require.Len(t, event.Components, 1)
+	assert.Equal(t, "express-logger-pro", event.Components[0].ID)
+	assert.Equal(t, []string{"[9.9.9]", "[9.9.10]", "[2.0.0]"}, event.Components[0].VulnerableVersions,
+		"every affected version maps into one component's ranges")
+}
+
+func TestPush_EmptyVersions_OpenRange(t *testing.T) {
+	srv, cap := newJFrogMock(t, http.StatusCreated, "")
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+
+	// Empty versions means every version is affected. It is NOT skipped.
+	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "evil", packagev1.Ecosystem_ECOSYSTEM_PYPI)
+	_, status, err := c.pushMaliciousPackage(context.Background(), report)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusCreated, status, "empty versions is valid, not a skip")
+
+	require.Len(t, *cap, 1)
+	var event jfrogEvent
+	require.NoError(t, json.Unmarshal((*cap)[0].body, &event))
+	require.Len(t, event.Components[0].VulnerableVersions, 1)
 	assert.Equal(t, "(,)", event.Components[0].VulnerableVersions[0],
-		"wildcard maps to open-ended XRay range")
+		"empty versions maps to the open-ended XRay range")
 }
 
 func TestPush_TrimsTrailingSlashFromURL(t *testing.T) {
 	srv, cap := newJFrogMock(t, http.StatusCreated, "")
 	c := newJFrogClient(jfrogConfig{url: srv.URL + "/", accessToken: "TOK"})
 
-	rec := newTestRecord("foo", "1.0.0", packagev1.Ecosystem_ECOSYSTEM_NPM)
-	_, _, err := c.pushMaliciousPackage(context.Background(), rec)
+	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "foo", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
+	_, _, err := c.pushMaliciousPackage(context.Background(), report)
 	require.NoError(t, err)
 
 	require.Len(t, *cap, 1)
@@ -142,8 +184,8 @@ func TestPush_NonSuccessStatus_ReturnsErrorWithBody(t *testing.T) {
 	srv, _ := newJFrogMock(t, http.StatusUnauthorized, `{"error":"Bad Credentials"}`)
 	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "bad"})
 
-	rec := newTestRecord("foo", "1.0.0", packagev1.Ecosystem_ECOSYSTEM_NPM)
-	_, status, err := c.pushMaliciousPackage(context.Background(), rec)
+	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "foo", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
+	_, status, err := c.pushMaliciousPackage(context.Background(), report)
 
 	assert.Equal(t, http.StatusUnauthorized, status, "status must be returned even on error")
 	require.Error(t, err)
@@ -152,29 +194,31 @@ func TestPush_NonSuccessStatus_ReturnsErrorWithBody(t *testing.T) {
 }
 
 func TestPush_SkipConditions_ReturnZeroStatusNoCallNoError(t *testing.T) {
+	// An id of "SD-" + a 30-char report id is 33 chars, one over the limit.
+	overLengthReportID := strings.Repeat("A", 30)
+
 	tests := []struct {
-		name    string
-		makeRec func() *malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord
+		name       string
+		makeReport func() *threatintelv1.PackageReport
 	}{
 		{
-			name: "nil PackageVersion",
-			makeRec: func() *malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord {
-				rec := &malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord{}
-				rec.SetAnalysisId("nil-pv")
-				rec.SetTarget(&malysismsgv1.PackageAnalysisTarget{}) // no PackageVersion
-				return rec
+			name: "nil package",
+			makeReport: func() *threatintelv1.PackageReport {
+				report := &threatintelv1.PackageReport{}
+				report.SetReportId("01KR0EKN6PMW0ZRFRN992H1PKX")
+				return report
 			},
 		},
 		{
 			name: "empty package name",
-			makeRec: func() *malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord {
-				return newTestRecord("", "1.0.0", packagev1.Ecosystem_ECOSYSTEM_NPM)
+			makeReport: func() *threatintelv1.PackageReport {
+				return newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
 			},
 		},
 		{
-			name: "empty version",
-			makeRec: func() *malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord {
-				return newTestRecord("foo", "", packagev1.Ecosystem_ECOSYSTEM_NPM)
+			name: "over-length issue id",
+			makeReport: func() *threatintelv1.PackageReport {
+				return newTestReport(overLengthReportID, "foo", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
 			},
 		},
 	}
@@ -184,134 +228,82 @@ func TestPush_SkipConditions_ReturnZeroStatusNoCallNoError(t *testing.T) {
 			srv, cap := newJFrogMock(t, http.StatusCreated, "")
 			c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
 
-			_, status, err := c.pushMaliciousPackage(context.Background(), tt.makeRec())
+			_, status, err := c.pushMaliciousPackage(context.Background(), tt.makeReport())
 
 			require.NoError(t, err)
 			assert.Equal(t, 0, status, "skip returns 0 status to signal no HTTP call made")
-			assert.Empty(t, *cap, "no HTTP request must be made for skipped records")
+			assert.Empty(t, *cap, "no HTTP request must be made for skipped reports")
 		})
 	}
 }
 
-func TestPush_LongName_PreservedInComponentId(t *testing.T) {
-	srv, cap := newJFrogMock(t, http.StatusCreated, "")
-	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
-
-	// The issue ID is now the backend ULID, so package name length no
-	// longer matters for the ID. components[].id still keeps the full
-	// name because XRay matches packages by component id.
-	rec := newTestRecord("money-badger-open-rpc", "199.99.100", packagev1.Ecosystem_ECOSYSTEM_NPM)
-	rec.SetAnalysisId("01KR0EKN6PMW0ZRFRN992H1PKX") // a real-shape ULID
-	_, _, err := c.pushMaliciousPackage(context.Background(), rec)
-	require.NoError(t, err)
-
-	require.Len(t, *cap, 1)
-	var event jfrogEvent
-	require.NoError(t, json.Unmarshal((*cap)[0].body, &event))
-
-	assert.Equal(t, "SD-01KR0EKN6PMW0ZRFRN992H1PKX", event.ID,
-		"id is SD- prefix + backend ULID, independent of name length")
-	assert.LessOrEqual(t, len(event.ID), 32, "29 chars total fits JFrog 32-char limit")
-	assert.Equal(t, "money-badger-open-rpc", event.Components[0].ID,
-		"component id keeps the full name; matching XRay's package identity")
-}
-
-func TestPush_EcosystemMappedToJFrogPackageType(t *testing.T) {
-	cases := map[packagev1.Ecosystem]string{
-		packagev1.Ecosystem_ECOSYSTEM_NPM:      "npm",
-		packagev1.Ecosystem_ECOSYSTEM_PYPI:     "pypi",
-		packagev1.Ecosystem_ECOSYSTEM_RUBYGEMS: "gem",
-	}
-	for eco, want := range cases {
-		t.Run(want, func(t *testing.T) {
-			srv, cap := newJFrogMock(t, http.StatusCreated, "")
-			c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
-
-			rec := newTestRecord("foo", "1.0.0", eco)
-			_, _, err := c.pushMaliciousPackage(context.Background(), rec)
-			require.NoError(t, err)
-
-			var event jfrogEvent
-			require.NoError(t, json.Unmarshal((*cap)[0].body, &event))
-			assert.Equal(t, want, event.PackageType)
-		})
-	}
-}
-
-func TestClient_IssueID(t *testing.T) {
-	tests := []struct {
-		name       string
-		analysisID string
-		want       string
-	}{
-		{
-			name:       "ULID is prefixed with SD-",
-			analysisID: "01KR0EKN6PMW0ZRFRN992H1PKX",
-			want:       "SD-01KR0EKN6PMW0ZRFRN992H1PKX",
-		},
-		{
-			name:       "second ULID gets a different ID",
-			analysisID: "01KR0F5ZQ3J8Y2WBHPD7XKMVNT",
-			want:       "SD-01KR0F5ZQ3J8Y2WBHPD7XKMVNT",
-		},
-	}
-
+func TestClient_IssueID_ReproducibleAndGuarded(t *testing.T) {
 	c := newJFrogClient(jfrogConfig{url: "https://example.jfrog.io", accessToken: "tok"})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			rec := &malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord{}
-			rec.SetAnalysisId(tt.analysisID)
+	t.Run("SD- prefix and pure function of report id", func(t *testing.T) {
+		report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "foo", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
 
-			got := c.issueID(rec)
+		id := c.issueID(report)
+		assert.Equal(t, "SD-01KR0EKN6PMW0ZRFRN992H1PKX", id)
 
-			assert.Equal(t, tt.want, got)
+		// Reproducibility: the same report must yield the same id every
+		// call. Stage 2 delete and Stage 3 update rely on this to
+		// reconstruct the pushed id with no stored name-to-id mapping.
+		assert.Equal(t, id, c.issueID(report), "issue id must be a pure function of the report")
 
-			// JFrog constraints: <=32 chars, must not start with "Xray",
-			// must not be "JFrog". The "SD-" prefix + 26-char ULID gives
-			// us 29 chars with plenty of headroom.
-			assert.LessOrEqual(t, len(got), 32, "issue ID exceeds JFrog 32-char limit")
-			assert.False(t, strings.HasPrefix(got, "Xray"), "issue ID must not start with Xray")
-			assert.NotEqual(t, "JFrog", got, "issue ID must not be JFrog")
-		})
-	}
+		assert.LessOrEqual(t, len(id), maxIssueIDLen, "issue id must fit the JFrog limit")
+		assert.False(t, strings.HasPrefix(id, "Xray"), "issue id must not start with Xray")
+		assert.NotEqual(t, "JFrog", id, "issue id must not be JFrog")
+	})
+
+	t.Run("distinct report ids yield distinct issue ids", func(t *testing.T) {
+		a := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "foo", packagev1.Ecosystem_ECOSYSTEM_NPM)
+		b := newTestReport("01KR0F5ZQ3J8Y2WBHPD7XKMVNT", "foo", packagev1.Ecosystem_ECOSYSTEM_NPM)
+		assert.NotEqual(t, c.issueID(a), c.issueID(b))
+	})
 }
 
-func TestVulnerableVersions(t *testing.T) {
+func TestVulnerableVersionRanges(t *testing.T) {
 	tests := []struct {
-		name    string
-		version string
-		want    string
+		name     string
+		versions []string
+		want     []string
 	}{
 		{
-			name:    "exact version wrapped in brackets",
-			version: "1.0.0",
-			want:    "[1.0.0]",
+			name:     "empty means all versions",
+			versions: nil,
+			want:     []string{"(,)"},
 		},
 		{
-			// Without the wildcard mapping XRay would silently drop the
-			// record - the symptom that motivated the (,) rule in the
-			// docs/jfrog-integration/windcard-version.md note.
-			name:    "wildcard 0 mapped to open range",
-			version: "0",
-			want:    "(,)",
+			name:     "single exact version wrapped in brackets",
+			versions: []string{"1.0.0"},
+			want:     []string{"[1.0.0]"},
 		},
 		{
-			name:    "pre-release version preserved",
-			version: "1.0.0-beta.1",
-			want:    "[1.0.0-beta.1]",
+			name:     "many versions map into one range list",
+			versions: []string{"1.0.0", "1.0.1", "2.0.0"},
+			want:     []string{"[1.0.0]", "[1.0.1]", "[2.0.0]"},
 		},
 		{
-			name:    "version with build metadata preserved",
-			version: "1.0.0+sha.abc",
-			want:    "[1.0.0+sha.abc]",
+			name:     "empty string entries dropped",
+			versions: []string{"", "1.0.0", ""},
+			want:     []string{"[1.0.0]"},
+		},
+		{
+			name:     "all-empty entries fall back to all versions",
+			versions: []string{"", ""},
+			want:     []string{"(,)"},
+		},
+		{
+			name:     "pre-release and build metadata preserved",
+			versions: []string{"1.0.0-beta.1", "1.0.0+sha.abc"},
+			want:     []string{"[1.0.0-beta.1]", "[1.0.0+sha.abc]"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := vulnerableVersions(tt.version)
-			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.want, vulnerableVersionRanges(tt.versions))
 		})
 	}
 }

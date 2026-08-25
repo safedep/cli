@@ -3,14 +3,14 @@ package jfrog
 
 import (
 	"context"
+	"strings"
 
-	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
+	threatintelv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/threatintel/v1"
 	drytui "github.com/safedep/dry/tui"
 )
 
-// feedService bridges a packageSource to a jfrogClient. The source owns
-// delivery cadence and resume state; feedService handles pre-flight
-// validation, the per-record push, and operator-visible logging.
+// feedService bridges a packageSource to a jfrogClient: validate once, then
+// route each report the source delivers.
 type feedService struct {
 	source packageSource
 	client *jfrogClient
@@ -20,12 +20,8 @@ func newFeedService(source packageSource, client *jfrogClient) *feedService {
 	return &feedService{source: source, client: client}
 }
 
-// Run validates JFrog connectivity once, then hands off to the source.
-// Run blocks until ctx is cancelled or the source returns a fatal error.
-//
-// Pre-flight validation lives here (not in the source) because it is a
-// destination-side concern: every source pushes to the same JFrog
-// instance, so the check belongs with the client's owner.
+// run validates JFrog once, then blocks in the source until ctx is cancelled.
+// Validation is a destination concern, so it lives here, not in the source.
 func (s *feedService) run(ctx context.Context) error {
 	drytui.Info("Validating JFrog connectivity")
 	if err := s.client.validate(ctx); err != nil {
@@ -33,32 +29,54 @@ func (s *feedService) run(ctx context.Context) error {
 	}
 	drytui.Success("JFrog connectivity OK (URL + token verified)")
 
-	return s.source.subscribe(ctx, func(record *malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) error {
-		return s.handleRecord(ctx, record)
+	return s.source.subscribe(ctx, func(report *threatintelv1.PackageReport) error {
+		return s.handleRecord(ctx, report)
 	})
 }
 
-// handleRecord pushes a single record and emits user-visible logs.
-// Push errors are logged and swallowed (best-effort delivery): returning
-// nil keeps the source running for the next record.
-//
-// The client's contract: (id="", status==0, nil err) means the record
-// was skipped before any HTTP call (nil PackageVersion, empty name, or
-// empty version). The client already logged the reason, so we must not
-// emit a misleading "Pushed:" line.
-func (s *feedService) handleRecord(ctx context.Context, record *malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) error {
-	id, status, err := s.client.pushMaliciousPackage(ctx, record)
+// handleRecord routes one report. Stage 1 carries withdrawals through (so the
+// cursor advances) but does not act on them; Stage 2 will delete the issue here.
+func (s *feedService) handleRecord(ctx context.Context, report *threatintelv1.PackageReport) error {
+	if report.GetWithdrawn() {
+		drytui.Info("Withdrawn report %s (%s): retraction handling not yet enabled, skipping",
+			s.client.issueID(report), report.GetPackage().GetName())
+		return nil
+	}
+
+	return s.handlePush(ctx, report)
+}
+
+// handlePush pushes a report best-effort: errors are logged, never fatal. A
+// status of 0 means the client skipped it (and already logged why), so stay
+// quiet rather than print a misleading "Pushed:" line.
+func (s *feedService) handlePush(ctx context.Context, report *threatintelv1.PackageReport) error {
+	id, status, err := s.client.pushMaliciousPackage(ctx, report)
 	if err != nil {
-		drytui.Warning("Push failed for %s: %v", record.GetAnalysisId(), err)
+		drytui.Warning("Push failed for %s: %v", report.GetReportId(), err)
 		return nil
 	}
 	if status == 0 {
 		return nil
 	}
-	pv := record.GetTarget().GetPackageVersion()
-	name := pv.GetPackage().GetName()
-	version := pv.GetVersion()
-	drytui.Success("Pushed: %s@%s (%s)", name, version, ecosystemToJFrog(pv.GetPackage().GetEcosystem()))
+
+	name := report.GetPackage().GetName()
+	versions := displayVersions(report.GetPackage().GetVersions())
+	drytui.Success("Pushed: %s (%s) versions: %s", name, ecosystemToJFrog(report.GetEcosystem()), versions)
 	drytui.Info("  JFrog: %s [%d]", id, status)
 	return nil
+}
+
+// displayVersions renders affected versions for the log line. Empty means all
+// versions, mirroring vulnerableVersionRanges.
+func displayVersions(versions []string) string {
+	cleaned := make([]string, 0, len(versions))
+	for _, v := range versions {
+		if v != "" {
+			cleaned = append(cleaned, v)
+		}
+	}
+	if len(cleaned) == 0 {
+		return "all"
+	}
+	return strings.Join(cleaned, ", ")
 }

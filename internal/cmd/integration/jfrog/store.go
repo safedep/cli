@@ -1,7 +1,7 @@
 // Package jfrog implements the SafeDep -> JFrog XRay malicious package
 // integration. The package owns the cobra surface (cmd.go, run.go), the
-// poll-and-push orchestration (service.go, poller.go, pusher.go) and the
-// KV-backed cursor that survives restarts (this file).
+// feed-and-push orchestration (service.go, source_feed.go, client.go) and
+// the KV-backed cursor that survives restarts (this file).
 package jfrog
 
 import (

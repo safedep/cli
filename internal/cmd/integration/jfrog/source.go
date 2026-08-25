@@ -4,41 +4,25 @@ import (
 	"context"
 	"errors"
 
-	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
+	threatintelv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/threatintel/v1"
 )
 
-// packageSource delivers verified malicious package records to the
-// supplied callback. Implementations may pull (poll the gRPC API) or
-// push (subscribe to a stream); feedService is agnostic to the delivery
-// mechanism.
-//
-// Each source owns its own cadence and resume state:
-//   - pollSource owns a KV cursor and the poll-interval sleep loop.
-//
-// feedService never sees these details — it only consumes the records.
+// packageSource delivers malicious package reports to a callback, owning how it
+// fetches and where it resumes. feedService consumes reports and nothing else.
 type packageSource interface {
-	// Subscribe blocks until ctx is cancelled. For each verified
-	// malicious package the source invokes onRecord exactly once.
-	//
-	// Transient errors (gRPC failures, network blips) are logged
-	// internally and the source continues. Only fatal startup errors
-	// or context cancellation are returned.
+	// subscribe blocks until ctx is cancelled, invoking onRecord once per
+	// report. Transient errors are handled internally; only a fatal startup
+	// error or cancellation returns.
 	subscribe(ctx context.Context, onRecord recordHandler) error
 }
 
-// recordHandler is the per-record callback invoked by a packageSource.
-// Returning a non-nil error stops further delivery for the current
-// session; the source surfaces the error from Subscribe.
-type recordHandler func(*malysisv1.ListPackageAnalysisRecordsResponse_AnalysisRecord) error
+// recordHandler handles one report. A non-nil error stops delivery and surfaces
+// from subscribe.
+type recordHandler func(*threatintelv1.PackageReport) error
 
-// callbackError wraps an error returned by a recordHandler. Sources use
-// this wrapper to distinguish a callback error (which must surface from
-// Subscribe per the recordHandler contract) from transient infrastructure
-// errors (gRPC blip, network reset) which should be logged and retried.
-//
-// Wrap at the source-internal boundary; unwrap via errors.As at the
-// Subscribe boundary; never expose the wrapper to the caller (always
-// surface the underlying error).
+// callbackError marks a handler error so a source can tell it apart from a
+// transient infra error: the former surfaces, the latter is retried. Wrap
+// inside the source, unwrap at the subscribe boundary, never leak the wrapper.
 type callbackError struct {
 	err error
 }
@@ -46,9 +30,7 @@ type callbackError struct {
 func (e *callbackError) Error() string { return e.err.Error() }
 func (e *callbackError) Unwrap() error { return e.err }
 
-// isCallbackError reports whether err originated from a recordHandler
-// (and was wrapped at the source-internal boundary). Used by Subscribe
-// implementations to choose between surfacing and retrying.
+// isCallbackError reports whether err came from a recordHandler.
 func isCallbackError(err error) bool {
 	var cb *callbackError
 	return errors.As(err, &cb)

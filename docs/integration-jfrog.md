@@ -267,7 +267,7 @@ The XRay Custom Issue carries a `summary` (short headline) and a `description`
 (longer body):
 
 - `summary` is always the synthesized headline
-  `MALICIOUS PACKAGE: <name> contains malicious code`. The feed `title` is not
+  `<name> identified as Malware by SafeDep`. The feed `title` is not
   used: it is only the first few words of the feed summary, so it makes a poor
   standalone headline.
 - `description` <- `report.GetSummary()` (the feed's full summary). When the feed

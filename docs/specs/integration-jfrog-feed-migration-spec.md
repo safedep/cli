@@ -413,7 +413,7 @@ Example: report for `express-logger-pro`, versions `["9.9.9","9.9.10"]`, npm:
   "id": "SD-01JZ8Q9V6K3S2M7C1B0A4E5F6G",
   "type": "Security", "provider": "SafeDep", "package_type": "npm",
   "severity": "Critical", "issue_kind": 1,
-  "summary": "MALICIOUS PACKAGE: express-logger-pro contains malicious code",
+  "summary": "express-logger-pro identified as Malware by SafeDep",
   "components": [{ "id": "express-logger-pro",
                   "vulnerable_versions": ["[9.9.9]", "[9.9.10]"] }],
   "sources": [{ "source_id": "safedep-threat-intel" }]

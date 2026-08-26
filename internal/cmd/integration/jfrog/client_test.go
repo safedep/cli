@@ -104,7 +104,7 @@ func TestPush_HappyPath_ConstructsCorrectRequest(t *testing.T) {
 
 	// No feed title/summary on this report, so both fields fall back to
 	// the synthesized text.
-	assert.Equal(t, "MALICIOUS PACKAGE: make-array contains malicious code", event.Summary)
+	assert.Equal(t, "make-array identified as Malware by SafeDep", event.Summary)
 	assert.Equal(t, "make-array has been identified as a malicious package by SafeDep threat intelligence.", event.Description)
 }
 
@@ -124,7 +124,7 @@ func TestPush_SummarySynthesized_DescriptionFromFeed(t *testing.T) {
 
 	// The XRay summary is always the synthesized headline, never the feed title
 	// (the feed title is only the first few words of the feed summary).
-	assert.Equal(t, "MALICIOUS PACKAGE: secretkey-2fa contains malicious code", event.Summary,
+	assert.Equal(t, "secretkey-2fa identified as Malware by SafeDep", event.Summary,
 		"XRay summary is synthesized, not the feed title")
 	// The XRay description carries the feed's full summary when present.
 	assert.Equal(t, "The package steals TOTP seeds on install and posts them to an attacker-controlled host.", event.Description,

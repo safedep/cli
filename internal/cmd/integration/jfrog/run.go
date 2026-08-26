@@ -60,17 +60,20 @@ func runCmd(a *app.App) *cobra.Command {
 
 			svc := threatintelv1grpc.NewThreatIntelServiceClient(client.Connection())
 
-			source, xc, err := buildSourceAndClient(a, svc, cfg)
+			rep := newReporter(a.Output)
+			source, xc, err := buildSourceAndClient(a, svc, cfg, rep)
 			if err != nil {
 				return err
 			}
 
-			return newFeedService(source, xc).run(cmd.Context())
+			return newFeedService(source, xc, rep).run(cmd.Context())
 		},
 	}
 
 	cmd.Flags().StringVar(&in.InstanceURL, "instance-url", "", "JFrog instance URL (or "+envJFrogURL+")")
-	cmd.Flags().StringVar(&in.InstanceAccessToken, "instance-access-token", "", "JFrog access token (or "+envJFrogToken+")")
+	// A token on the command line is saved in the shell history and shown in the
+	// process list. So the flag name says insecure. Prefer the env var.
+	cmd.Flags().StringVar(&in.InstanceAccessToken, "insecure-instance-access-token", "", "JFrog access token, insecure (prefer "+envJFrogToken+")")
 	cmd.Flags().DurationVar(&in.PollInterval, "poll-interval", 5*time.Minute, "sleep duration between feed drains")
 	cmd.Flags().DurationVar(&in.Backfill, "backfill", 0, "first-run window to seed the cursor (e.g. 24h, 168h); 0 starts fresh from now")
 	cmd.Flags().BoolVar(&in.DryRun, "dry-run", false, "preview the feed and print what would be pushed, without sending to JFrog (no JFrog credentials needed)")
@@ -83,7 +86,7 @@ func runCmd(a *app.App) *cobra.Command {
 // profile-scoped cursor: a dry-run tests the pipeline as-is and differs only in
 // the client (print instead of JFrog). A dry-run advances the saved cursor, so
 // run `cursor remove` before the first real run to re-process what it previewed.
-func buildSourceAndClient(a *app.App, svc threatintelv1grpc.ThreatIntelServiceClient, cfg cmdConfig) (*feedSource, xrayClient, error) {
+func buildSourceAndClient(a *app.App, svc threatintelv1grpc.ThreatIntelServiceClient, cfg cmdConfig, rep *reporter) (*feedSource, xrayClient, error) {
 	// Cursor is stored in the profile-scoped KV store so each SafeDep
 	// credential profile has an independent cursor. Switching --profile
 	// automatically switches the cursor.
@@ -92,12 +95,12 @@ func buildSourceAndClient(a *app.App, svc threatintelv1grpc.ThreatIntelServiceCl
 		return nil, nil, fmt.Errorf("run: open cursor store: %w", err)
 	}
 
-	source := newFeedSource(svc, kv, cfg.source.pollInterval, cfg.source.backfillWindow)
+	source := newFeedSource(svc, kv, cfg.source.pollInterval, cfg.source.backfillWindow, rep)
 
 	if cfg.dryRun {
-		return source, newPrintClient(), nil
+		return source, newPrintClient(rep), nil
 	}
-	return source, newJFrogClient(cfg.jfrog), nil
+	return source, newJFrogClient(cfg.jfrog, rep), nil
 }
 
 // resolveConfig collapses CLI flags + environment variables into a single
@@ -172,7 +175,7 @@ func resolveJFrogConfig(in runInput) (jfrogConfig, error) {
 		token = config.EnvVar(envJFrogToken)
 	}
 	if token == "" {
-		return jfrogConfig{}, fmt.Errorf("run: --instance-access-token or %s is required", envJFrogToken)
+		return jfrogConfig{}, fmt.Errorf("run: --insecure-instance-access-token or %s is required", envJFrogToken)
 	}
 
 	return jfrogConfig{url: url, accessToken: token}, nil

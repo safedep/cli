@@ -62,7 +62,7 @@ func newJFrogMock(t *testing.T, status int, respBody string) (*httptest.Server, 
 
 func TestPush_HappyPath_ConstructsCorrectRequest(t *testing.T) {
 	srv, cap := newJFrogMock(t, http.StatusCreated, "")
-	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"}, newReporter(nil))
 
 	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "make-array", packagev1.Ecosystem_ECOSYSTEM_NPM, "0.1.2")
 	_, status, err := c.pushMaliciousPackage(context.Background(), report)
@@ -110,7 +110,7 @@ func TestPush_HappyPath_ConstructsCorrectRequest(t *testing.T) {
 
 func TestPush_SummarySynthesized_DescriptionFromFeed(t *testing.T) {
 	srv, cap := newJFrogMock(t, http.StatusCreated, "")
-	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"}, newReporter(nil))
 
 	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "secretkey-2fa", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
 	report.SetTitle("secretkey-2fa exfiltrates 2FA secrets")
@@ -133,7 +133,7 @@ func TestPush_SummarySynthesized_DescriptionFromFeed(t *testing.T) {
 
 func TestPush_MultipleVersions_OneComponentManyRanges(t *testing.T) {
 	srv, cap := newJFrogMock(t, http.StatusCreated, "")
-	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"}, newReporter(nil))
 
 	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "express-logger-pro",
 		packagev1.Ecosystem_ECOSYSTEM_NPM, "9.9.9", "9.9.10", "2.0.0")
@@ -153,7 +153,7 @@ func TestPush_MultipleVersions_OneComponentManyRanges(t *testing.T) {
 
 func TestPush_EmptyVersions_OpenRange(t *testing.T) {
 	srv, cap := newJFrogMock(t, http.StatusCreated, "")
-	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"}, newReporter(nil))
 
 	// Empty versions means every version is affected. It is NOT skipped.
 	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "evil", packagev1.Ecosystem_ECOSYSTEM_PYPI)
@@ -171,7 +171,7 @@ func TestPush_EmptyVersions_OpenRange(t *testing.T) {
 
 func TestPush_TrimsTrailingSlashFromURL(t *testing.T) {
 	srv, cap := newJFrogMock(t, http.StatusCreated, "")
-	c := newJFrogClient(jfrogConfig{url: srv.URL + "/", accessToken: "TOK"})
+	c := newJFrogClient(jfrogConfig{url: srv.URL + "/", accessToken: "TOK"}, newReporter(nil))
 
 	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "foo", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
 	_, _, err := c.pushMaliciousPackage(context.Background(), report)
@@ -184,7 +184,7 @@ func TestPush_TrimsTrailingSlashFromURL(t *testing.T) {
 
 func TestPush_NonSuccessStatus_ReturnsErrorWithBody(t *testing.T) {
 	srv, _ := newJFrogMock(t, http.StatusUnauthorized, `{"error":"Bad Credentials"}`)
-	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "bad"})
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "bad"}, newReporter(nil))
 
 	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "foo", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
 	_, status, err := c.pushMaliciousPackage(context.Background(), report)
@@ -200,7 +200,7 @@ func TestPush_AlreadyExists400IsBenign(t *testing.T) {
 	// it does not upsert on a duplicate id. This is the desired state, so it is
 	// benign: status returned, no error, mirroring a delete 404.
 	srv, _ := newJFrogMock(t, http.StatusBadRequest, `{"error":"Vulnerability  already exists"}`)
-	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"}, newReporter(nil))
 
 	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "foo", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
 	id, status, err := c.pushMaliciousPackage(context.Background(), report)
@@ -213,7 +213,7 @@ func TestPush_AlreadyExists400IsBenign(t *testing.T) {
 func TestPush_BadRequestOther_ReturnsError(t *testing.T) {
 	// A 400 that is not "already exists" is a real error, not benign.
 	srv, _ := newJFrogMock(t, http.StatusBadRequest, `{"error":"malformed payload"}`)
-	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"}, newReporter(nil))
 
 	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "foo", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
 	_, status, err := c.pushMaliciousPackage(context.Background(), report)
@@ -256,7 +256,7 @@ func TestPush_SkipConditions_ReturnZeroStatusNoCallNoError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv, cap := newJFrogMock(t, http.StatusCreated, "")
-			c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+			c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"}, newReporter(nil))
 
 			_, status, err := c.pushMaliciousPackage(context.Background(), tt.makeReport())
 
@@ -269,7 +269,7 @@ func TestPush_SkipConditions_ReturnZeroStatusNoCallNoError(t *testing.T) {
 
 func TestDelete_HappyPath_IssuesDeleteToEventID(t *testing.T) {
 	srv, cap := newJFrogMock(t, http.StatusOK, "")
-	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"}, newReporter(nil))
 
 	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "make-array", packagev1.Ecosystem_ECOSYSTEM_NPM, "0.1.2")
 	id, status, err := c.deleteMaliciousPackage(context.Background(), report)
@@ -286,7 +286,7 @@ func TestDelete_HappyPath_IssuesDeleteToEventID(t *testing.T) {
 
 func TestDelete_NotFoundIsBenign(t *testing.T) {
 	srv, cap := newJFrogMock(t, http.StatusNotFound, `{"error":"not found"}`)
-	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"}, newReporter(nil))
 
 	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "foo", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
 	id, status, err := c.deleteMaliciousPackage(context.Background(), report)
@@ -299,7 +299,7 @@ func TestDelete_NotFoundIsBenign(t *testing.T) {
 
 func TestDelete_ServerErrorReturnsError(t *testing.T) {
 	srv, _ := newJFrogMock(t, http.StatusInternalServerError, `{"error":"boom"}`)
-	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"}, newReporter(nil))
 
 	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "foo", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
 	_, status, err := c.deleteMaliciousPackage(context.Background(), report)
@@ -312,7 +312,7 @@ func TestDelete_ServerErrorReturnsError(t *testing.T) {
 
 func TestDelete_OverLengthIDSkipsNoCall(t *testing.T) {
 	srv, cap := newJFrogMock(t, http.StatusOK, "")
-	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"}, newReporter(nil))
 
 	// "SD-" + 30 chars is one over the limit, so it was never pushed.
 	report := newTestReport(strings.Repeat("A", 30), "foo", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")

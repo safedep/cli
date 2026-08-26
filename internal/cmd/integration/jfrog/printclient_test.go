@@ -13,7 +13,7 @@ import (
 func TestPrintClient_NeverSendsAndNeedsNoCreds(t *testing.T) {
 	// Empty config, no server: if the print client reached JFrog it would
 	// error. It must not, because it only builds the event and prints.
-	c := newPrintClient()
+	c := newPrintClient(newReporter(nil))
 
 	require.NoError(t, c.validate(context.Background()))
 
@@ -25,7 +25,7 @@ func TestPrintClient_NeverSendsAndNeedsNoCreds(t *testing.T) {
 }
 
 func TestPrintClient_SkippedReportReturnsZeroNoError(t *testing.T) {
-	c := newPrintClient()
+	c := newPrintClient(newReporter(nil))
 
 	// An id of "SD-" + a 30-char report id is one over the JFrog limit, so
 	// buildEvent skips it. The print client mirrors the real client's skip.
@@ -37,7 +37,7 @@ func TestPrintClient_SkippedReportReturnsZeroNoError(t *testing.T) {
 }
 
 func TestPrintClient_DeletePreviewsAndNeverSends(t *testing.T) {
-	c := newPrintClient()
+	c := newPrintClient(newReporter(nil))
 
 	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "make-array", packagev1.Ecosystem_ECOSYSTEM_NPM, "0.1.2")
 	id, status, err := c.deleteMaliciousPackage(context.Background(), report)

@@ -12,7 +12,6 @@ import (
 	threatintelv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/threatintel/v1"
 	threatintelsvcv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/threatintel/v1"
 	"github.com/safedep/cli/internal/storage"
-	drytui "github.com/safedep/dry/tui"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -56,31 +55,35 @@ type feedSource struct {
 	cursor         *cursorStore
 	pollInterval   time.Duration
 	backfillWindow time.Duration
+	rep            *reporter
 }
 
 // feedPageSize matches the server's cap of 100 reports per page.
 const feedPageSize = 100
 
-func newFeedSource(svc threatintelv1grpc.ThreatIntelServiceClient, kv *storage.KV[cursorState], pollInterval, backfillWindow time.Duration) *feedSource {
+func newFeedSource(svc threatintelv1grpc.ThreatIntelServiceClient, kv *storage.KV[cursorState], pollInterval, backfillWindow time.Duration, rep *reporter) *feedSource {
 	return &feedSource{
 		svc:            svc,
 		cursor:         newCursorStore(kv),
 		pollInterval:   pollInterval,
 		backfillWindow: backfillWindow,
+		rep:            rep,
 	}
 }
 
 // subscribe drives the feed loop until ctx is cancelled. A bad cycle is logged
 // and retried, never fatal.
 func (s *feedSource) subscribe(ctx context.Context, onRecord recordHandler) error {
-	drytui.Info("Starting JFrog Syncing with SafeDep Threat Intel Feed")
+	// Feed-loop activity is operational. It is a log: stderr in human modes,
+	// nothing under -o json. It is never output.
+	s.rep.logInfo("Starting JFrog Syncing with SafeDep Threat Intel Feed")
 	s.logStartMode(ctx)
 
 	for {
 		err := s.syncOnce(ctx, onRecord)
 		switch {
 		case err == nil:
-			drytui.Info("Feed cycle complete at %s, next in %s", time.Now().UTC().Format(time.RFC3339), s.pollInterval)
+			s.rep.logInfo("Feed cycle complete at %s, next in %s", time.Now().UTC().Format(time.RFC3339), s.pollInterval)
 		case ctx.Err() != nil:
 			return nil
 		case isCallbackError(err):
@@ -91,7 +94,7 @@ func (s *feedSource) subscribe(ctx context.Context, onRecord recordHandler) erro
 			return err
 		default:
 			// Transient infra error. Log and retry next cycle.
-			drytui.Warning("Feed cycle error: %v", err)
+			s.rep.logWarn("Feed cycle error: %v", err)
 		}
 
 		select {
@@ -111,11 +114,11 @@ func (s *feedSource) logStartMode(ctx context.Context) {
 	}
 	switch {
 	case !state.LastSeenAt.IsZero():
-		drytui.Info("Resuming from saved cursor (last update %s)", state.LastSeenAt.UTC().Format(time.RFC3339))
+		s.rep.logInfo("Resuming from saved cursor (last update %s)", state.LastSeenAt.UTC().Format(time.RFC3339))
 	case s.backfillWindow > 0:
-		drytui.Info("No saved cursor: backfilling reports from the last %s", s.backfillWindow)
+		s.rep.logInfo("No saved cursor: backfilling reports from the last %s", s.backfillWindow)
 	default:
-		drytui.Info("No saved cursor: starting fresh from now")
+		s.rep.logInfo("No saved cursor: starting fresh from now")
 	}
 }
 

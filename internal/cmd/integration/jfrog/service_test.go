@@ -15,11 +15,12 @@ import (
 // fakeXrayClient records which port method the service called, so routing can
 // be asserted without a live JFrog server.
 type fakeXrayClient struct {
-	pushed  []string
-	deleted []string
-	pushErr error
-	delErr  error
-	delStat int
+	pushed   []string
+	deleted  []string
+	pushErr  error
+	delErr   error
+	pushStat int
+	delStat  int
 }
 
 func (f *fakeXrayClient) validate(context.Context) error { return nil }
@@ -29,7 +30,11 @@ func (f *fakeXrayClient) pushMaliciousPackage(_ context.Context, r *threatintelv
 	if f.pushErr != nil {
 		return r.GetReportId(), 0, f.pushErr
 	}
-	return issueID(r), http.StatusCreated, nil
+	stat := f.pushStat
+	if stat == 0 {
+		stat = http.StatusCreated
+	}
+	return issueID(r), stat, nil
 }
 
 func (f *fakeXrayClient) deleteMaliciousPackage(_ context.Context, r *threatintelv1.PackageReport) (string, int, error) {
@@ -81,6 +86,18 @@ func TestHandleRecord_Delete404IsHandled(t *testing.T) {
 
 	assert.NoError(t, svc.handleRecord(context.Background(), withdrawn))
 	assert.Equal(t, []string{"wd-1"}, fake.deleted)
+}
+
+func TestHandleRecord_PushAlreadyPresentIsBenign(t *testing.T) {
+	push := newTestReport("push-1", "pkg-a", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
+
+	// A 400 "already exists" surfaces as status 400 with no error, the same
+	// benign shape as a delete 404. It must not stop the daemon.
+	fake := &fakeXrayClient{pushStat: http.StatusBadRequest}
+	svc := newFeedService(nil, fake)
+
+	assert.NoError(t, svc.handleRecord(context.Background(), push))
+	assert.Equal(t, []string{"push-1"}, fake.pushed)
 }
 
 func TestDisplayVersions(t *testing.T) {

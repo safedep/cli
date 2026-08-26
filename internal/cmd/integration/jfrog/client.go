@@ -149,7 +149,9 @@ func (c *jfrogClient) validate(ctx context.Context) error {
 
 // pushMaliciousPackage submits an XRay Custom Issue for the report. It returns
 // the issue id, the HTTP status, and an error on transport or non-2xx. A
-// skipped report (see buildEvent) returns ("", 0, nil).
+// skipped report (see buildEvent) returns ("", 0, nil). A 400 "already exists"
+// is benign, mirroring a delete 404: the issue is already present, which is the
+// desired state, so it returns (id, 400, nil) with no error.
 func (c *jfrogClient) pushMaliciousPackage(ctx context.Context, report *threatintelv1.PackageReport) (string, int, error) {
 	event, ok := buildEvent(report)
 	if !ok {
@@ -165,10 +167,23 @@ func (c *jfrogClient) pushMaliciousPackage(ctx context.Context, report *threatin
 	if err != nil {
 		return event.ID, 0, fmt.Errorf("jfrog client: http: %w", err)
 	}
+	if status == http.StatusBadRequest && isAlreadyExists(respBody) {
+		// XRay does not upsert on a duplicate id, so a re-push of an unchanged
+		// report returns 400 "already exists". The issue is already present, so
+		// this is a benign no-op, not a failure.
+		return event.ID, status, nil
+	}
 	if status < 200 || status >= 300 {
 		return event.ID, status, fmt.Errorf("jfrog client: %s: status %d: %s", event.ID, status, string(respBody))
 	}
 	return event.ID, status, nil
+}
+
+// isAlreadyExists reports whether an XRay error body signals that the Custom
+// Issue id is already present. XRay returns 400 with a body like
+// {"error":"Vulnerability already exists"} on a duplicate id.
+func isAlreadyExists(respBody []byte) bool {
+	return strings.Contains(strings.ToLower(string(respBody)), "already exists")
 }
 
 // deleteMaliciousPackage deletes the XRay Custom Issue for a withdrawn report.

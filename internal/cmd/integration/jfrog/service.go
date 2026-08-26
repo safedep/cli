@@ -61,6 +61,13 @@ func (s *feedService) handlePush(ctx context.Context, report *threatintelv1.Pack
 	}
 
 	name := report.GetPackage().GetName()
+	if status == http.StatusBadRequest {
+		// Already present in XRay (see pushMaliciousPackage). A benign no-op,
+		// rendered like a delete "already absent" rather than a failure.
+		drytui.Info("Already present %s (%s): issue %s in XRay", report.GetReportId(), name, id)
+		return nil
+	}
+
 	versions := displayVersions(report.GetPackage().GetVersions())
 	drytui.Success("Pushed: %s (%s) versions: %s", name, ecosystemToJFrog(report.GetEcosystem()), versions)
 	drytui.Info("  JFrog: %s [%d]", id, status)

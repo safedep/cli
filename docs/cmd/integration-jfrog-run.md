@@ -97,6 +97,10 @@ safedep integration jfrog run --instance-url https://yourcompany.jfrog.io --inst
   positive), the feed re-delivers it as withdrawn. The command deletes the
   matching XRay Custom Issue by its reproducible id. A delete for an issue that
   is already gone is treated as success.
+- **Already present.** On restart or an overlapping `--backfill`, the command
+  re-pushes reports it pushed before. XRay reports the issue already exists; the
+  command treats that as success (already present), the same way it treats an
+  already-gone delete.
 - **Resume.** The cursor is stored per SafeDep profile. Restarting the command
   resumes from the last processed report. Switching `--profile` switches the
   cursor. Re-process from a chosen point with

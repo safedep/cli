@@ -195,6 +195,34 @@ func TestPush_NonSuccessStatus_ReturnsErrorWithBody(t *testing.T) {
 	assert.Contains(t, err.Error(), "Bad Credentials", "error includes response body")
 }
 
+func TestPush_AlreadyExists400IsBenign(t *testing.T) {
+	// XRay returns 400 "already exists" when the id is already present, because
+	// it does not upsert on a duplicate id. This is the desired state, so it is
+	// benign: status returned, no error, mirroring a delete 404.
+	srv, _ := newJFrogMock(t, http.StatusBadRequest, `{"error":"Vulnerability  already exists"}`)
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+
+	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "foo", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
+	id, status, err := c.pushMaliciousPackage(context.Background(), report)
+
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, status)
+	assert.Equal(t, "SD-01KR0EKN6PMW0ZRFRN992H1PKX", id)
+}
+
+func TestPush_BadRequestOther_ReturnsError(t *testing.T) {
+	// A 400 that is not "already exists" is a real error, not benign.
+	srv, _ := newJFrogMock(t, http.StatusBadRequest, `{"error":"malformed payload"}`)
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+
+	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "foo", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
+	_, status, err := c.pushMaliciousPackage(context.Background(), report)
+
+	assert.Equal(t, http.StatusBadRequest, status)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "malformed payload")
+}
+
 func TestPush_SkipConditions_ReturnZeroStatusNoCallNoError(t *testing.T) {
 	// An id of "SD-" + a 30-char report id is 33 chars, one over the limit.
 	overLengthReportID := strings.Repeat("A", 30)

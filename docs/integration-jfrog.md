@@ -40,11 +40,10 @@ SafeDep                   feedService                JFrog XRay
                         handleRecord
                          |         |
               withdrawn? |         | malicious
-                 (no-op) |         v
-                         |   client.pushMaliciousPackage --> POST /xray/api/v1/events
-                         |                     (Bearer token, JSON event)
-                         v
-                     (Stage 2: delete)
+                         v         v
+   client.deleteMaliciousPackage   client.pushMaliciousPackage
+     DELETE /xray/api/v1/events/{id}   POST /xray/api/v1/events
+                                       (Bearer token, JSON event)
 ```
 
 ## The `packageSource` contract
@@ -139,7 +138,7 @@ Per [AGENTS.md](../AGENTS.md):
 
 | Library | Use for | Examples in this package |
 |---|---|---|
-| `drytui` (`Info`, `Success`, `Warning`) | Operator-visible messages. State changes, errors the user can act on. | `Pushed: ...`, `Push failed for X`, `Withdrawn report ...: skipping`, `Skipping report: missing package name` |
+| `drytui` (`Info`, `Success`, `Warning`) | Operator-visible messages. State changes, errors the user can act on. | `Pushed: ...`, `Deleted: ...`, `Push failed for X`, `Delete failed for X`, `Skipping report: missing package name` |
 | `dry/log` (`Warnf`, etc.) | Internal diagnostics. Not actionable. | Deferred body close failure, bounded body read failure |
 
 ## The `jfrogClient` boundary
@@ -191,8 +190,8 @@ after `SD-` and look the report up in SafeDep, and vice versa.
 timestamps, no truncation, no hashing. The same report always yields the same
 id. This is a hard requirement for later stages:
 
-- Delete (Stage 2) and update (Stage 3) have no way to look an issue up by name.
-  They reconstruct the exact id that was pushed.
+- Delete and update (Stage 3) have no way to look an issue up by name. They
+  reconstruct the exact id that was pushed.
 - `report_id` is permanent across the report lifecycle. Verification, late
   indicators, and withdrawal are all updates to the **same** id, never a new
   report. So a withdrawn or updated re-delivery carries the id originally
@@ -257,24 +256,24 @@ longer considered malicious (for example a false positive is retracted).
 
 - The **source** does not drop withdrawn reports. It delivers them and advances
   the cursor past them.
-- **`feedService.handleRecord`** branches on `report.GetWithdrawn()`. Stage 1 is
-  a logged no-op. Stage 2 replaces this branch with a `DELETE` of the XRay issue
-  keyed by the reproducible `SD-<report_id>`.
+- **`feedService.handleRecord`** branches on `report.GetWithdrawn()`. A withdrawn
+  report is deleted with `client.deleteMaliciousPackage`, a `DELETE` of the XRay
+  issue keyed by the reproducible `SD-<report_id>`. A 404 is benign (the issue is
+  already gone), and an over-length id is skipped (it was never pushed).
 
 ## Issue summary and description
 
 The XRay Custom Issue carries a `summary` (short headline) and a `description`
-(longer body). Both come from the feed's human-authored text:
+(longer body):
 
-- `summary` <- `report.GetTitle()`
-- `description` <- `report.GetSummary()`
-
-Either field can be empty on a report (for example an automated report that is
-not human-verified). When empty, `buildEvent` falls back to a synthesized line
-so the issue never carries a blank field:
-
-- summary fallback: `MALICIOUS PACKAGE: <name> contains malicious code`
-- description fallback: `<name> has been identified as a malicious package by SafeDep threat intelligence.`
+- `summary` is always the synthesized headline
+  `<name> identified as Malware by SafeDep`. The feed `title` is not
+  used: it is only the first few words of the feed summary, so it makes a poor
+  standalone headline.
+- `description` <- `report.GetSummary()` (the feed's full summary). When the feed
+  summary is empty, `buildEvent` falls back to
+  `<name> has been identified as a malicious package by SafeDep threat intelligence.`
+  so the field is never blank.
 
 ## Testing the wire format
 

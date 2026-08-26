@@ -104,11 +104,11 @@ func TestPush_HappyPath_ConstructsCorrectRequest(t *testing.T) {
 
 	// No feed title/summary on this report, so both fields fall back to
 	// the synthesized text.
-	assert.Equal(t, "MALICIOUS PACKAGE: make-array contains malicious code", event.Summary)
+	assert.Equal(t, "make-array identified as Malware by SafeDep", event.Summary)
 	assert.Equal(t, "make-array has been identified as a malicious package by SafeDep threat intelligence.", event.Description)
 }
 
-func TestPush_UsesFeedTitleAndSummary(t *testing.T) {
+func TestPush_SummarySynthesized_DescriptionFromFeed(t *testing.T) {
 	srv, cap := newJFrogMock(t, http.StatusCreated, "")
 	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
 
@@ -122,9 +122,11 @@ func TestPush_UsesFeedTitleAndSummary(t *testing.T) {
 	var event jfrogEvent
 	require.NoError(t, json.Unmarshal((*cap)[0].body, &event))
 
-	// The feed's human-authored text takes precedence over synthesized text.
-	assert.Equal(t, "secretkey-2fa exfiltrates 2FA secrets", event.Summary,
-		"XRay summary uses the report title when present")
+	// The XRay summary is always the synthesized headline, never the feed title
+	// (the feed title is only the first few words of the feed summary).
+	assert.Equal(t, "secretkey-2fa identified as Malware by SafeDep", event.Summary,
+		"XRay summary is synthesized, not the feed title")
+	// The XRay description carries the feed's full summary when present.
 	assert.Equal(t, "The package steals TOTP seeds on install and posts them to an attacker-controlled host.", event.Description,
 		"XRay description uses the report summary when present")
 }
@@ -193,6 +195,34 @@ func TestPush_NonSuccessStatus_ReturnsErrorWithBody(t *testing.T) {
 	assert.Contains(t, err.Error(), "Bad Credentials", "error includes response body")
 }
 
+func TestPush_AlreadyExists400IsBenign(t *testing.T) {
+	// XRay returns 400 "already exists" when the id is already present, because
+	// it does not upsert on a duplicate id. This is the desired state, so it is
+	// benign: status returned, no error, mirroring a delete 404.
+	srv, _ := newJFrogMock(t, http.StatusBadRequest, `{"error":"Vulnerability  already exists"}`)
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+
+	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "foo", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
+	id, status, err := c.pushMaliciousPackage(context.Background(), report)
+
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, status)
+	assert.Equal(t, "SD-01KR0EKN6PMW0ZRFRN992H1PKX", id)
+}
+
+func TestPush_BadRequestOther_ReturnsError(t *testing.T) {
+	// A 400 that is not "already exists" is a real error, not benign.
+	srv, _ := newJFrogMock(t, http.StatusBadRequest, `{"error":"malformed payload"}`)
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+
+	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "foo", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
+	_, status, err := c.pushMaliciousPackage(context.Background(), report)
+
+	assert.Equal(t, http.StatusBadRequest, status)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "malformed payload")
+}
+
 func TestPush_SkipConditions_ReturnZeroStatusNoCallNoError(t *testing.T) {
 	// An id of "SD-" + a 30-char report id is 33 chars, one over the limit.
 	overLengthReportID := strings.Repeat("A", 30)
@@ -237,6 +267,63 @@ func TestPush_SkipConditions_ReturnZeroStatusNoCallNoError(t *testing.T) {
 	}
 }
 
+func TestDelete_HappyPath_IssuesDeleteToEventID(t *testing.T) {
+	srv, cap := newJFrogMock(t, http.StatusOK, "")
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+
+	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "make-array", packagev1.Ecosystem_ECOSYSTEM_NPM, "0.1.2")
+	id, status, err := c.deleteMaliciousPackage(context.Background(), report)
+
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, status)
+	assert.Equal(t, "SD-01KR0EKN6PMW0ZRFRN992H1PKX", id)
+	require.Len(t, *cap, 1)
+	assert.Equal(t, http.MethodDelete, (*cap)[0].method)
+	assert.Equal(t, "/xray/api/v1/events/SD-01KR0EKN6PMW0ZRFRN992H1PKX", (*cap)[0].path,
+		"delete targets the event by its reproducible id")
+	assert.Equal(t, "Bearer TOK", (*cap)[0].headers.Get("Authorization"))
+}
+
+func TestDelete_NotFoundIsBenign(t *testing.T) {
+	srv, cap := newJFrogMock(t, http.StatusNotFound, `{"error":"not found"}`)
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+
+	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "foo", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
+	id, status, err := c.deleteMaliciousPackage(context.Background(), report)
+
+	require.NoError(t, err, "404 means the issue is already absent, the desired end state")
+	assert.Equal(t, http.StatusNotFound, status)
+	assert.Equal(t, "SD-01KR0EKN6PMW0ZRFRN992H1PKX", id)
+	require.Len(t, *cap, 1)
+}
+
+func TestDelete_ServerErrorReturnsError(t *testing.T) {
+	srv, _ := newJFrogMock(t, http.StatusInternalServerError, `{"error":"boom"}`)
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+
+	report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "foo", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
+	_, status, err := c.deleteMaliciousPackage(context.Background(), report)
+
+	assert.Equal(t, http.StatusInternalServerError, status)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "500")
+	assert.Contains(t, err.Error(), "boom")
+}
+
+func TestDelete_OverLengthIDSkipsNoCall(t *testing.T) {
+	srv, cap := newJFrogMock(t, http.StatusOK, "")
+	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
+
+	// "SD-" + 30 chars is one over the limit, so it was never pushed.
+	report := newTestReport(strings.Repeat("A", 30), "foo", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
+	id, status, err := c.deleteMaliciousPackage(context.Background(), report)
+
+	require.NoError(t, err)
+	assert.Empty(t, id)
+	assert.Equal(t, 0, status, "skip returns 0 status to signal no HTTP call made")
+	assert.Empty(t, *cap, "no delete request for an id that was never pushed")
+}
+
 func TestIssueID_ReproducibleAndGuarded(t *testing.T) {
 	t.Run("SD- prefix and pure function of report id", func(t *testing.T) {
 		report := newTestReport("01KR0EKN6PMW0ZRFRN992H1PKX", "foo", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
@@ -245,7 +332,7 @@ func TestIssueID_ReproducibleAndGuarded(t *testing.T) {
 		assert.Equal(t, "SD-01KR0EKN6PMW0ZRFRN992H1PKX", id)
 
 		// Reproducibility: the same report must yield the same id every
-		// call. Stage 2 delete and Stage 3 update rely on this to
+		// call. Delete and Stage 3 update rely on this to
 		// reconstruct the pushed id with no stored name-to-id mapping.
 		assert.Equal(t, id, issueID(report), "issue id must be a pure function of the report")
 

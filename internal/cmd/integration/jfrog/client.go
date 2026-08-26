@@ -23,6 +23,7 @@ import (
 type xrayClient interface {
 	validate(ctx context.Context) error
 	pushMaliciousPackage(ctx context.Context, report *threatintelv1.PackageReport) (string, int, error)
+	deleteMaliciousPackage(ctx context.Context, report *threatintelv1.PackageReport) (string, int, error)
 }
 
 // jfrogClient is the single source of truth for JFrog XRay protocol
@@ -103,7 +104,7 @@ type jfrogSource struct {
 }
 
 // issueID is a pure function of the permanent report_id: no randomness, no
-// truncation. Stage 2/3 delete and update rely on reconstructing the exact id
+// truncation. Delete and Stage 3 update rely on reconstructing the exact id
 // that was pushed, since XRay has no lookup by name. It is a package function,
 // not a method, so both the real and print clients share one definition.
 func issueID(report *threatintelv1.PackageReport) string {
@@ -148,7 +149,9 @@ func (c *jfrogClient) validate(ctx context.Context) error {
 
 // pushMaliciousPackage submits an XRay Custom Issue for the report. It returns
 // the issue id, the HTTP status, and an error on transport or non-2xx. A
-// skipped report (see buildEvent) returns ("", 0, nil).
+// skipped report (see buildEvent) returns ("", 0, nil). A 400 "already exists"
+// is benign, mirroring a delete 404: the issue is already present, which is the
+// desired state, so it returns (id, 400, nil) with no error.
 func (c *jfrogClient) pushMaliciousPackage(ctx context.Context, report *threatintelv1.PackageReport) (string, int, error) {
 	event, ok := buildEvent(report)
 	if !ok {
@@ -164,10 +167,48 @@ func (c *jfrogClient) pushMaliciousPackage(ctx context.Context, report *threatin
 	if err != nil {
 		return event.ID, 0, fmt.Errorf("jfrog client: http: %w", err)
 	}
+	if status == http.StatusBadRequest && isAlreadyExists(respBody) {
+		// XRay does not upsert on a duplicate id, so a re-push of an unchanged
+		// report returns 400 "already exists". The issue is already present, so
+		// this is a benign no-op, not a failure.
+		return event.ID, status, nil
+	}
 	if status < 200 || status >= 300 {
 		return event.ID, status, fmt.Errorf("jfrog client: %s: status %d: %s", event.ID, status, string(respBody))
 	}
 	return event.ID, status, nil
+}
+
+// isAlreadyExists reports whether an XRay error body signals that the Custom
+// Issue id is already present. XRay returns 400 with a body like
+// {"error":"Vulnerability already exists"} on a duplicate id.
+func isAlreadyExists(respBody []byte) bool {
+	return strings.Contains(strings.ToLower(string(respBody)), "already exists")
+}
+
+// deleteMaliciousPackage deletes the XRay Custom Issue for a withdrawn report.
+// It returns the issue id, the HTTP status, and an error on transport or an
+// unexpected non-2xx. An id that would have been too long to push is skipped
+// (return "", 0, nil), and a 404 is benign: the issue is already absent, which
+// is the state a delete aims for.
+func (c *jfrogClient) deleteMaliciousPackage(ctx context.Context, report *threatintelv1.PackageReport) (string, int, error) {
+	id := issueID(report)
+	if len(id) > maxIssueIDLen {
+		// Never pushed (see buildEvent), so nothing to delete.
+		return "", 0, nil
+	}
+
+	status, respBody, err := c.do(ctx, http.MethodDelete, eventsPath+"/"+id, nil)
+	if err != nil {
+		return id, 0, fmt.Errorf("jfrog client: http: %w", err)
+	}
+	if status == http.StatusNotFound {
+		return id, status, nil
+	}
+	if status < 200 || status >= 300 {
+		return id, status, fmt.Errorf("jfrog client: delete %s: status %d: %s", id, status, string(respBody))
+	}
+	return id, status, nil
 }
 
 // buildEvent builds the XRay payload, or returns false to skip. Skip rules live
@@ -185,18 +226,17 @@ func buildEvent(report *threatintelv1.PackageReport) (jfrogEvent, bool) {
 
 	// JFrog silently drops an event whose id is too long, so skip it. Skip
 	// rather than truncate: the id must stay a pure function of report_id so
-	// Stage 2/3 can reconstruct it.
+	// delete and Stage 3 update can reconstruct it.
 	id := issueID(report)
 	if len(id) > maxIssueIDLen {
 		drytui.Warning("Skipping report %s: issue id %q exceeds JFrog %d-char limit", report.GetReportId(), id, maxIssueIDLen)
 		return jfrogEvent{}, false
 	}
 
-	// Prefer the feed's human text, falling back when a report has none.
-	summary := report.GetTitle()
-	if summary == "" {
-		summary = fmt.Sprintf("MALICIOUS PACKAGE: %s contains malicious code", name)
-	}
+	// XRay summary is a synthesized headline, not the feed's title. The feed
+	// title is only the first few words of the feed summary, so it is a poor
+	// standalone headline. The XRay description carries the feed's full summary.
+	summary := fmt.Sprintf("%s identified as Malware by SafeDep", name)
 	description := report.GetSummary()
 	if description == "" {
 		description = fmt.Sprintf("%s has been identified as a malicious package by SafeDep threat intelligence.", name)

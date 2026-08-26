@@ -37,3 +37,17 @@ func (c *printClient) pushMaliciousPackage(_ context.Context, report *threatinte
 	drytui.Info("  JFrog issue id: %s", event.ID)
 	return event.ID, 0, nil
 }
+
+// deleteMaliciousPackage prints what the real delete would remove and sends
+// nothing. It returns status 0 so the service stays quiet (this already logged
+// the preview). A skipped id returns ("", 0, nil), matching the real client.
+func (c *printClient) deleteMaliciousPackage(_ context.Context, report *threatintelv1.PackageReport) (string, int, error) {
+	id := issueID(report)
+	if len(id) > maxIssueIDLen {
+		return "", 0, nil
+	}
+
+	drytui.Success("Would delete: %s (%s)", report.GetPackage().GetName(), ecosystemToJFrog(report.GetEcosystem()))
+	drytui.Info("  JFrog issue id: %s", id)
+	return id, 0, nil
+}

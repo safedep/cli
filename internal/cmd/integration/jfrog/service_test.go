@@ -1,10 +1,104 @@
 package jfrog
 
 import (
+	"context"
+	"errors"
+	"net/http"
 	"testing"
 
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	threatintelv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/threatintel/v1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+// fakeXrayClient records which port method the service called, so routing can
+// be asserted without a live JFrog server.
+type fakeXrayClient struct {
+	pushed   []string
+	deleted  []string
+	pushErr  error
+	delErr   error
+	pushStat int
+	delStat  int
+}
+
+func (f *fakeXrayClient) validate(context.Context) error { return nil }
+
+func (f *fakeXrayClient) pushMaliciousPackage(_ context.Context, r *threatintelv1.PackageReport) (string, int, error) {
+	f.pushed = append(f.pushed, r.GetReportId())
+	if f.pushErr != nil {
+		return r.GetReportId(), 0, f.pushErr
+	}
+	stat := f.pushStat
+	if stat == 0 {
+		stat = http.StatusCreated
+	}
+	return issueID(r), stat, nil
+}
+
+func (f *fakeXrayClient) deleteMaliciousPackage(_ context.Context, r *threatintelv1.PackageReport) (string, int, error) {
+	f.deleted = append(f.deleted, r.GetReportId())
+	if f.delErr != nil {
+		return r.GetReportId(), 0, f.delErr
+	}
+	stat := f.delStat
+	if stat == 0 {
+		stat = http.StatusOK
+	}
+	return issueID(r), stat, nil
+}
+
+func TestHandleRecord_RoutesWithdrawnToDeleteElsePush(t *testing.T) {
+	push := newTestReport("push-1", "pkg-a", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
+
+	withdrawn := newTestReport("wd-1", "pkg-b", packagev1.Ecosystem_ECOSYSTEM_NPM, "2.0.0")
+	withdrawn.SetWithdrawn(true)
+
+	fake := &fakeXrayClient{}
+	svc := newFeedService(nil, fake)
+
+	require.NoError(t, svc.handleRecord(context.Background(), push))
+	require.NoError(t, svc.handleRecord(context.Background(), withdrawn))
+
+	assert.Equal(t, []string{"push-1"}, fake.pushed, "a live report is pushed")
+	assert.Equal(t, []string{"wd-1"}, fake.deleted, "a withdrawn report is deleted")
+}
+
+func TestHandleRecord_DeleteFailureIsNotFatal(t *testing.T) {
+	withdrawn := newTestReport("wd-1", "pkg-b", packagev1.Ecosystem_ECOSYSTEM_NPM)
+	withdrawn.SetWithdrawn(true)
+
+	fake := &fakeXrayClient{delErr: errors.New("boom")}
+	svc := newFeedService(nil, fake)
+
+	// A delete error is logged, never returned: one bad delete cannot stop the
+	// daemon.
+	assert.NoError(t, svc.handleRecord(context.Background(), withdrawn))
+}
+
+func TestHandleRecord_Delete404IsHandled(t *testing.T) {
+	withdrawn := newTestReport("wd-1", "pkg-b", packagev1.Ecosystem_ECOSYSTEM_NPM)
+	withdrawn.SetWithdrawn(true)
+
+	fake := &fakeXrayClient{delStat: http.StatusNotFound}
+	svc := newFeedService(nil, fake)
+
+	assert.NoError(t, svc.handleRecord(context.Background(), withdrawn))
+	assert.Equal(t, []string{"wd-1"}, fake.deleted)
+}
+
+func TestHandleRecord_PushAlreadyPresentIsBenign(t *testing.T) {
+	push := newTestReport("push-1", "pkg-a", packagev1.Ecosystem_ECOSYSTEM_NPM, "1.0.0")
+
+	// A 400 "already exists" surfaces as status 400 with no error, the same
+	// benign shape as a delete 404. It must not stop the daemon.
+	fake := &fakeXrayClient{pushStat: http.StatusBadRequest}
+	svc := newFeedService(nil, fake)
+
+	assert.NoError(t, svc.handleRecord(context.Background(), push))
+	assert.Equal(t, []string{"push-1"}, fake.pushed)
+}
 
 func TestDisplayVersions(t *testing.T) {
 	tests := []struct {

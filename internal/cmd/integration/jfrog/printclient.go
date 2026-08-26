@@ -10,44 +10,68 @@ import (
 var _ xrayClient = (*printClient)(nil)
 
 // printClient is the dry-run adapter. It builds the event the real client would
-// push, via the shared buildEvent, then prints it instead of sending. It holds
-// no state and never opens a connection, so it needs no JFrog credentials.
-type printClient struct{}
+// push, with the shared buildEvent, then previews it instead of sending. The
+// preview is a user-facing result, so it goes through the reporter. The dry-run
+// banner and any skip are operational logs.
+type printClient struct {
+	rep *reporter
+}
 
-func newPrintClient() *printClient { return &printClient{} }
+func newPrintClient(rep *reporter) *printClient { return &printClient{rep: rep} }
 
 func (c *printClient) validate(_ context.Context) error {
-	drytui.Info("Dry run: previewing the feed, nothing is sent to JFrog (no JFrog credentials needed)")
+	c.rep.logInfo("Dry run: previewing the feed, nothing is sent to JFrog (no JFrog credentials needed)")
 	return nil
 }
 
-// pushMaliciousPackage builds the event the real push would send, prints it, and
-// returns status 0 so the service's handlePush stays quiet (this method already
-// logged the preview line). A skipped report returns ("", 0, nil), matching the
-// real client.
+// pushMaliciousPackage previews the push and returns status 0 so the service's
+// handlePush stays quiet (this method already reported the preview). A skipped
+// report returns ("", 0, nil), matching the real client.
 func (c *printClient) pushMaliciousPackage(_ context.Context, report *threatintelv1.PackageReport) (string, int, error) {
-	event, ok := buildEvent(report)
+	event, reason, ok := buildEvent(report)
 	if !ok {
-		// buildEvent already logged why it is skipped.
+		logSkip(c.rep, report, reason)
 		return "", 0, nil
 	}
 
-	versions := displayVersions(report.GetPackage().GetVersions())
-	drytui.Success("Would push: %s (%s) versions: %s", report.GetPackage().GetName(), event.PackageType, versions)
-	drytui.Info("  JFrog issue id: %s", event.ID)
+	name := report.GetPackage().GetName()
+	c.rep.result(
+		func() {
+			drytui.Success("Would push: %s (%s) versions: %s", name, event.PackageType, displayVersions(report.GetPackage().GetVersions()))
+			drytui.Info("  JFrog issue id: %s", event.ID)
+		},
+		jsonEvent{
+			Event:     eventDryRunPush,
+			ReportID:  report.GetReportId(),
+			Package:   name,
+			Ecosystem: event.PackageType,
+			Versions:  cleanVersions(report.GetPackage().GetVersions()),
+			IssueID:   event.ID,
+		})
 	return event.ID, 0, nil
 }
 
-// deleteMaliciousPackage prints what the real delete would remove and sends
-// nothing. It returns status 0 so the service stays quiet (this already logged
-// the preview). A skipped id returns ("", 0, nil), matching the real client.
+// deleteMaliciousPackage previews the delete and sends nothing. It returns
+// status 0 so the service stays quiet. A skipped id returns ("", 0, nil).
 func (c *printClient) deleteMaliciousPackage(_ context.Context, report *threatintelv1.PackageReport) (string, int, error) {
 	id := issueID(report)
 	if len(id) > maxIssueIDLen {
 		return "", 0, nil
 	}
 
-	drytui.Success("Would delete: %s (%s)", report.GetPackage().GetName(), ecosystemToJFrog(report.GetEcosystem()))
-	drytui.Info("  JFrog issue id: %s", id)
+	name := report.GetPackage().GetName()
+	eco := ecosystemToJFrog(report.GetEcosystem())
+	c.rep.result(
+		func() {
+			drytui.Success("Would delete: %s (%s)", name, eco)
+			drytui.Info("  JFrog issue id: %s", id)
+		},
+		jsonEvent{
+			Event:     eventDryRunDelete,
+			ReportID:  report.GetReportId(),
+			Package:   name,
+			Ecosystem: eco,
+			IssueID:   id,
+		})
 	return id, 0, nil
 }

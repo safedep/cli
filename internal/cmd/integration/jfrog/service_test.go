@@ -56,7 +56,7 @@ func TestHandleRecord_RoutesWithdrawnToDeleteElsePush(t *testing.T) {
 	withdrawn.SetWithdrawn(true)
 
 	fake := &fakeXrayClient{}
-	svc := newFeedService(nil, fake)
+	svc := newFeedService(nil, fake, newReporter(nil))
 
 	require.NoError(t, svc.handleRecord(context.Background(), push))
 	require.NoError(t, svc.handleRecord(context.Background(), withdrawn))
@@ -70,7 +70,7 @@ func TestHandleRecord_DeleteFailureIsNotFatal(t *testing.T) {
 	withdrawn.SetWithdrawn(true)
 
 	fake := &fakeXrayClient{delErr: errors.New("boom")}
-	svc := newFeedService(nil, fake)
+	svc := newFeedService(nil, fake, newReporter(nil))
 
 	// A delete error is logged, never returned: one bad delete cannot stop the
 	// daemon.
@@ -82,7 +82,7 @@ func TestHandleRecord_Delete404IsHandled(t *testing.T) {
 	withdrawn.SetWithdrawn(true)
 
 	fake := &fakeXrayClient{delStat: http.StatusNotFound}
-	svc := newFeedService(nil, fake)
+	svc := newFeedService(nil, fake, newReporter(nil))
 
 	assert.NoError(t, svc.handleRecord(context.Background(), withdrawn))
 	assert.Equal(t, []string{"wd-1"}, fake.deleted)
@@ -94,7 +94,7 @@ func TestHandleRecord_PushAlreadyPresentIsBenign(t *testing.T) {
 	// A 400 "already exists" surfaces as status 400 with no error, the same
 	// benign shape as a delete 404. It must not stop the daemon.
 	fake := &fakeXrayClient{pushStat: http.StatusBadRequest}
-	svc := newFeedService(nil, fake)
+	svc := newFeedService(nil, fake, newReporter(nil))
 
 	assert.NoError(t, svc.handleRecord(context.Background(), push))
 	assert.Equal(t, []string{"push-1"}, fake.pushed)

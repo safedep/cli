@@ -132,14 +132,32 @@ Upgrade note: a deployment upgrading from the old poll build may have a
 `"cursor"` value that was a `created_at` watermark. It is still a timestamp and
 remains usable as `since` (at worst it re-delivers a little).
 
-## Logging boundary
+## Output vs logs
 
-Per [AGENTS.md](../AGENTS.md):
+The `reporter` (`reporter.go`) routes everything the daemon says. Every component
+takes it as a constructor dependency (`feedService`, `feedSource`, `jfrogClient`,
+`printClient`). It chooses the stream by the output mode:
 
-| Library | Use for | Examples in this package |
-|---|---|---|
-| `drytui` (`Info`, `Success`, `Warning`) | Operator-visible messages. State changes, errors the user can act on. | `Pushed: ...`, `Deleted: ...`, `Push failed for X`, `Delete failed for X`, `Skipping report: missing package name` |
-| `dry/log` (`Warnf`, etc.) | Internal diagnostics. Not actionable. | Deferred body close failure, bounded body read failure |
+| Category | `-o json` | Human (table/plain) | Method |
+|---|---|---|---|
+| Results | JSONL on stdout | drytui line on stderr | `reporter.result(human, jsonEvent)` |
+| Logs | suppressed | drytui line on stderr | `reporter.logInfo` / `logSuccess` / `logWarn` |
+| No-ops (already pushed, does not exist) | suppressed | dimmed line on stderr | `reporter.logDim` |
+| Diagnostics (internal, not actionable) | via `dry/log` (no-op in the CLI) | same | `log.Warnf` |
+
+With `-o json` the user asked for machine output. So `reporter` writes only
+result events, as JSONL on stdout, and drops every log. stdout carries results
+only, and stderr stays empty. In any other mode it writes nothing to stdout. It
+sends results and logs to stderr as drytui lines, the same as the rest of the
+CLI.
+
+A result is a real state change in XRay (`package_pushed`, `package_deleted`) or
+a dry-run preview (`dry_run_package_push`, `dry_run_package_delete`). Everything
+else is a log. A re-push of a package already present, a delete of an issue
+already gone, a feed cycle line, and a skip are all logs. Over a long run these
+would fill the output stream, so they are never output. The two per-package
+no-ops are frequent, so `logDim` shows them dimmed at normal verbosity. They stay
+visible in human modes. `drytui.Faint` would need `--verbose`.
 
 ## The `jfrogClient` boundary
 

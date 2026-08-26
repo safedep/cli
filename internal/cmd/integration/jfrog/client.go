@@ -13,7 +13,6 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	threatintelv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/threatintel/v1"
 	"github.com/safedep/dry/log"
-	drytui "github.com/safedep/dry/tui"
 )
 
 // xrayClient is the port the feed service pushes through. jfrogClient is the
@@ -36,14 +35,16 @@ type xrayClient interface {
 type jfrogClient struct {
 	cfg  jfrogConfig
 	http *http.Client
+	rep  *reporter
 }
 
 var _ xrayClient = (*jfrogClient)(nil)
 
-func newJFrogClient(cfg jfrogConfig) *jfrogClient {
+func newJFrogClient(cfg jfrogConfig, rep *reporter) *jfrogClient {
 	return &jfrogClient{
 		cfg:  cfg,
 		http: &http.Client{Timeout: httpTimeout},
+		rep:  rep,
 	}
 }
 
@@ -126,7 +127,7 @@ func issueID(report *threatintelv1.PackageReport) string {
 //   - 404          : URL points somewhere that is not an XRay instance
 //   - other / net  : surfaced verbatim with the response body for diagnosis
 func (c *jfrogClient) validate(ctx context.Context) error {
-	drytui.Info("Validating JFrog connectivity")
+	c.rep.logInfo("Validating JFrog connectivity")
 	status, body, err := c.do(ctx, http.MethodGet, policiesPath, nil)
 	if err != nil {
 		return fmt.Errorf("jfrog validate: cannot reach %s: %w", c.cfg.url, err)
@@ -134,7 +135,7 @@ func (c *jfrogClient) validate(ctx context.Context) error {
 
 	switch status {
 	case http.StatusOK:
-		drytui.Success("JFrog connectivity OK (URL + token verified)")
+		c.rep.logSuccess("JFrog connectivity OK (URL + token verified)")
 		return nil
 	case http.StatusUnauthorized:
 		return fmt.Errorf("jfrog validate: 401 Unauthorized - access token is invalid or expired")
@@ -153,8 +154,9 @@ func (c *jfrogClient) validate(ctx context.Context) error {
 // is benign, mirroring a delete 404: the issue is already present, which is the
 // desired state, so it returns (id, 400, nil) with no error.
 func (c *jfrogClient) pushMaliciousPackage(ctx context.Context, report *threatintelv1.PackageReport) (string, int, error) {
-	event, ok := buildEvent(report)
+	event, reason, ok := buildEvent(report)
 	if !ok {
+		logSkip(c.rep, report, reason)
 		return "", 0, nil
 	}
 
@@ -211,17 +213,16 @@ func (c *jfrogClient) deleteMaliciousPackage(ctx context.Context, report *threat
 	return id, status, nil
 }
 
-// buildEvent builds the XRay payload, or returns false to skip. Skip rules live
-// here, beside the wire format. It is a package function so the print client can
-// build the exact same preview the real client would push. Note: ecosystem is
-// on the report, not the package, and empty versions (all versions) are valid,
-// not a skip.
-func buildEvent(report *threatintelv1.PackageReport) (jfrogEvent, bool) {
+// buildEvent builds the XRay payload, or returns ok=false with a skip reason.
+// It is pure (no logging) so both clients build the identical preview and each
+// reports the skip through its own emitter. Skip rules live here, beside the
+// wire format. Note: ecosystem is on the report, not the package, and empty
+// versions (all versions) are valid, not a skip.
+func buildEvent(report *threatintelv1.PackageReport) (jfrogEvent, string, bool) {
 	pkg := report.GetPackage()
 	name := pkg.GetName()
 	if name == "" {
-		drytui.Warning("Skipping report %s: missing package name", report.GetReportId())
-		return jfrogEvent{}, false
+		return jfrogEvent{}, "missing package name", false
 	}
 
 	// JFrog silently drops an event whose id is too long, so skip it. Skip
@@ -229,8 +230,7 @@ func buildEvent(report *threatintelv1.PackageReport) (jfrogEvent, bool) {
 	// delete and Stage 3 update can reconstruct it.
 	id := issueID(report)
 	if len(id) > maxIssueIDLen {
-		drytui.Warning("Skipping report %s: issue id %q exceeds JFrog %d-char limit", report.GetReportId(), id, maxIssueIDLen)
-		return jfrogEvent{}, false
+		return jfrogEvent{}, fmt.Sprintf("issue id %q exceeds JFrog %d-char limit", id, maxIssueIDLen), false
 	}
 
 	// XRay summary is a synthesized headline, not the feed's title. The feed
@@ -257,7 +257,7 @@ func buildEvent(report *threatintelv1.PackageReport) (jfrogEvent, bool) {
 			VulnerableVersions: vulnerableVersionRanges(pkg.GetVersions()),
 		}},
 		Sources: []jfrogSource{{SourceID: "safedep-threat-intel"}},
-	}, true
+	}, "", true
 }
 
 // do issues a single XRay request with the standard headers and bounded

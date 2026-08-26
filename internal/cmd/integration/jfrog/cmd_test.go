@@ -34,7 +34,7 @@ func TestRegister_buildsJFrogTree(t *testing.T) {
 		assert.NotEmpty(t, leaf.Short)
 		assert.NotEmpty(t, leaf.Long)
 		assert.NotNil(t, leaf.Flags().Lookup("instance-url"))
-		assert.NotNil(t, leaf.Flags().Lookup("instance-access-token"))
+		assert.NotNil(t, leaf.Flags().Lookup("insecure-instance-access-token"))
 		assert.NotNil(t, leaf.Flags().Lookup("poll-interval"))
 		assert.NotNil(t, leaf.Flags().Lookup("backfill"))
 		assert.NotNil(t, leaf.Flags().Lookup("dry-run"))
@@ -97,8 +97,8 @@ func TestResolveConfig(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			// time.After(0) fires immediately — would turn the poll loop
-			// into a tight hammer on the SafeDep API. Must reject.
+			// time.After(0) fires immediately. It would turn the poll loop
+			// into a busy loop on the SafeDep API. Must reject.
 			name: "zero poll interval rejected",
 			in: runInput{
 				InstanceURL:         "https://example.jfrog.io",

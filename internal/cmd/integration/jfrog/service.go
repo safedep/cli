@@ -17,10 +17,11 @@ import (
 type feedService struct {
 	source packageSource
 	client xrayClient
+	rep    *reporter
 }
 
-func newFeedService(source packageSource, client xrayClient) *feedService {
-	return &feedService{source: source, client: client}
+func newFeedService(source packageSource, client xrayClient, rep *reporter) *feedService {
+	return &feedService{source: source, client: client, rep: rep}
 }
 
 // run validates the client once, then blocks in the source until ctx is
@@ -53,7 +54,8 @@ func (s *feedService) handleRecord(ctx context.Context, report *threatintelv1.Pa
 func (s *feedService) handlePush(ctx context.Context, report *threatintelv1.PackageReport) error {
 	id, status, err := s.client.pushMaliciousPackage(ctx, report)
 	if err != nil {
-		drytui.Warning("Push failed for %s: %v", report.GetReportId(), err)
+		// An error is operational, so it is a log, not output.
+		s.rep.logWarn("Push failed for %s: %v", report.GetReportId(), err)
 		return nil
 	}
 	if status == 0 {
@@ -61,16 +63,22 @@ func (s *feedService) handlePush(ctx context.Context, report *threatintelv1.Pack
 	}
 
 	name := report.GetPackage().GetName()
+	eco := ecosystemToJFrog(report.GetEcosystem())
 	if status == http.StatusBadRequest {
-		// Already present in XRay (see pushMaliciousPackage). A benign no-op,
-		// rendered like a delete "already absent" rather than a failure.
-		drytui.Info("Already present %s (%s): issue %s in XRay", report.GetReportId(), name, id)
+		// Already pushed to XRay (see pushMaliciousPackage). Nothing changed, so
+		// this is a log, not output. It is frequent, so it is dimmed.
+		s.rep.logDim("Already pushed %s (%s): issue %s", report.GetReportId(), name, id)
 		return nil
 	}
 
-	versions := displayVersions(report.GetPackage().GetVersions())
-	drytui.Success("Pushed: %s (%s) versions: %s", name, ecosystemToJFrog(report.GetEcosystem()), versions)
-	drytui.Info("  JFrog: %s [%d]", id, status)
+	// A real state change (package blocked in XRay). This is user-facing output.
+	versions := report.GetPackage().GetVersions()
+	s.rep.result(
+		func() {
+			drytui.Success("Pushed: %s (%s) versions: %s", name, eco, displayVersions(versions))
+			drytui.Info("  JFrog: %s [%d]", id, status)
+		},
+		jsonEvent{Event: eventPushed, ReportID: report.GetReportId(), Package: name, Ecosystem: eco, Versions: cleanVersions(versions), IssueID: id, Status: status})
 	return nil
 }
 
@@ -81,7 +89,8 @@ func (s *feedService) handlePush(ctx context.Context, report *threatintelv1.Pack
 func (s *feedService) handleDelete(ctx context.Context, report *threatintelv1.PackageReport) error {
 	id, status, err := s.client.deleteMaliciousPackage(ctx, report)
 	if err != nil {
-		drytui.Warning("Delete failed for %s: %v", report.GetReportId(), err)
+		// An error is operational, so it is a log, not output.
+		s.rep.logWarn("Delete failed for %s: %v", report.GetReportId(), err)
 		return nil
 	}
 	if status == 0 {
@@ -89,25 +98,41 @@ func (s *feedService) handleDelete(ctx context.Context, report *threatintelv1.Pa
 	}
 
 	name := report.GetPackage().GetName()
+	eco := ecosystemToJFrog(report.GetEcosystem())
 	if status == http.StatusNotFound {
-		drytui.Info("Withdrawn %s (%s): issue %s already absent in XRay", report.GetReportId(), name, id)
+		// The issue does not exist in XRay. This is the state the delete wants,
+		// and nothing changed, so it is a log, not output. It is frequent, so it
+		// is dimmed.
+		s.rep.logDim("Package to delete, does not exist %s (%s): issue %s", report.GetReportId(), name, id)
 		return nil
 	}
 
-	drytui.Success("Deleted: %s (%s)", name, ecosystemToJFrog(report.GetEcosystem()))
-	drytui.Info("  JFrog: %s [%d]", id, status)
+	// A real state change (block removed in XRay). This is user-facing output.
+	s.rep.result(
+		func() {
+			drytui.Success("Deleted: %s (%s)", name, eco)
+			drytui.Info("  JFrog: %s [%d]", id, status)
+		},
+		jsonEvent{Event: eventDeleted, ReportID: report.GetReportId(), Package: name, Ecosystem: eco, IssueID: id, Status: status})
 	return nil
 }
 
-// displayVersions renders affected versions for the log line. Empty means all
-// versions, mirroring vulnerableVersionRanges.
-func displayVersions(versions []string) string {
+// cleanVersions drops empty entries from the affected-version list. An empty
+// result means all versions, mirroring vulnerableVersionRanges.
+func cleanVersions(versions []string) []string {
 	cleaned := make([]string, 0, len(versions))
 	for _, v := range versions {
 		if v != "" {
 			cleaned = append(cleaned, v)
 		}
 	}
+	return cleaned
+}
+
+// displayVersions renders affected versions for the human log line. Empty means
+// all versions.
+func displayVersions(versions []string) string {
+	cleaned := cleanVersions(versions)
 	if len(cleaned) == 0 {
 		return "all"
 	}

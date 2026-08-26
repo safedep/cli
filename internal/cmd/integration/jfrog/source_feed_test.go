@@ -145,7 +145,7 @@ func sinceTime(req *threatintelsvcv1.ListPackageReportsRequest) time.Time {
 
 func TestSyncOnce_FirstRun_SinceIsNowWithZeroBackfill(t *testing.T) {
 	fake := &fakeThreatIntelClient{queue: []fakeReportsResp{{resp: makeReportsPage(time.Now().UTC(), "")}}}
-	src := newFeedSource(fake, newTestKV(t), time.Minute, 0)
+	src := newFeedSource(fake, newTestKV(t), time.Minute, 0, newReporter(nil))
 
 	before := time.Now().UTC()
 	handler, _ := drainHandler()
@@ -162,7 +162,7 @@ func TestSyncOnce_FirstRun_SinceIsNowWithZeroBackfill(t *testing.T) {
 func TestSyncOnce_FirstRun_BackfillSeedsSince(t *testing.T) {
 	backfill := 24 * time.Hour
 	fake := &fakeThreatIntelClient{queue: []fakeReportsResp{{resp: makeReportsPage(time.Now().UTC(), "")}}}
-	src := newFeedSource(fake, newTestKV(t), time.Minute, backfill)
+	src := newFeedSource(fake, newTestKV(t), time.Minute, backfill, newReporter(nil))
 
 	handler, _ := drainHandler()
 	require.NoError(t, src.syncOnce(context.Background(), handler))
@@ -179,7 +179,7 @@ func TestSyncOnce_FirstRun_BackfillSeedsSince(t *testing.T) {
 
 func TestSyncOnce_RequestShape_MaliciousAscendingPaged(t *testing.T) {
 	fake := &fakeThreatIntelClient{queue: []fakeReportsResp{{resp: makeReportsPage(time.Now().UTC(), "")}}}
-	src := newFeedSource(fake, newTestKV(t), time.Minute, 0)
+	src := newFeedSource(fake, newTestKV(t), time.Minute, 0, newReporter(nil))
 
 	handler, _ := drainHandler()
 	require.NoError(t, src.syncOnce(context.Background(), handler))
@@ -203,7 +203,7 @@ func TestSyncOnce_DeliversReports_AdvancesCursorToMaxUpdatedAt(t *testing.T) {
 	)}}}
 
 	store := newCursorStore(newTestKV(t))
-	src := &feedSource{svc: fake, cursor: store, pollInterval: time.Minute}
+	src := &feedSource{svc: fake, cursor: store, pollInterval: time.Minute, rep: newReporter(nil)}
 
 	handler, got := drainHandler()
 	require.NoError(t, src.syncOnce(context.Background(), handler))
@@ -229,7 +229,7 @@ func TestSyncOnce_MultiPage_SinceConstantTokensAdvance(t *testing.T) {
 		{resp: makeReportsPage(base, "", reportSpec{id: "c", name: "pkg-c", versions: []string{"3.0"}, updatedOffset: 2 * time.Hour})},
 	}}
 
-	src := &feedSource{svc: fake, cursor: store, pollInterval: time.Minute}
+	src := &feedSource{svc: fake, cursor: store, pollInterval: time.Minute, rep: newReporter(nil)}
 
 	handler, got := drainHandler()
 	require.NoError(t, src.syncOnce(context.Background(), handler))
@@ -255,7 +255,7 @@ func TestSyncOnce_WithdrawnDelivered_CursorAdvancesPastIt(t *testing.T) {
 	)}}}
 
 	store := newCursorStore(newTestKV(t))
-	src := &feedSource{svc: fake, cursor: store, pollInterval: time.Minute}
+	src := &feedSource{svc: fake, cursor: store, pollInterval: time.Minute, rep: newReporter(nil)}
 
 	handler, got := drainHandler()
 	require.NoError(t, src.syncOnce(context.Background(), handler))
@@ -275,7 +275,7 @@ func TestSyncOnce_GRPCFailure_PropagatesAndKeepsCursor(t *testing.T) {
 	require.NoError(t, store.save(context.Background(), cursorState{LastSeenAt: original}))
 
 	fake := &fakeThreatIntelClient{queue: []fakeReportsResp{{err: errors.New("grpc unavailable")}}}
-	src := &feedSource{svc: fake, cursor: store, pollInterval: time.Minute}
+	src := &feedSource{svc: fake, cursor: store, pollInterval: time.Minute, rep: newReporter(nil)}
 
 	handler, _ := drainHandler()
 	err := src.syncOnce(context.Background(), handler)
@@ -293,7 +293,7 @@ func TestSyncOnce_FirstRunNoReports_AnchorsCursor(t *testing.T) {
 		{resp: makeReportsPage(time.Now().UTC(), "")}, // cycle 2: empty
 	}}
 	store := newCursorStore(newTestKV(t))
-	src := &feedSource{svc: fake, cursor: store, pollInterval: time.Minute, backfillWindow: 24 * time.Hour}
+	src := &feedSource{svc: fake, cursor: store, pollInterval: time.Minute, backfillWindow: 24 * time.Hour, rep: newReporter(nil)}
 
 	handler, _ := drainHandler()
 	require.NoError(t, src.syncOnce(context.Background(), handler))
@@ -318,7 +318,7 @@ func TestSyncOnce_PermissionDenied_ReturnsNotEntitled(t *testing.T) {
 	entErr := status.Error(codes.PermissionDenied,
 		"entitlement verification failed: required entitlement is not available for tenant")
 	fake := &fakeThreatIntelClient{queue: []fakeReportsResp{{err: entErr}}}
-	src := newFeedSource(fake, newTestKV(t), time.Minute, 0)
+	src := newFeedSource(fake, newTestKV(t), time.Minute, 0, newReporter(nil))
 
 	handler, _ := drainHandler()
 	err := src.syncOnce(context.Background(), handler)
@@ -330,7 +330,7 @@ func TestSubscribe_NotEntitled_StopsImmediately(t *testing.T) {
 	fake := &fakeThreatIntelClient{queue: []fakeReportsResp{{err: entErr}}}
 
 	// Long interval so a wrongly-retrying implementation would hang the test.
-	src := newFeedSource(fake, newTestKV(t), time.Hour, 0)
+	src := newFeedSource(fake, newTestKV(t), time.Hour, 0, newReporter(nil))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -361,7 +361,7 @@ func TestSyncOnce_AuthFailure_ReturnsAuthError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fake := &fakeThreatIntelClient{queue: []fakeReportsResp{{err: tt.err}}}
-			src := newFeedSource(fake, newTestKV(t), time.Minute, 0)
+			src := newFeedSource(fake, newTestKV(t), time.Minute, 0, newReporter(nil))
 
 			handler, _ := drainHandler()
 			err := src.syncOnce(context.Background(), handler)
@@ -375,7 +375,7 @@ func TestSubscribe_AuthFailure_StopsImmediately(t *testing.T) {
 	fake := &fakeThreatIntelClient{queue: []fakeReportsResp{{err: authErr}}}
 
 	// Long interval so a wrongly-retrying implementation would hang the test.
-	src := newFeedSource(fake, newTestKV(t), time.Hour, 0)
+	src := newFeedSource(fake, newTestKV(t), time.Hour, 0, newReporter(nil))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -395,7 +395,7 @@ func TestSyncOnce_CallbackError_StopsAndWraps(t *testing.T) {
 		reportSpec{id: "b", name: "pkg-b", versions: []string{"2.0"}, updatedOffset: time.Second},
 	)}}}
 
-	src := &feedSource{svc: fake, cursor: newCursorStore(newTestKV(t)), pollInterval: time.Minute}
+	src := &feedSource{svc: fake, cursor: newCursorStore(newTestKV(t)), pollInterval: time.Minute, rep: newReporter(nil)}
 
 	stop := errors.New("callback bailed")
 	delivered := 0
@@ -421,7 +421,7 @@ func TestSubscribe_CallbackError_PropagatesImmediately(t *testing.T) {
 
 	// Long interval so a buggy implementation that retries instead of
 	// surfacing would obviously hang the test (caught by deadline).
-	src := newFeedSource(fake, newTestKV(t), time.Hour, 0)
+	src := newFeedSource(fake, newTestKV(t), time.Hour, 0, newReporter(nil))
 
 	stop := errors.New("handler said stop")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -449,7 +449,7 @@ func TestSubscribe_InfraError_LoggedAndRetried(t *testing.T) {
 		{resp: makeReportsPage(time.Now().UTC(), "")},
 	}}
 
-	src := newFeedSource(fake, newTestKV(t), 10*time.Millisecond, 0)
+	src := newFeedSource(fake, newTestKV(t), 10*time.Millisecond, 0, newReporter(nil))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()

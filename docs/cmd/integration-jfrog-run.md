@@ -8,7 +8,7 @@ blocked for all developers using that JFrog instance.
 ## Synopsis
 
 ```
-safedep integration jfrog run --instance-url <url> --instance-access-token <token>
+safedep integration jfrog run --instance-url <url> --insecure-instance-access-token <token>
 ```
 
 ## Quick start
@@ -17,15 +17,20 @@ safedep integration jfrog run --instance-url <url> --instance-access-token <toke
 # 1. Authenticate with SafeDep (once)
 safedep auth login
 
-# 2. Run with flags
-safedep integration jfrog run \
-  --instance-url https://yourcompany.jfrog.io \
-  --instance-access-token YOUR_JFROG_TOKEN
-
-# Or use environment variables (recommended for CI / server deployments)
+# 2. Set JFrog credentials as environment variables (recommended)
 export SAFEDEP_INTEGRATION_JFROG_ARTIFACTORY_URL=https://yourcompany.jfrog.io
 export SAFEDEP_INTEGRATION_JFROG_ARTIFACTORY_ACCESS_TOKEN=YOUR_JFROG_TOKEN
 safedep integration jfrog run
+```
+
+Do not pass the access token as a literal `--insecure-instance-access-token`
+value. The shell history and the process list keep it. Use the environment
+variables above. If you use the flag, read the token from a variable:
+
+```bash
+safedep integration jfrog run \
+  --instance-url https://yourcompany.jfrog.io \
+  --insecure-instance-access-token "$JFROG_TOKEN"
 ```
 
 ## Flags
@@ -33,7 +38,7 @@ safedep integration jfrog run
 | Flag | Required | Default | Description |
 |---|---|---|---|
 | `--instance-url` | yes* | — | JFrog instance base URL. Must be `https://`. |
-| `--instance-access-token` | yes* | — | JFrog access token scoped to XRay. |
+| `--insecure-instance-access-token` | yes* | — | JFrog access token scoped to XRay. Insecure: prefer the environment variable. |
 | `--poll-interval` | no | `5m` | Sleep duration between feed drains (`30s`, `5m`, `1h`). |
 | `--backfill` | no | `0` | First-run window used to seed the cursor. `0` starts fresh from now. |
 | `--dry-run` | no | `false` | Preview the feed and print what would be pushed, without sending to JFrog. See [Dry run](#dry-run). |
@@ -57,7 +62,7 @@ deployments or CI where passing secrets as CLI arguments is undesirable.
 | Variable | Corresponding flag |
 |---|---|
 | `SAFEDEP_INTEGRATION_JFROG_ARTIFACTORY_URL` | `--instance-url` |
-| `SAFEDEP_INTEGRATION_JFROG_ARTIFACTORY_ACCESS_TOKEN` | `--instance-access-token` |
+| `SAFEDEP_INTEGRATION_JFROG_ARTIFACTORY_ACCESS_TOKEN` | `--insecure-instance-access-token` |
 
 `--backfill` is a flag only: it is a one-time first-run window, not a secret, so
 it has no environment variable.
@@ -82,8 +87,41 @@ destination: it prints instead of calling JFrog.
 # Preview the last 24 hours, then run for real
 safedep integration jfrog run --dry-run --backfill 24h
 safedep integration jfrog cursor remove
-safedep integration jfrog run --instance-url https://yourcompany.jfrog.io --instance-access-token YOUR_JFROG_TOKEN
+safedep integration jfrog run --instance-url https://yourcompany.jfrog.io --insecure-instance-access-token "$JFROG_TOKEN"
 ```
+
+## Output and logs
+
+The command keeps output and logs separate.
+
+- **Output** is the result: a package blocked in XRay, a block removed, or a
+  dry-run preview of one.
+- **Logs** are operational: feed cycle, connectivity, startup mode, errors, and
+  no-ops. A no-op is a re-push of a package already present, a delete of an issue
+  already gone, or a skipped report.
+
+`-o json` (or `--output json`) is a request for machine output. In this mode the
+command prints only the result events, as JSONL on stdout, one object per line.
+It suppresses every log. `-o json` works with `--dry-run`.
+
+```bash
+safedep integration jfrog run -o json
+```
+
+Without `-o json`, the command prints for people. It writes results and logs to
+stderr. It always shows the no-ops, in a dim style.
+
+```json
+{"event":"package_pushed","report_id":"01KR0EKN...","package":"make-array","ecosystem":"npm","versions":["0.1.2"],"issue_id":"SD-01KR0EKN...","status":201}
+{"event":"package_deleted","report_id":"01KR0G12...","package":"retracted","ecosystem":"pypi","issue_id":"SD-01KR0G12...","status":200}
+```
+
+The `event` values are:
+
+| Mode | Events |
+|---|---|
+| Real run | `package_pushed`, `package_deleted` |
+| Dry run | `dry_run_package_push`, `dry_run_package_delete` |
 
 ## Behaviour
 
@@ -145,7 +183,7 @@ Use `--profile` to switch between multiple SafeDep tenants:
 ```bash
 safedep --profile customer-a integration jfrog run \
   --instance-url https://customer.jfrog.io \
-  --instance-access-token $TOKEN
+  --insecure-instance-access-token $TOKEN
 ```
 
 ## JFrog XRay setup

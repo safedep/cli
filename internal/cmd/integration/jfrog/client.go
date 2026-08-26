@@ -218,11 +218,10 @@ func buildEvent(report *threatintelv1.PackageReport) (jfrogEvent, bool) {
 		return jfrogEvent{}, false
 	}
 
-	// Prefer the feed's human text, falling back when a report has none.
-	summary := report.GetTitle()
-	if summary == "" {
-		summary = fmt.Sprintf("MALICIOUS PACKAGE: %s contains malicious code", name)
-	}
+	// XRay summary is a synthesized headline, not the feed's title. The feed
+	// title is only the first few words of the feed summary, so it is a poor
+	// standalone headline. The XRay description carries the feed's full summary.
+	summary := fmt.Sprintf("MALICIOUS PACKAGE: %s contains malicious code", name)
 	description := report.GetSummary()
 	if description == "" {
 		description = fmt.Sprintf("%s has been identified as a malicious package by SafeDep threat intelligence.", name)

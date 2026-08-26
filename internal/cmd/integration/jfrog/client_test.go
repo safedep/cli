@@ -108,7 +108,7 @@ func TestPush_HappyPath_ConstructsCorrectRequest(t *testing.T) {
 	assert.Equal(t, "make-array has been identified as a malicious package by SafeDep threat intelligence.", event.Description)
 }
 
-func TestPush_UsesFeedTitleAndSummary(t *testing.T) {
+func TestPush_SummarySynthesized_DescriptionFromFeed(t *testing.T) {
 	srv, cap := newJFrogMock(t, http.StatusCreated, "")
 	c := newJFrogClient(jfrogConfig{url: srv.URL, accessToken: "TOK"})
 
@@ -122,9 +122,11 @@ func TestPush_UsesFeedTitleAndSummary(t *testing.T) {
 	var event jfrogEvent
 	require.NoError(t, json.Unmarshal((*cap)[0].body, &event))
 
-	// The feed's human-authored text takes precedence over synthesized text.
-	assert.Equal(t, "secretkey-2fa exfiltrates 2FA secrets", event.Summary,
-		"XRay summary uses the report title when present")
+	// The XRay summary is always the synthesized headline, never the feed title
+	// (the feed title is only the first few words of the feed summary).
+	assert.Equal(t, "MALICIOUS PACKAGE: secretkey-2fa contains malicious code", event.Summary,
+		"XRay summary is synthesized, not the feed title")
+	// The XRay description carries the feed's full summary when present.
 	assert.Equal(t, "The package steals TOTP seeds on install and posts them to an attacker-controlled host.", event.Description,
 		"XRay description uses the report summary when present")
 }

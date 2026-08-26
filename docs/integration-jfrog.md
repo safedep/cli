@@ -264,17 +264,16 @@ longer considered malicious (for example a false positive is retracted).
 ## Issue summary and description
 
 The XRay Custom Issue carries a `summary` (short headline) and a `description`
-(longer body). Both come from the feed's human-authored text:
+(longer body):
 
-- `summary` <- `report.GetTitle()`
-- `description` <- `report.GetSummary()`
-
-Either field can be empty on a report (for example an automated report that is
-not human-verified). When empty, `buildEvent` falls back to a synthesized line
-so the issue never carries a blank field:
-
-- summary fallback: `MALICIOUS PACKAGE: <name> contains malicious code`
-- description fallback: `<name> has been identified as a malicious package by SafeDep threat intelligence.`
+- `summary` is always the synthesized headline
+  `MALICIOUS PACKAGE: <name> contains malicious code`. The feed `title` is not
+  used: it is only the first few words of the feed summary, so it makes a poor
+  standalone headline.
+- `description` <- `report.GetSummary()` (the feed's full summary). When the feed
+  summary is empty, `buildEvent` falls back to
+  `<name> has been identified as a malicious package by SafeDep threat intelligence.`
+  so the field is never blank.
 
 ## Testing the wire format
 

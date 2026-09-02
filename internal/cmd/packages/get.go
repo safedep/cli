@@ -39,7 +39,7 @@ func getCmd(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			scan, err := runGet(cmd.Context(), NewService(client.Connection()), getInput{
+			scan, err := runGet(cmd.Context(), NewService(client.Connection()), appResolver{a}, getInput{
 				ScanID: scanID, Flags: flags, Ref: firstArg(args),
 			})
 			if err != nil {
@@ -56,11 +56,11 @@ func getCmd(a *app.App) *cobra.Command {
 	return cmd
 }
 
-func runGet(ctx context.Context, svc getSvc, in getInput) (*Scan, error) {
+func runGet(ctx context.Context, svc getSvc, resolver commitResolver, in getInput) (*Scan, error) {
 	if in.ScanID != "" {
 		return svc.Get(ctx, in.ScanID)
 	}
-	target, err := resolveTarget(in.Ref, in.Flags)
+	target, err := resolveTarget(ctx, resolver, in.Ref, in.Flags)
 	if err != nil {
 		return nil, err
 	}

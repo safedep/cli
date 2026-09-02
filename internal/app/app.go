@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/safedep/dry/adapters"
 	"github.com/safedep/dry/cloud"
 	"github.com/safedep/dry/log"
 
@@ -40,6 +41,7 @@ type App struct {
 
 	dataPlane    *cloud.Client
 	controlPlane *cloud.Client
+	github       *adapters.GithubClient
 
 	storage storage.Storage
 }
@@ -239,6 +241,28 @@ func (a *App) ControlPlane() (*cloud.Client, error) {
 
 	a.controlPlane = client
 	return a.controlPlane, nil
+}
+
+// GitHub returns the GitHub API client, initialised on first call. It reads
+// GITHUB_TOKEN, GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET and the enterprise
+// GITHUB_BASE_URL/GITHUB_UPLOAD_URL pair, the same variables vet uses, so
+// one setup serves every SafeDep tool. Without credentials it reaches public
+// repositories under the unauthenticated GitHub rate limit.
+func (a *App) GitHub() (*adapters.GithubClient, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.github != nil {
+		return a.github, nil
+	}
+
+	client, err := adapters.NewGithubClient(adapters.DefaultGitHubClientConfig())
+	if err != nil {
+		return nil, fmt.Errorf("app: github client: %w", err)
+	}
+
+	a.github = client
+	return a.github, nil
 }
 
 // refreshIfExpiredLocked silently refreshes the access token when it is

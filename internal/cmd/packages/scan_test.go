@@ -16,7 +16,7 @@ func TestRunGet_ByScanID(t *testing.T) {
 			return &Scan{ScanID: id, Status: "completed", Verdict: verdictBenign}, nil
 		},
 	}
-	scan, err := runGet(context.Background(), svc, getInput{ScanID: "scn_9"})
+	scan, err := runGet(context.Background(), svc, noResolver(t), getInput{ScanID: "scn_9"})
 	require.NoError(t, err)
 	assert.Equal(t, "scn_9", scan.ScanID)
 	assert.Equal(t, 1, svc.getCalls)
@@ -30,7 +30,7 @@ func TestRunGet_ByPackageRefUsesLatest(t *testing.T) {
 			return &ListResult{Scans: []Scan{{ScanID: "scn_new", Status: "completed"}}}, nil
 		},
 	}
-	scan, err := runGet(context.Background(), svc, getInput{Ref: "pkg:npm/lodash@4.17.21"})
+	scan, err := runGet(context.Background(), svc, noResolver(t), getInput{Ref: "pkg:npm/lodash@4.17.21"})
 	require.NoError(t, err)
 	assert.Equal(t, "scn_new", scan.ScanID)
 	assert.Equal(t, 0, svc.getCalls, "package-ref path reuses the list record, no extra Get")
@@ -43,7 +43,7 @@ func TestLatestScan_NoneFound(t *testing.T) {
 			return &ListResult{}, nil
 		},
 	}
-	_, err := runGet(context.Background(), svc, getInput{Ref: "pkg:npm/lodash@4.17.21"})
+	_, err := runGet(context.Background(), svc, noResolver(t), getInput{Ref: "pkg:npm/lodash@4.17.21"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no scan found")
 }
@@ -55,7 +55,7 @@ func TestRunList_BuildsTargetFilter(t *testing.T) {
 			return &ListResult{Scans: []Scan{{ScanID: "scn_1"}}, NextPage: "tok"}, nil
 		},
 	}
-	res, err := runList(context.Background(), svc, listInput{
+	res, err := runList(context.Background(), svc, noResolver(t), listInput{
 		Flags: targetFlags{Ecosystem: "npm", Name: "lodash", Version: "4.17.21"},
 	})
 	require.NoError(t, err)
@@ -67,7 +67,7 @@ func TestRunList_BuildsTargetFilter(t *testing.T) {
 func TestRunList_PartialFilterRejected(t *testing.T) {
 	t.Parallel()
 	svc := &fakeService{listFn: func(_ context.Context, _ ListInput) (*ListResult, error) { return &ListResult{}, nil }}
-	_, err := runList(context.Background(), svc, listInput{Flags: targetFlags{Ecosystem: "npm"}})
+	_, err := runList(context.Background(), svc, noResolver(t), listInput{Flags: targetFlags{Ecosystem: "npm"}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "together")
 }
@@ -104,7 +104,7 @@ func TestRunShow_ByScanID(t *testing.T) {
 			return &Report{Scan: Scan{ScanID: id, Status: "completed", Verdict: verdictBenign}, Summary: "clean"}, nil
 		},
 	}
-	res, err := runShow(context.Background(), svc, showInput{ScanID: "scn_5"})
+	res, err := runShow(context.Background(), svc, noResolver(t), showInput{ScanID: "scn_5"})
 	require.NoError(t, err)
 	assert.Equal(t, "scn_5", res.report.ScanID)
 }
@@ -116,7 +116,7 @@ func TestRunShow_NotCompleted(t *testing.T) {
 			return &Report{Scan: Scan{ScanID: id, Status: "in-progress"}}, nil
 		},
 	}
-	_, err := runShow(context.Background(), svc, showInput{ScanID: "scn_5"})
+	_, err := runShow(context.Background(), svc, noResolver(t), showInput{ScanID: "scn_5"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no report yet")
 }
@@ -154,4 +154,20 @@ func TestShowResult_RenderSkipsEmptySections(t *testing.T) {
 	assert.Contains(t, out, "no malicious behavior detected")
 	assert.NotContains(t, out, "File evidence")
 	assert.NotContains(t, out, "Warnings")
+}
+
+func TestRunGet_GitHubRefPinnedBeforeLookup(t *testing.T) {
+	t.Parallel()
+	svc := &fakeService{
+		listFn: func(_ context.Context, in ListInput) (*ListResult, error) {
+			require.NotNil(t, in.Target)
+			assert.Equal(t, testSHA, in.Target.GetVersion(), "lookup uses the pinned commit, not the ref")
+			return &ListResult{Scans: []Scan{{ScanID: "scn_gh", Status: "completed"}}}, nil
+		},
+	}
+	resolver := &fakeResolver{t: t, sha: testSHA}
+	scan, err := runGet(context.Background(), svc, resolver, getInput{Ref: "pkg:github/safedep/vet@main"})
+	require.NoError(t, err)
+	assert.Equal(t, "scn_gh", scan.ScanID)
+	assert.Equal(t, 1, resolver.calls)
 }

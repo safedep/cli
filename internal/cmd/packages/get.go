@@ -39,11 +39,7 @@ func getCmd(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			gh, err := a.GitHub()
-			if err != nil {
-				return err
-			}
-			scan, err := runGet(cmd.Context(), NewService(client.Connection()), gh, getInput{
+			scan, err := runGet(cmd.Context(), NewService(client.Connection()), appResolver{a}, getInput{
 				ScanID: scanID, Flags: flags, Ref: firstArg(args),
 			})
 			if err != nil {

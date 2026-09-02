@@ -36,11 +36,7 @@ func listCmd(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			gh, err := a.GitHub()
-			if err != nil {
-				return err
-			}
-			res, err := runList(cmd.Context(), NewService(client.Connection()), gh, listInput{
+			res, err := runList(cmd.Context(), NewService(client.Connection()), appResolver{a}, listInput{
 				Flags: flags, PageSize: pageSize, PageToken: pageToken,
 			})
 			if err != nil {

@@ -44,11 +44,7 @@ func showCmd(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			gh, err := a.GitHub()
-			if err != nil {
-				return err
-			}
-			res, err := runShow(cmd.Context(), NewService(client.Connection()), gh, showInput{
+			res, err := runShow(cmd.Context(), NewService(client.Connection()), appResolver{a}, showInput{
 				ScanID: scanID, Flags: flags, Ref: firstArg(args), Save: save,
 			})
 			if err != nil {

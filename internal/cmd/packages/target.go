@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/dry/adapters"
 	drypb "github.com/safedep/dry/api/pb"
 	"github.com/safedep/dry/tui"
@@ -28,6 +29,21 @@ func (t targetFlags) any() bool {
 // points to. *adapters.GithubClient satisfies it. Tests pass a fake.
 type commitResolver interface {
 	ResolveCommitSHA(ctx context.Context, owner, repo, ref string) (string, error)
+}
+
+// appResolver builds the GitHub client on the first GitHub target. A
+// --scan-id lookup or a non-GitHub target never pays for, or fails on, the
+// GitHub client configuration.
+type appResolver struct {
+	a *app.App
+}
+
+func (r appResolver) ResolveCommitSHA(ctx context.Context, owner, repo, ref string) (string, error) {
+	gh, err := r.a.GitHub()
+	if err != nil {
+		return "", err
+	}
+	return gh.ResolveCommitSHA(ctx, owner, repo, ref)
 }
 
 // resolveTarget turns a positional reference and/or explicit flags into a

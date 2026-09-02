@@ -85,6 +85,10 @@ func (f *fakeThreatIntelClient) GetCampaign(_ context.Context, _ *threatintelsvc
 	return nil, errors.New("not implemented in fake")
 }
 
+func (f *fakeThreatIntelClient) GetCampaignPackageReports(_ context.Context, _ *threatintelsvcv1.GetCampaignPackageReportsRequest, _ ...grpc.CallOption) (*threatintelsvcv1.GetCampaignPackageReportsResponse, error) {
+	return nil, errors.New("not implemented in fake")
+}
+
 func (f *fakeThreatIntelClient) ListSnapshots(_ context.Context, _ *threatintelsvcv1.ListSnapshotsRequest, _ ...grpc.CallOption) (*threatintelsvcv1.ListSnapshotsResponse, error) {
 	return nil, errors.New("not implemented in fake")
 }

@@ -44,7 +44,11 @@ func showCmd(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			res, err := runShow(cmd.Context(), NewService(client.Connection()), showInput{
+			gh, err := a.GitHub()
+			if err != nil {
+				return err
+			}
+			res, err := runShow(cmd.Context(), NewService(client.Connection()), gh, showInput{
 				ScanID: scanID, Flags: flags, Ref: firstArg(args), Save: save,
 			})
 			if err != nil {
@@ -68,10 +72,10 @@ func showCmd(a *app.App) *cobra.Command {
 	return cmd
 }
 
-func runShow(ctx context.Context, svc showSvc, in showInput) (*showResult, error) {
+func runShow(ctx context.Context, svc showSvc, resolver commitResolver, in showInput) (*showResult, error) {
 	scanID := in.ScanID
 	if scanID == "" {
-		target, err := resolveTarget(in.Ref, in.Flags)
+		target, err := resolveTarget(ctx, resolver, in.Ref, in.Flags)
 		if err != nil {
 			return nil, err
 		}

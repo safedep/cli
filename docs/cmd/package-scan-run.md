@@ -24,6 +24,26 @@ By default the command derives a deterministic idempotency key from the target,
 so repeat runs of the same package version reuse the existing scan rather than
 creating duplicates. Pass `--rescan` to force a fresh scan.
 
+### GitHub references
+
+A branch or tag of a GitHub repository is a mutable reference. The command
+resolves it to the commit SHA it points to before it submits the scan, so the
+scan stays bound to the code that was reviewed after the branch or tag moves.
+This applies to every input form: a `pkg:github/owner/repo@ref` PURL, a GitHub
+URL, and the explicit triple with a `github_actions` or `github_repository`
+ecosystem. A version that is already a full commit SHA passes through without
+a lookup. A GitHub URL without a `/tree/<ref>` suffix resolves to the head of
+the default branch.
+
+The resolved commit is the version of record: `get`, `list` and `show` apply
+the same resolution, and the idempotency key uses the commit, so two runs
+against the same ref dedupe only while the ref points at the same commit.
+
+Resolution uses the GitHub API. Public repositories work without credentials
+under the unauthenticated rate limit. Set `GITHUB_TOKEN` to raise the limit
+and to reach private repositories. `GITHUB_BASE_URL` and `GITHUB_UPLOAD_URL`
+point the lookup at a GitHub Enterprise server.
+
 On a `MALWARE` verdict the full report is rendered inline (in `table` mode).
 Any other verdict prints a short headline; fetch the full report with
 `safedep package scan show`. In `plain` and `json` modes the output shape is
@@ -33,7 +53,7 @@ the same regardless of verdict.
 
 | Argument | Description |
 |----------|-------------|
-| `<package-ref>` | A PURL (`pkg:npm/lodash@4.17.21`) or a GitHub repository URL. Alternative to the explicit `--ecosystem`/`--name`/`--version` flags. |
+| `<package-ref>` | A PURL (`pkg:npm/lodash@4.17.21`) or a GitHub repository URL. A GitHub branch or tag is resolved to its commit SHA. Alternative to the explicit `--ecosystem`/`--name`/`--version` flags. |
 
 ## Flags
 
@@ -53,6 +73,12 @@ Scan an npm package by PURL and wait for the verdict:
 
 ```
 safedep package scan run pkg:npm/lodash@4.17.21
+```
+
+Scan a GitHub repository at a branch. The branch is pinned to its commit SHA:
+
+```
+safedep package scan run pkg:github/safedep/vet@main
 ```
 
 Scan a VS Code extension using the explicit triple:

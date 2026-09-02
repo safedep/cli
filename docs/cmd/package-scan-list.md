@@ -12,7 +12,9 @@ safedep package scan list [--ecosystem ECO --name NAME --version VER] [--limit N
 
 Optionally filter to one package version with the
 `--ecosystem`/`--name`/`--version` triple. The server filter matches an exact
-package version, so all three must be provided together when filtering.
+package version, so all three must be provided together when filtering. For a
+`github_actions` or `github_repository` ecosystem a branch or tag is resolved
+to its commit SHA, the same as in `run`.
 
 Results are paginated. When more results are available, the table footer
 prints the `--page-token` value to pass to the next call.

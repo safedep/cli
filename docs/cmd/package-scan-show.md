@@ -30,7 +30,7 @@ in progress, the command reports the current status and exits non-zero.
 
 | Argument | Description |
 |----------|-------------|
-| `<package-ref>` | A PURL or GitHub URL identifying the package whose newest scan report to show. Alternative to the explicit target flags or `--scan-id`. |
+| `<package-ref>` | A PURL or GitHub URL identifying the package whose newest scan report to show. A GitHub branch or tag is resolved to its commit SHA, the same as in `run`. Alternative to the explicit target flags or `--scan-id`. |
 
 ## Flags
 

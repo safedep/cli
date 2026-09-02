@@ -59,7 +59,11 @@ func runCmd(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			target, err := resolveTarget(firstArg(args), flags)
+			gh, err := a.GitHub()
+			if err != nil {
+				return err
+			}
+			target, err := resolveTarget(cmd.Context(), gh, firstArg(args), flags)
 			if err != nil {
 				return err
 			}

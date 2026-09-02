@@ -2,6 +2,7 @@ package packages
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
@@ -77,16 +78,49 @@ func TestRegister_buildsPackageScanTree(t *testing.T) {
 	}
 }
 
+// fakeResolver stands in for the GitHub client. A zero value fails the test
+// when called, so non-GitHub paths prove they never touch the network.
+type fakeResolver struct {
+	t   *testing.T
+	sha string
+	err error
+
+	calls    int
+	gotOwner string
+	gotRepo  string
+	gotRef   string
+}
+
+func noResolver(t *testing.T) *fakeResolver {
+	return &fakeResolver{t: t}
+}
+
+func (f *fakeResolver) ResolveCommitSHA(_ context.Context, owner, repo, ref string) (string, error) {
+	f.calls++
+	f.gotOwner, f.gotRepo, f.gotRef = owner, repo, ref
+	if f.sha == "" && f.err == nil {
+		f.t.Fatalf("unexpected ResolveCommitSHA(%q, %q, %q)", owner, repo, ref)
+	}
+	return f.sha, f.err
+}
+
+const testSHA = "0123456789abcdef0123456789abcdef01234567"
+
 func TestResolveTarget(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name    string
-		ref     string
-		flags   targetFlags
-		wantEco packagev1.Ecosystem
-		wantN   string
-		wantV   string
-		wantErr string
+		name      string
+		ref       string
+		flags     targetFlags
+		resolver  *fakeResolver
+		wantEco   packagev1.Ecosystem
+		wantN     string
+		wantV     string
+		wantErr   string
+		wantCalls int
+		wantOwner string
+		wantRepo  string
+		wantRef   string
 	}{
 		{
 			name:    "explicit triple",
@@ -105,6 +139,64 @@ func TestResolveTarget(t *testing.T) {
 			ref:     "pkg:vscode/publisher.ext@1.2.3",
 			wantEco: packagev1.Ecosystem_ECOSYSTEM_VSCODE,
 			wantN:   "publisher.ext", wantV: "1.2.3",
+		},
+		{
+			name:     "purl github branch pinned to commit",
+			ref:      "pkg:github/safedep/vet@main",
+			resolver: &fakeResolver{sha: testSHA},
+			wantEco:  packagev1.Ecosystem_ECOSYSTEM_GITHUB_ACTIONS,
+			wantN:    "safedep/vet", wantV: testSHA,
+			wantCalls: 1, wantOwner: "safedep", wantRepo: "vet", wantRef: "main",
+		},
+		{
+			name:     "purl github actions subpath uses the repository",
+			ref:      "pkg:github/aws-actions/configure-aws-credentials/assume-role@v2",
+			resolver: &fakeResolver{sha: testSHA},
+			wantEco:  packagev1.Ecosystem_ECOSYSTEM_GITHUB_ACTIONS,
+			wantN:    "aws-actions/configure-aws-credentials/assume-role", wantV: testSHA,
+			wantCalls: 1, wantOwner: "aws-actions", wantRepo: "configure-aws-credentials", wantRef: "v2",
+		},
+		{
+			name:    "purl github commit passes through without a lookup",
+			ref:     "pkg:github/safedep/vet@" + testSHA,
+			wantEco: packagev1.Ecosystem_ECOSYSTEM_GITHUB_ACTIONS,
+			wantN:   "safedep/vet", wantV: testSHA,
+		},
+		{
+			name:     "github url with tree ref pinned to commit",
+			ref:      "https://github.com/safedep/vet/tree/release/1.0",
+			resolver: &fakeResolver{sha: testSHA},
+			wantEco:  packagev1.Ecosystem_ECOSYSTEM_GITHUB_REPOSITORY,
+			wantN:    "safedep/vet", wantV: testSHA,
+			wantCalls: 1, wantOwner: "safedep", wantRepo: "vet", wantRef: "release/1.0",
+		},
+		{
+			name:     "github url without ref pins the default branch",
+			ref:      "https://github.com/safedep/vet",
+			resolver: &fakeResolver{sha: testSHA},
+			wantEco:  packagev1.Ecosystem_ECOSYSTEM_GITHUB_REPOSITORY,
+			wantN:    "safedep/vet", wantV: testSHA,
+			wantCalls: 1, wantOwner: "safedep", wantRepo: "vet", wantRef: "",
+		},
+		{
+			name:     "explicit github triple pinned to commit",
+			flags:    targetFlags{Ecosystem: "github_repository", Name: "safedep/vet", Version: "v1.2.3"},
+			resolver: &fakeResolver{sha: testSHA},
+			wantEco:  packagev1.Ecosystem_ECOSYSTEM_GITHUB_REPOSITORY,
+			wantN:    "safedep/vet", wantV: testSHA,
+			wantCalls: 1, wantOwner: "safedep", wantRepo: "vet", wantRef: "v1.2.3",
+		},
+		{
+			name:      "github lookup failure is actionable",
+			ref:       "pkg:github/safedep/vet@main",
+			resolver:  &fakeResolver{err: errors.New("404 Not Found")},
+			wantErr:   `resolve GitHub ref "main" of safedep/vet: 404 Not Found: pass a commit SHA`,
+			wantCalls: 1,
+		},
+		{
+			name:    "github name without repository rejected",
+			flags:   targetFlags{Ecosystem: "github_actions", Name: "safedep", Version: "main"},
+			wantErr: "expected owner/repo",
 		},
 		{
 			name:    "explicit missing version",
@@ -139,7 +231,14 @@ func TestResolveTarget(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			pv, err := resolveTarget(tt.ref, tt.flags)
+			resolver := tt.resolver
+			if resolver == nil {
+				resolver = noResolver(t)
+			}
+			resolver.t = t
+
+			pv, err := resolveTarget(context.Background(), resolver, tt.ref, tt.flags)
+			assert.Equal(t, tt.wantCalls, resolver.calls, "resolver calls")
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
@@ -149,6 +248,11 @@ func TestResolveTarget(t *testing.T) {
 			assert.Equal(t, tt.wantEco, pv.GetPackage().GetEcosystem())
 			assert.Equal(t, tt.wantN, pv.GetPackage().GetName())
 			assert.Equal(t, tt.wantV, pv.GetVersion())
+			if tt.wantCalls > 0 {
+				assert.Equal(t, tt.wantOwner, resolver.gotOwner)
+				assert.Equal(t, tt.wantRepo, resolver.gotRepo)
+				assert.Equal(t, tt.wantRef, resolver.gotRef)
+			}
 		})
 	}
 }

@@ -21,7 +21,7 @@ intended for agents that just submitted a scan and hold its id.
 
 | Argument | Description |
 |----------|-------------|
-| `<package-ref>` | A PURL or GitHub URL identifying the package whose newest scan to fetch. Alternative to the explicit target flags or `--scan-id`. |
+| `<package-ref>` | A PURL or GitHub URL identifying the package whose newest scan to fetch. A GitHub branch or tag is resolved to its commit SHA, the same as in `run`. Alternative to the explicit target flags or `--scan-id`. |
 
 ## Flags
 

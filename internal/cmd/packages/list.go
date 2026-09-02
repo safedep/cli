@@ -36,7 +36,11 @@ func listCmd(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			res, err := runList(cmd.Context(), NewService(client.Connection()), listInput{
+			gh, err := a.GitHub()
+			if err != nil {
+				return err
+			}
+			res, err := runList(cmd.Context(), NewService(client.Connection()), gh, listInput{
 				Flags: flags, PageSize: pageSize, PageToken: pageToken,
 			})
 			if err != nil {
@@ -54,11 +58,11 @@ func listCmd(a *app.App) *cobra.Command {
 	return cmd
 }
 
-func runList(ctx context.Context, lister ScanLister, in listInput) (*listResult, error) {
+func runList(ctx context.Context, lister ScanLister, resolver commitResolver, in listInput) (*listResult, error) {
 	svcIn := ListInput{PageSize: in.PageSize, PageToken: in.PageToken}
 	if in.Flags.any() {
 		// The API filter is an exact package version, so the full triple is required.
-		target, err := resolveExplicit(in.Flags)
+		target, err := resolveTarget(ctx, resolver, "", in.Flags)
 		if err != nil {
 			return nil, err
 		}

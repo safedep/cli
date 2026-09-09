@@ -10,11 +10,8 @@ import (
 	"github.com/safedep/cli/internal/version"
 )
 
-const bannerArt = ` ___  __ _ / _| ___  __| | ___ _ __
-/ __|/ _' | |_ / _ \/ _' |/ _ \ '_ \
-\__ \ (_| |  _|  __/ (_| |  __/ |_) |
-|___/\__,_|_|  \___|\__,_|\___| .__/
-                              |_|`
+const bannerArt = `█▀ ▄▀█ █▀▀ █▀▀ █▀▄ █▀▀ █▀█ 
+▄█ █▀█ █▀░ ██▄ █▄▀ ██▄ █▀▀ `
 
 var (
 	outputFlag                   string
@@ -62,9 +59,9 @@ func NewRootCommand(a *app.App) *cobra.Command {
 		if cmd == root && tuioutput.CurrentMode() == tuioutput.Rich {
 			banner.Banner{
 				Art:     bannerArt,
-				Name:    "cli",
+				Name:    "CLI",
 				Version: version.Version,
-				Tagline: "The unified CLI for the SafeDep platform",
+				Tagline: "The unified CLI for the SafeDep platform\n",
 			}.Print()
 		}
 		defaultHelp(cmd, args)

@@ -56,6 +56,30 @@ jfrog feed (mutable reports keyed on `updated_at`), these events are **immutable
 and append-only**, so a `Timestamp` watermark is correct and there is no
 re-delivery-on-change concern.
 
+### Two "cursors": page token vs time window
+
+The API exposes no durable, cross-cycle resume token. There are two distinct
+notions of cursor, only one of which persists across poll cycles:
+
+- **`Pagination.next_page_token`** is a within-cycle paging cursor only. It walks
+  the remaining pages of *one* query result set. It is an opaque snapshot token:
+  it expires and does not include events created after the query started, so it
+  **must not** be stored and reused on the next cycle. The source uses it to
+  drain one cycle, then discards it.
+- **`TimeRange.Start` is our cross-cycle cursor.** To pull only fresh data next
+  cycle we send `TimeRange.Start = <last processed event Timestamp>`. The
+  freshness cursor is client-maintained (persisted in KV as `LastSeenAt`), not a
+  token the server returns.
+
+`TimeRange.Start` is a correct cursor **because the events are immutable**: an
+event never changes after emission, so its `Timestamp` is a stable ordering key
+and advancing `Start` can never skip an event before it "finalizes" (nothing
+finalizes). This is exactly the property the jfrog *reports* feed lacked, which
+is why that feed had to cursor on `updated_at` rather than `created_at`. A real
+server-side `after_event_id` cursor would only remove our need to care about
+timestamp ties (handled below by `EventId` dedup); it is not a correctness gap.
+If the API adds one, switch to it and drop `LastSeenEventIDs`.
+
 ```go
 type cursorState struct {
     LastSeenAt       time.Time `json:"last_seen_at"`

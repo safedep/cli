@@ -5,6 +5,7 @@ package integration
 
 import (
 	"github.com/safedep/cli/internal/app"
+	"github.com/safedep/cli/internal/cmd/integration/crowdstrike"
 	"github.com/safedep/cli/internal/cmd/integration/jfrog"
 	"github.com/spf13/cobra"
 )
@@ -19,5 +20,6 @@ func Register(root *cobra.Command, a *app.App) {
 	}
 
 	jfrog.Register(cmd, a)
+	crowdstrike.Register(cmd, a)
 	root.AddCommand(cmd)
 }

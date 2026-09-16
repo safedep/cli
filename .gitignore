@@ -39,3 +39,6 @@ docs/superpowers/
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Local OAuth token dumps (never commit)
+auth-token.txt

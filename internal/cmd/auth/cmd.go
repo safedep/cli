@@ -18,6 +18,7 @@ func Register(root *cobra.Command, a *app.App) {
 	parent.AddCommand(loginCmd(a))
 	parent.AddCommand(logoutCmd(a))
 	parent.AddCommand(statusCmd(a))
+	parent.AddCommand(tokenCmd(a))
 	parent.AddCommand(profileCmd(a))
 
 	root.AddCommand(parent)

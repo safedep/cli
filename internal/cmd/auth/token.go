@@ -7,10 +7,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// tokenCmd prints the active profile's OAuth access token to stdout, mirroring
-// `gh auth token`. It is the seam for external tools and scripts that call the
-// SafeDep control plane directly (for example a standalone poller), so they do
-// not each need to reimplement login and token refresh.
+// tokenCmd prints the active profile's OAuth access token to stdout. It is the
+// seam for external tools and scripts that call the SafeDep control plane
+// directly (for example a standalone poller), so they do not each need to
+// reimplement login and token refresh.
 func tokenCmd(a *app.App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "token",

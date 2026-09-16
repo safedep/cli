@@ -246,7 +246,7 @@ func (a *App) ControlPlane() (*cloud.Client, error) {
 // ControlPlaneToken returns a valid OAuth access token for the active profile,
 // refreshing it silently if the stored token is expired. It returns the access
 // token only, never the refresh token. Intended for handing to an external tool
-// or script that calls the SafeDep control plane directly (like `gh auth token`).
+// or script that calls the SafeDep control plane directly.
 func (a *App) ControlPlaneToken() (string, error) {
 	resolver, err := a.TokenResolver()
 	if err != nil {

@@ -30,8 +30,8 @@ var AllowedVerbs = map[string]struct{}{
 	"show":    {},
 	"status":  {},
 	"sync":    {},
-	// token prints a stored credential (the OAuth access token) for scripts,
-	// mirroring `gh auth token`. It reads, never mints, so it is not get/show.
+	// token prints a stored credential (the OAuth access token) for scripts.
+	// It reads, never mints, so it is not get/show.
 	"token":     {},
 	"uninstall": {},
 	"update":    {},

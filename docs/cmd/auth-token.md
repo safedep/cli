@@ -1,8 +1,7 @@
 # safedep auth token
 
 Print the OAuth access token for the active SafeDep profile to stdout, for use by
-external tools and scripts that call the SafeDep control plane directly. Mirrors
-`gh auth token`.
+external tools and scripts that call the SafeDep control plane directly.
 
 ## Synopsis
 

@@ -1,8 +1,7 @@
 # safedep auth token
 
 Print the OAuth access token for the active SafeDep profile. The command writes
-the token to stdout. External tools and scripts use the token to call the SafeDep
-control plane.
+the token to stdout.
 
 ## Synopsis
 
@@ -12,17 +11,10 @@ safedep auth token
 
 ## Description
 
-The command writes the OAuth access token to stdout. It writes nothing else.
+The command writes the OAuth access token to stdout.
 
 If the token has expired, the command refreshes it first. So the token is always
-valid when it prints. The command never prints the refresh token.
-
-Use the token to authenticate a script or a tool. The script does not need to do
-the SafeDep login or the token refresh:
-
-```bash
-export SAFEDEP_TOKEN=$(safedep auth token)
-```
+valid when it prints. The command does not print the refresh token.
 
 The token is per profile. Use `--profile` to print the token for a different
 profile.

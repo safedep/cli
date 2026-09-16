@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/safedep/dry/adapters"
 	"github.com/safedep/dry/cloud"
@@ -299,13 +300,20 @@ func (a *App) GitHub() (*adapters.GithubClient, error) {
 // expired. It must be called with a.mu held. On success it returns new
 // credentials backed by the freshly-saved keychain entry. On refresh
 // failure it returns ErrRefreshFailed so the caller can prompt re-login.
+//
+// The refresh is bounded by a deadline. Without it a hung or unresponsive token
+// endpoint blocks the caller forever, since oauth2 falls back to
+// http.DefaultClient, which has no timeout.
 func (a *App) refreshIfExpiredLocked(creds *cloud.Credentials) (*cloud.Credentials, error) {
 	store, err := a.keychainStoreForRefreshLocked()
 	if err != nil {
 		return nil, fmt.Errorf("app: refresh: credential store: %w", err)
 	}
 
-	fresh, err := cliauth.RefreshAndPersistIfExpired(context.Background(), store, creds, a.keychainOptsLocked())
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	fresh, err := cliauth.RefreshAndPersistIfExpired(ctx, store, creds, a.keychainOptsLocked())
 	if err != nil {
 		return nil, err
 	}

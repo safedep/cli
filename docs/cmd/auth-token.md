@@ -32,4 +32,4 @@ profile.
   the current token expires.
 - The token is a bearer credential. Do not pass it as a command argument. A
   command argument goes into the shell history and the process list. Put the
-  token in an environment variable, as the example shows.
+  token in an environment variable.

@@ -38,6 +38,7 @@ import re
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -134,12 +135,24 @@ class Config:
                 + ", ".join(missing)
                 + ". Set SAFEDEP_TOKEN=$(safedep auth token) and SAFEDEP_TENANT_ID=<tenant>."
             )
+        base_url = os.environ.get("SAFEDEP_CLOUD_URL", "https://cloud.safedep.io").strip()
+        # Require HTTPS. The raw OAuth token rides in the Authorization header, so
+        # a plaintext scheme would send it in the clear.
+        if urllib.parse.urlparse(base_url).scheme != "https":
+            raise ValueError(f"SAFEDEP_CLOUD_URL must be an https:// URL, got {base_url!r}")
+
+        backfill_hours = _env_float("BACKFILL_HOURS", 0.0)
+        # A negative backfill puts start in the future, which would anchor the
+        # cursor ahead of now and skip real events.
+        if backfill_hours < 0:
+            raise ValueError(f"BACKFILL_HOURS must be >= 0, got {backfill_hours}")
+
         return cls(
             token=token,
             tenant=tenant,
-            base_url=os.environ.get("SAFEDEP_CLOUD_URL", "https://cloud.safedep.io").strip(),
+            base_url=base_url,
             poll_interval=_env_float("POLL_INTERVAL_SECONDS", 300.0),
-            backfill=timedelta(hours=_env_float("BACKFILL_HOURS", 0.0)),
+            backfill=timedelta(hours=backfill_hours),
             page_size=int(_env_float("PAGE_SIZE", 100.0)),
             timeout=_env_float("HTTP_TIMEOUT_SECONDS", 30.0),
         )
@@ -235,17 +248,16 @@ class Cursor:
         )
 
     def save(self, path: str) -> None:
+        # Raise on failure. The caller must not report a cycle as done until the
+        # cursor is durable, otherwise a restart reprocesses the same events.
         data = {
             "last_seen": to_rfc3339(self.last_seen) if self.last_seen else None,
             "last_seen_ids": sorted(self.last_seen_ids),
         }
         tmp = path + ".tmp"
-        try:
-            with open(tmp, "w", encoding="utf-8") as handle:
-                json.dump(data, handle, indent=2)
-            os.replace(tmp, path)  # atomic: never leave a half-written cursor
-        except OSError as exc:
-            log.warning("Could not save cursor to %s: %s", path, exc)
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=2)
+        os.replace(tmp, path)  # atomic: never leave a half-written cursor
 
 
 def _env_float(name: str, default: float) -> float:
@@ -271,11 +283,25 @@ def _headers(cfg: Config) -> dict:
     }
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse HTTP redirects. urllib copies the Authorization header onto a
+    redirected request, so a redirect could forward the OAuth token to an http or
+    different-host destination. The control-plane API does not redirect, so any
+    redirect is unexpected and rejected."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise PollError(f"unexpected redirect ({code}) to {newurl}: refusing to forward credentials")
+
+
+# Opener with redirects disabled, shared by every request.
+_OPENER = urllib.request.build_opener(_NoRedirect())
+
+
 def _post(cfg: Config, payload: dict) -> dict:
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(cfg.url, data=body, headers=_headers(cfg), method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=cfg.timeout) as resp:
+        with _OPENER.open(req, timeout=cfg.timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "replace")
@@ -373,6 +399,10 @@ def poll_once(cfg: Config, cursor: Cursor) -> int:
 
     if new_max is not None and (cursor.last_seen is None or new_max > cursor.last_seen):
         cursor.last_seen, cursor.last_seen_ids = new_max, new_max_ids
+    elif new_max is not None and new_max == cursor.last_seen and new_max_ids:
+        # New events arrived at the exact boundary timestamp. Extend the skip set
+        # so the next cycle does not reprocess them.
+        cursor.last_seen_ids = cursor.last_seen_ids | new_max_ids
     elif cursor.last_seen is None:
         # First cycle saw nothing. Anchor so the window does not slide forward by
         # one interval each cycle.
@@ -404,13 +434,20 @@ def main() -> int:
     while True:
         try:
             count = poll_once(cfg, cursor)
-            cursor.save(CURSOR_PATH)
-            if count:
-                log.info("%s %s %s", _dim("cycle done"), _sgr("32", f"{count} new event(s)"), _dim(f"next in {int(cfg.poll_interval)}s"))
-            else:
-                log.info("%s", _dim(f"cycle done  |  0 new  |  next in {int(cfg.poll_interval)}s"))
         except PollError as exc:
             log.warning("cycle error: %s", exc)
+        else:
+            try:
+                cursor.save(CURSOR_PATH)
+            except OSError as exc:
+                # The cycle handled events but the cursor is not durable, so do
+                # not report success: a restart would reprocess these events.
+                log.error("cursor not saved (%s); events may repeat after a restart", exc)
+            else:
+                if count:
+                    log.info("%s %s %s", _dim("cycle done"), _sgr("32", f"{count} new event(s)"), _dim(f"next in {int(cfg.poll_interval)}s"))
+                else:
+                    log.info("%s", _dim(f"cycle done  |  0 new  |  next in {int(cfg.poll_interval)}s"))
         try:
             time.sleep(cfg.poll_interval)
         except KeyboardInterrupt:

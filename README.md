@@ -111,6 +111,7 @@ Push SafeDep malware findings to external security tools. JFrog XRay is supporte
 | [`safedep auth login`](./docs/cmd/auth-login.md) | Authenticate with SafeDep Cloud |
 | [`safedep auth logout`](./docs/cmd/auth-logout.md) | Remove credentials for the active profile |
 | [`safedep auth status`](./docs/cmd/auth-status.md) | Show authentication status |
+| [`safedep auth token`](./docs/cmd/auth-token.md) | Print the OAuth access token for the active profile |
 | [`safedep auth profile list`](./docs/cmd/auth-profile-list.md) | List credential profiles |
 | [`safedep endpoint status`](./docs/cmd/endpoint-status.md) | Show fleet health |
 | [`safedep endpoint list`](./docs/cmd/endpoint-list.md) | List endpoints with filters |

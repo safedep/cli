@@ -243,6 +243,36 @@ func (a *App) ControlPlane() (*cloud.Client, error) {
 	return a.controlPlane, nil
 }
 
+// ControlPlaneToken returns a valid OAuth access token for the active profile,
+// refreshing it silently if the stored token is expired. It returns the access
+// token only, never the refresh token. Intended for handing to an external tool
+// or script that calls the SafeDep control plane directly.
+func (a *App) ControlPlaneToken() (string, error) {
+	resolver, err := a.TokenResolver()
+	if err != nil {
+		return "", err
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	creds, err := resolver.Resolve()
+	if err != nil {
+		return "", cliauth.LoginRequiredError(err)
+	}
+
+	creds, err = a.refreshIfExpiredLocked(creds)
+	if err != nil {
+		return "", err
+	}
+
+	token, err := creds.GetToken()
+	if err != nil {
+		return "", fmt.Errorf("app: access token: %w", err)
+	}
+	return token, nil
+}
+
 // GitHub returns the GitHub API client, initialised on first call. It reads
 // GITHUB_TOKEN, GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET and the enterprise
 // GITHUB_BASE_URL/GITHUB_UPLOAD_URL pair, the same variables vet uses, so

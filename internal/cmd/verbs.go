@@ -30,6 +30,7 @@ var AllowedVerbs = map[string]struct{}{
 	"show":      {},
 	"status":    {},
 	"sync":      {},
+	"token":     {},
 	"uninstall": {},
 	"update":    {},
 }

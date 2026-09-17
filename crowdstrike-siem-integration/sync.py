@@ -171,18 +171,22 @@ def main():
     if HEC_URL and not HEC_TOKEN:
         raise SystemExit("CROWDSTRIKE_HEC_TOKEN is required when CROWDSTRIKE_HEC_URL is set")
 
-    log.info("sync target: %s", HEC_URL or "log only (CROWDSTRIKE_HEC_URL not set)")
+    hec = bool(HEC_URL and HEC_TOKEN)
+    log.info("starting: poll every %ss, backfill %sh, target %s",
+             POLL_INTERVAL, BACKFILL_HOURS, HEC_URL if hec else "log only")
     since = load_since()
     while True:
         end = datetime.now(timezone.utc)
         try:
+            log.info("cycle: polling events since %s", rfc3339(since))
             events = poll(since, end)
             sync(events)               # push to CrowdStrike, or log
             since = end                # advance the cursor only after a successful sync
             save_since(since)
-            log.info("cycle done: %d event(s)", len(events))
+            log.info("cycle: %d event(s) %s, next poll in %ss",
+                     len(events), "sent to CrowdStrike HEC" if hec else "logged", POLL_INTERVAL)
         except Exception as err:       # transient error: log and retry next cycle
-            log.warning("cycle error: %s", err)
+            log.warning("cycle: failed (%s), retrying in %ss", err, POLL_INTERVAL)
         time.sleep(POLL_INTERVAL)
 
 

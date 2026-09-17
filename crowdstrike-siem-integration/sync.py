@@ -105,6 +105,8 @@ def send_to_hec(events):
     # text/plain, not application/json, because the concatenated objects are not
     # a single JSON document (per the LogScale HEC docs).
     body = "\n".join(json.dumps(hec_record(event)) for event in events).encode()
+    # Run with DEBUG=1 to see the exact payload sent to CrowdStrike.
+    log.debug("HEC POST %s payload:\n%s", HEC_URL, body.decode("utf-8"))
     request = urllib.request.Request(HEC_URL, data=body, method="POST", headers={
         "Authorization": "Bearer " + HEC_TOKEN,
         "Content-Type": "text/plain; charset=utf-8",
@@ -163,7 +165,8 @@ def save_since(since):
 
 
 def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+    level = logging.DEBUG if os.environ.get("DEBUG") else logging.INFO
+    logging.basicConfig(level=level, format="%(asctime)s %(message)s")
     if not TOKEN or not TENANT:
         raise SystemExit("set SAFEDEP_TOKEN and SAFEDEP_TENANT_ID")
     if BACKFILL_HOURS < 0:

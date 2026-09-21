@@ -4,19 +4,10 @@ import (
 	"github.com/safedep/dry/usefulerror"
 )
 
-func newBitbucketError(code, humanError, help string, cause error) error {
+func invalidSelectionError(cause error, help string) error {
 	return usefulerror.NewUsefulError().
-		WithCode(code).
-		WithHumanError(humanError).
+		WithCode(usefulerror.ErrBadRequest).
+		WithHumanError("Invalid allowlist selection").
 		WithHelp(help).
 		Wrap(cause)
-}
-
-func invalidSelectionError(cause error, help string) error {
-	return newBitbucketError(
-		usefulerror.ErrBadRequest,
-		"Invalid allowlist selection",
-		help,
-		cause,
-	)
 }

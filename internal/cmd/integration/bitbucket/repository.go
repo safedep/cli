@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/safedep/cli/internal/app"
+	"github.com/safedep/cli/internal/bitbucketlink"
 	"github.com/safedep/cli/internal/paging"
 	"github.com/safedep/cli/internal/tui"
 )
@@ -75,7 +76,7 @@ func repositoryListCmd(a *app.App) *cobra.Command {
 
 func runRepositoryList(
 	ctx context.Context,
-	links linkLister,
+	links bitbucketlink.Lister,
 	repositories repositoryLister,
 	in repositoryListInput,
 ) (*repositoryListResult, error) {
@@ -83,7 +84,7 @@ func runRepositoryList(
 
 	linkID := in.LinkID
 	if linkID == "" {
-		resolved, err := resolveLinkID(ctx, links, label)
+		resolved, err := bitbucketlink.ResolveSingle(ctx, links, label)
 		if err != nil {
 			return nil, err
 		}
@@ -94,7 +95,7 @@ func runRepositoryList(
 	err := paging.Paginate(ctx, label, func(ctx context.Context, pageToken string) (string, error) {
 		req := &controltowerv1.ListBitbucketRepositoriesRequest{}
 		req.SetLinkId(linkID)
-		req.SetPagination(paging.NewPaginationRequest(pageSize, pageToken))
+		req.SetPagination(paging.NewPaginationRequest(bitbucketlink.PageSize, pageToken))
 		res, err := repositories.ListBitbucketRepositories(ctx, req)
 		if err != nil {
 			return "", fmt.Errorf("%s: %w", label, err)

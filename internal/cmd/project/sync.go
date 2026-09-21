@@ -11,6 +11,8 @@ import (
 	"github.com/safedep/dry/tui/table"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/bitbucketlink"
@@ -164,10 +166,11 @@ func runSync(ctx context.Context, deps syncDeps, in syncInput) (tui.Renderable, 
 		return nil, err
 	}
 
-	source, err := resolveSyncSource(ctx, deps, in)
+	source, linkID, err := resolveSyncSource(ctx, deps, in)
 	if err != nil {
 		return nil, err
 	}
+	in.LinkID = linkID
 
 	if source == sourceBitbucket {
 		return runBitbucketSync(ctx, deps.bitbucketLinks, deps.bitbucketRepositories,
@@ -177,47 +180,104 @@ func runSync(ctx context.Context, deps syncDeps, in syncInput) (tui.Renderable, 
 		deps.githubSyncer, in)
 }
 
-// resolveSyncSource picks the repository source. An explicit --source wins,
-// then the source a selector flag implies, then the one source the tenant
-// has links for. A tenant with links to both sources must pick one.
-func resolveSyncSource(ctx context.Context, deps syncDeps, in syncInput) (string, error) {
+// resolveSyncSource picks the repository source and the link to sync
+// through. An explicit --source wins, then the source a selector flag
+// implies; those paths list nothing and keep the caller's --link-id, so the
+// per-source path resolves the link with its own single walk. With names
+// only, the tenant's links decide: --link-id picks the source that owns it,
+// a tenant with one linked source uses that source, and a tenant with both
+// must pick one. The listings also resolve the link, so the per-source path
+// never repeats the walk.
+func resolveSyncSource(ctx context.Context, deps syncDeps, in syncInput) (string, string, error) {
 	if in.Source != "" {
-		return in.Source, nil
+		return in.Source, in.LinkID, nil
 	}
 	if len(in.RepositoryIDs) > 0 {
-		return sourceGitHub, nil
+		return sourceGitHub, in.LinkID, nil
 	}
 	if len(in.RepositoryUUIDs) > 0 {
-		return sourceBitbucket, nil
+		return sourceBitbucket, in.LinkID, nil
 	}
 
 	githubLinks, err := listGitHubLinks(ctx, deps.githubLinks)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	bitbucketLinks, err := bitbucketlink.List(ctx, deps.bitbucketLinks,
-		"project sync: resolve workspace link")
+	bitbucketLinks, err := listBitbucketLinksForInference(ctx, deps.bitbucketLinks)
 	if err != nil {
-		return "", err
+		return "", "", err
+	}
+
+	if in.LinkID != "" {
+		return sourceOwningLink(in.LinkID, githubLinks, bitbucketLinks)
 	}
 
 	switch {
 	case len(githubLinks) > 0 && len(bitbucketLinks) > 0:
 		cause := errors.New("project sync: the active tenant has GitHub and Bitbucket links")
-		return "", invalidRepositorySelectionError(cause,
+		return "", "", invalidRepositorySelectionError(cause,
 			"Pass --source github or --source bitbucket.")
 	case len(bitbucketLinks) > 0:
-		return sourceBitbucket, nil
+		linkID, err := bitbucketlink.PickSingle(bitbucketLinks, syncLinkLabel)
+		if err != nil {
+			return "", "", err
+		}
+		return sourceBitbucket, linkID, nil
 	case len(githubLinks) > 0:
-		return sourceGitHub, nil
+		linkID, err := pickGitHubLink(githubLinks)
+		if err != nil {
+			return "", "", err
+		}
+		return sourceGitHub, linkID, nil
 	default:
-		return "", newProjectError(
+		return "", "", newProjectError(
 			usefulerror.ErrNotFound,
 			"No source integration link",
 			"Install and link the SafeDep GitHub App, or link a Bitbucket workspace, then retry.",
 			errors.New("project sync: the active tenant has no GitHub or Bitbucket link"),
 		)
 	}
+}
+
+const syncLinkLabel = "project sync: resolve workspace link"
+
+// listBitbucketLinksForInference treats a control plane without the
+// Bitbucket RPCs, or a caller without the permission for them, as a tenant
+// with no Bitbucket links. Without this, a GitHub-only tenant against such a
+// control plane loses every names-only sync to the failing listing. Any
+// other failure leaves the source undecidable and stops the sync.
+func listBitbucketLinksForInference(ctx context.Context,
+	client bitbucketlink.Lister,
+) ([]bitbucketlink.Link, error) {
+	links, err := bitbucketlink.List(ctx, client, syncLinkLabel)
+	switch status.Code(err) {
+	case codes.Unimplemented, codes.PermissionDenied:
+		return nil, nil
+	}
+	return links, err
+}
+
+// sourceOwningLink maps --link-id to the source that owns it, so a tenant
+// with links to both sources can sync by name without --source.
+func sourceOwningLink(linkID string, githubLinks []githubLink,
+	bitbucketLinks []bitbucketlink.Link,
+) (string, string, error) {
+	for _, link := range githubLinks {
+		if link.id == linkID {
+			return sourceGitHub, linkID, nil
+		}
+	}
+	for _, link := range bitbucketLinks {
+		if link.ID == linkID {
+			return sourceBitbucket, linkID, nil
+		}
+	}
+	return "", "", newProjectError(
+		usefulerror.ErrNotFound,
+		"Source link not found",
+		"List link IDs with `safedep integration bitbucket link list`, or drop --link-id to use the tenant's only link.",
+		fmt.Errorf("project sync: link %q is not a GitHub or Bitbucket link of the active tenant", linkID),
+	)
 }
 
 // validateRepositoryNames enforces the owner/repository shape and rejects

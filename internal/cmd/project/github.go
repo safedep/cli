@@ -145,7 +145,13 @@ func resolveGitHubLink(ctx context.Context, client githubLinkLister) (string, er
 	if err != nil {
 		return "", err
 	}
+	return pickGitHubLink(links)
+}
 
+// pickGitHubLink applies resolveGitHubLink's selection to links a caller
+// already fetched, so one listing serves both the source inference and the
+// link resolution in `project sync`.
+func pickGitHubLink(links []githubLink) (string, error) {
 	switch len(links) {
 	case 0:
 		return "", newProjectError(

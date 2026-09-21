@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/safedep/cli/internal/bitbucketlink"
 )
 
 type fakeLinkCodeCreator struct {
@@ -90,10 +92,10 @@ func (f *fakeAllowlistUpdater) UpdateBitbucketRepositoryAllowlist(
 }
 
 var (
-	_ linkCodeCreator  = (*fakeLinkCodeCreator)(nil)
-	_ linkLister       = (*fakeLinkLister)(nil)
-	_ repositoryLister = (*fakeRepositoryLister)(nil)
-	_ allowlistUpdater = (*fakeAllowlistUpdater)(nil)
+	_ linkCodeCreator      = (*fakeLinkCodeCreator)(nil)
+	_ bitbucketlink.Lister = (*fakeLinkLister)(nil)
+	_ repositoryLister     = (*fakeRepositoryLister)(nil)
+	_ allowlistUpdater     = (*fakeAllowlistUpdater)(nil)
 )
 
 func newWorkspaceLinkPage(nextPageToken string, links ...*controltowerv1.ListBitbucketWorkspaceLinksResponse_WorkspaceLink) *controltowerv1.ListBitbucketWorkspaceLinksResponse {

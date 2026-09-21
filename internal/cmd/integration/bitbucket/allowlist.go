@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/safedep/cli/internal/app"
+	"github.com/safedep/cli/internal/bitbucketlink"
 	"github.com/safedep/cli/internal/tui"
 )
 
@@ -77,7 +78,7 @@ func allowlistUpdateCmd(a *app.App) *cobra.Command {
 
 func runAllowlistUpdate(
 	ctx context.Context,
-	links linkLister,
+	links bitbucketlink.Lister,
 	updater allowlistUpdater,
 	in allowlistUpdateInput,
 ) (*allowlistUpdateResult, error) {
@@ -93,7 +94,7 @@ func runAllowlistUpdate(
 
 	linkID := in.LinkID
 	if linkID == "" {
-		resolved, err := resolveLinkID(ctx, links, label)
+		resolved, err := bitbucketlink.ResolveSingle(ctx, links, label)
 		if err != nil {
 			return nil, err
 		}

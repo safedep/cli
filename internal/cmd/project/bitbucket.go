@@ -15,9 +15,6 @@ import (
 	"github.com/safedep/cli/internal/paging"
 )
 
-// ListBitbucketRepositories caps a page at 100 repositories.
-const bitbucketRepositoryPageSize = 100
-
 type bitbucketRepositoryLister interface {
 	ListBitbucketRepositories(
 		context.Context,
@@ -129,7 +126,7 @@ func resolveBitbucketRepositoryNames(
 	err := paging.Paginate(ctx, label, func(ctx context.Context, pageToken string) (string, error) {
 		req := &controltowerv1.ListBitbucketRepositoriesRequest{}
 		req.SetLinkId(linkID)
-		req.SetPagination(paging.NewPaginationRequest(bitbucketRepositoryPageSize, pageToken))
+		req.SetPagination(paging.NewPaginationRequest(bitbucketlink.PageSize, pageToken))
 		res, err := client.ListBitbucketRepositories(ctx, req)
 		if err != nil {
 			return "", fmt.Errorf("%s: %w", label, err)

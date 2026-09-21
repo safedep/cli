@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/safedep/cli/internal/app"
+	"github.com/safedep/cli/internal/bitbucketlink"
 )
 
 type linkCreateResult struct {
@@ -100,7 +101,7 @@ func (r *linkCreateResult) cells() []string {
 }
 
 type linkListResult struct {
-	links []workspaceLink
+	links []bitbucketlink.Link
 }
 
 type workspaceLinkJSON struct {
@@ -136,8 +137,8 @@ func linkListCmd(a *app.App) *cobra.Command {
 	}
 }
 
-func runLinkList(ctx context.Context, client linkLister) (*linkListResult, error) {
-	links, err := listWorkspaceLinks(ctx, client, "integration bitbucket link list")
+func runLinkList(ctx context.Context, client bitbucketlink.Lister) (*linkListResult, error) {
+	links, err := bitbucketlink.List(ctx, client, "integration bitbucket link list")
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +181,7 @@ func (r *linkListResult) RenderTable() string {
 		Render()
 }
 
-func workspaceLinkCells(link workspaceLink) []string {
+func workspaceLinkCells(link bitbucketlink.Link) []string {
 	return []string{link.ID, link.WorkspaceUUID, link.WorkspaceSlug, link.WorkspaceName}
 }
 

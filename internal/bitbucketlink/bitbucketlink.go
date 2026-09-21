@@ -75,7 +75,13 @@ func ResolveSingle(ctx context.Context, client Lister, label string) (string, er
 	if err != nil {
 		return "", err
 	}
+	return PickSingle(links, label)
+}
 
+// PickSingle applies ResolveSingle's selection to links a caller already
+// fetched, so one listing serves both the source inference and the link
+// resolution in `project sync`.
+func PickSingle(links []Link, label string) (string, error) {
 	switch len(links) {
 	case 0:
 		return "", usefulerror.NewUsefulError().

@@ -63,7 +63,7 @@ func syncCmd(a *app.App) *cobra.Command {
 	var in syncInput
 	cmd := &cobra.Command{
 		Use:   "sync [OWNER/REPOSITORY...]",
-		Short: "Sync GitHub repositories into SafeDep projects",
+		Short: "Sync GitHub or Bitbucket repositories into SafeDep projects",
 		Long: "Materialize one SafeDep project per repository reachable through a linked " +
 			"source integration: a GitHub App installation or a Bitbucket workspace. " +
 			"Repository names are resolved to the source's immutable identity before the " +

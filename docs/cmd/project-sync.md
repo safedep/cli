@@ -89,7 +89,7 @@ safedep project sync safedep/vet-pipe --source bitbucket
 safedep project sync --repository-uuid d6c2f02b-7f78-49a8-b7e3-cf8b86efd115
 ```
 
-Choose the installation link explicitly:
+Choose the source link explicitly:
 
 ```bash
 safedep project sync safedep/cli --link-id 01K88WX3G9RGAK8T3N5YJMFQN1
@@ -139,15 +139,16 @@ column. The link ID is not part of plain output: read it from `table` or `json`.
 ## Resolution and failure behaviour
 
 The CLI validates the batch size, the `OWNER/REPOSITORY` shape, and duplicate
-selectors locally, then resolves the installation link and every repository name
-before it sends the sync request. A name that the installation cannot reach fails
+selectors locally, then resolves the source link and every repository name
+before it sends the sync request. A name that the source link cannot reach fails
 the command without materializing any project, and the error names the
-repository so you can grant it to the installation or retry with
-`--repository-id`.
+repository. Grant it to the GitHub App installation and retry, or retry with the
+immutable selector: `--repository-id` for GitHub, `--repository-uuid` for
+Bitbucket. Both immutable selectors skip name resolution.
 
-After resolution, the request carries `--repository-id` values first, followed by
-resolved names in argument order. A name that resolves to an already selected
-repository ID is rejected locally.
+After resolution, the request carries the immutable selector values first,
+followed by resolved names in argument order. A name that resolves to an
+already selected repository is rejected locally.
 
 Control Tower validates every repository against the link before it writes, so a
 failed request materializes no projects. Installation, repository access, and

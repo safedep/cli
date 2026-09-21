@@ -101,7 +101,7 @@ func TestRunSync_ResolvesNamesAndSendsFlagIDsFirst(t *testing.T) {
 		projectMapping(11, "project-11"),
 	)}
 
-	result, err := runSync(context.Background(), links, repositories, syncer, syncInput{
+	result, err := runGitHubSync(context.Background(), links, repositories, syncer, syncInput{
 		RepositoryNames: []string{"safedep/cli", "safedep/vet"},
 		RepositoryIDs:   []int64{99},
 	})
@@ -136,7 +136,7 @@ func TestRunSync_SkipsLinkResolutionWhenLinkIDIsSupplied(t *testing.T) {
 	repositories := &fakeGitHubRepositoryLister{}
 	syncer := &fakeGitHubProjectSyncer{res: syncResponse(projectMapping(99, "project-99"))}
 
-	result, err := runSync(context.Background(), links, repositories, syncer, syncInput{
+	result, err := runGitHubSync(context.Background(), links, repositories, syncer, syncInput{
 		LinkID:        "link-explicit",
 		RepositoryIDs: []int64{99},
 	})
@@ -158,7 +158,7 @@ func TestRunSync_MatchesRepositoryNamesCaseInsensitively(t *testing.T) {
 	}
 	syncer := &fakeGitHubProjectSyncer{res: syncResponse(projectMapping(12, "project-12"))}
 
-	result, err := runSync(context.Background(), &fakeGitHubLinkLister{}, repositories, syncer, syncInput{
+	result, err := runGitHubSync(context.Background(), &fakeGitHubLinkLister{}, repositories, syncer, syncInput{
 		LinkID:          "link-1",
 		RepositoryNames: []string{"safedep/cli"},
 	})
@@ -179,7 +179,7 @@ func TestRunSync_RejectsANameThatCollidesWithASelectedID(t *testing.T) {
 	}
 	syncer := &fakeGitHubProjectSyncer{}
 
-	_, err := runSync(context.Background(), &fakeGitHubLinkLister{}, repositories, syncer, syncInput{
+	_, err := runGitHubSync(context.Background(), &fakeGitHubLinkLister{}, repositories, syncer, syncInput{
 		LinkID:          "link-1",
 		RepositoryNames: []string{"safedep/cli"},
 		RepositoryIDs:   []int64{12},
@@ -196,7 +196,7 @@ func TestRunSync_RejectsInvalidInputBeforeAnyRPC(t *testing.T) {
 	repositories := &fakeGitHubRepositoryLister{}
 	syncer := &fakeGitHubProjectSyncer{}
 
-	_, err := runSync(context.Background(), links, repositories, syncer, syncInput{})
+	_, err := runGitHubSync(context.Background(), links, repositories, syncer, syncInput{})
 	require.Error(t, err)
 	assert.Zero(t, links.calls)
 	assert.Empty(t, repositories.requests)

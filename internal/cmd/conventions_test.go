@@ -164,7 +164,7 @@ func TestProjectSyncCommandTree(t *testing.T) {
 	project := requireSubcommand(t, root, "project")
 	sync := requireSubcommand(t, project, "sync")
 
-	assert.Equal(t, "Sync GitHub repositories into SafeDep projects", sync.Short)
+	assert.Equal(t, "Sync GitHub or Bitbucket repositories into SafeDep projects", sync.Short)
 	assert.Contains(t, sync.Long, "GitHub App installation")
 	assert.Contains(t, sync.Long, "idempotent")
 

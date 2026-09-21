@@ -11,6 +11,8 @@ import (
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/safedep/dry/usefulerror"
 	"google.golang.org/grpc"
+
+	"github.com/safedep/cli/internal/paging"
 )
 
 const (
@@ -58,7 +60,7 @@ func newIntegrationClient(conn grpc.ClientConnInterface) controltowerv1grpc.Inte
 	return controltowerv1grpc.NewIntegrationServiceClient(conn)
 }
 
-func runSync(
+func runGitHubSync(
 	ctx context.Context,
 	links githubLinkLister,
 	repositories githubRepositoryLister,
@@ -112,13 +114,13 @@ func runSync(
 	return syncGitHubProjects(ctx, syncer, linkID, repositoryIDs, namesByID)
 }
 
-func resolveGitHubLink(ctx context.Context, client githubLinkLister) (string, error) {
+func listGitHubLinks(ctx context.Context, client githubLinkLister) ([]githubLink, error) {
 	const label = "project sync: resolve installation link"
 
 	var links []githubLink
-	err := paginate(ctx, label, func(ctx context.Context, pageToken string) (string, error) {
+	err := paging.Paginate(ctx, label, func(ctx context.Context, pageToken string) (string, error) {
 		req := &controltowerv1.ListGitHubAppInstallationLinksRequest{}
-		req.SetPagination(newPaginationRequest(githubLinkPageSize, pageToken))
+		req.SetPagination(paging.NewPaginationRequest(githubLinkPageSize, pageToken))
 		res, err := client.ListGitHubAppInstallationLinks(ctx, req)
 		if err != nil {
 			return "", fmt.Errorf("%s: %w", label, err)
@@ -132,9 +134,24 @@ func resolveGitHubLink(ctx context.Context, client githubLinkLister) (string, er
 		return res.GetPagination().GetNextPageToken(), nil
 	})
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
+	return links, nil
+}
+
+func resolveGitHubLink(ctx context.Context, client githubLinkLister) (string, error) {
+	links, err := listGitHubLinks(ctx, client)
+	if err != nil {
+		return "", err
+	}
+	return pickGitHubLink(links)
+}
+
+// pickGitHubLink applies resolveGitHubLink's selection to links a caller
+// already fetched, so one listing serves both the source inference and the
+// link resolution in `project sync`.
+func pickGitHubLink(links []githubLink) (string, error) {
 	switch len(links) {
 	case 0:
 		return "", newProjectError(
@@ -170,10 +187,10 @@ func resolveRepositoryNames(
 	}
 
 	matches := make(map[string]githubRepository, len(names))
-	err := paginate(ctx, label, func(ctx context.Context, pageToken string) (string, error) {
+	err := paging.Paginate(ctx, label, func(ctx context.Context, pageToken string) (string, error) {
 		req := &controltowerv1.ListGitHubInstallationRepositoriesRequest{}
 		req.SetLinkId(linkID)
-		req.SetPagination(newPaginationRequest(githubRepositoryPageSize, pageToken))
+		req.SetPagination(paging.NewPaginationRequest(githubRepositoryPageSize, pageToken))
 		res, err := client.ListGitHubInstallationRepositories(ctx, req)
 		if err != nil {
 			return "", fmt.Errorf("%s: %w", label, err)

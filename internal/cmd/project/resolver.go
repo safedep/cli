@@ -11,6 +11,7 @@ import (
 	"github.com/safedep/dry/usefulerror"
 	"google.golang.org/grpc"
 
+	"github.com/safedep/cli/internal/paging"
 	"github.com/safedep/cli/internal/tui"
 )
 
@@ -124,7 +125,7 @@ func resolveProjectNameChunk(
 	}
 
 	const label = "project scan create: resolve projects"
-	return paginate(ctx, label, func(ctx context.Context, pageToken string) (string, error) {
+	return paging.Paginate(ctx, label, func(ctx context.Context, pageToken string) (string, error) {
 		res, err := client.ListProjects(ctx, newListProjectsRequest(names, pageToken))
 		if err != nil {
 			return "", fmt.Errorf("%s: %w", label, err)
@@ -141,7 +142,7 @@ func newListProjectsRequest(names []string, pageToken string) *controltowerv1.Li
 	filter.SetProjectNames(names)
 	req := &controltowerv1.ListProjectsRequest{}
 	req.SetFilterV2(filter)
-	req.SetPagination(newPaginationRequest(projectLookupPageSize, pageToken))
+	req.SetPagination(paging.NewPaginationRequest(projectLookupPageSize, pageToken))
 	return req
 }
 

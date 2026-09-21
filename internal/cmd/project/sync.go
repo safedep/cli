@@ -1,15 +1,22 @@
 package project
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/safedep/dry/tui/table"
+	"github.com/safedep/dry/usefulerror"
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/safedep/cli/internal/app"
+	"github.com/safedep/cli/internal/bitbucketlink"
+	"github.com/safedep/cli/internal/tui"
 )
 
 const (
@@ -23,10 +30,17 @@ const (
 )
 
 type syncInput struct {
+	Source          string
 	LinkID          string
 	RepositoryNames []string
 	RepositoryIDs   []int64
+	RepositoryUUIDs []string
 }
+
+const (
+	sourceGitHub    = "github"
+	sourceBitbucket = "bitbucket"
+)
 
 // syncedProject carries its own JSON tags because the wire shape and the
 // display shape are identical here, unlike the scan results whose timestamps and
@@ -51,11 +65,13 @@ func syncCmd(a *app.App) *cobra.Command {
 	var in syncInput
 	cmd := &cobra.Command{
 		Use:   "sync [OWNER/REPOSITORY...]",
-		Short: "Sync GitHub repositories into SafeDep projects",
-		Long: "Materialize one SafeDep project per GitHub repository reachable through a linked " +
-			"GitHub App installation. Repository names are resolved to immutable GitHub " +
-			"repository IDs before the request, and the sync is idempotent: repeating it " +
-			"returns the same project for the same repository.",
+		Short: "Sync GitHub or Bitbucket repositories into SafeDep projects",
+		Long: "Materialize one SafeDep project per repository reachable through a linked " +
+			"source integration: a GitHub App installation or a Bitbucket workspace. " +
+			"Repository names are resolved to the source's immutable identity before the " +
+			"request, and the sync is idempotent: repeating it returns the same project " +
+			"for the same repository. When --source is omitted, the CLI uses the one " +
+			"source the tenant has links for.",
 		Args: func(_ *cobra.Command, args []string) error {
 			in.RepositoryNames = args
 			return validateSyncInput(in)
@@ -68,7 +84,15 @@ func syncCmd(a *app.App) *cobra.Command {
 
 			in.RepositoryNames = args
 			integration := newIntegrationClient(client.Connection())
-			result, err := runSync(cmd.Context(), integration, integration, integration, in)
+			deps := syncDeps{
+				githubLinks:           integration,
+				githubRepositories:    integration,
+				githubSyncer:          integration,
+				bitbucketLinks:        integration,
+				bitbucketRepositories: integration,
+				bitbucketSyncer:       integration,
+			}
+			result, err := runSync(cmd.Context(), deps, in)
 			if err != nil {
 				return err
 			}
@@ -77,30 +101,205 @@ func syncCmd(a *app.App) *cobra.Command {
 	}
 
 	f := cmd.Flags()
+	f.StringVar(&in.Source, "source", "",
+		"repository source: github or bitbucket (inferred from the tenant's links, or from --repository-id and --repository-uuid, when omitted)")
 	f.StringVar(&in.LinkID, "link-id", "",
-		"GitHub App installation link to sync through; resolved automatically when the tenant has exactly one link")
+		"source link to sync through; resolved automatically when the tenant has exactly one link")
 	f.Int64SliceVar(&in.RepositoryIDs, "repository-id", nil,
 		"GitHub repository ID to sync instead of a name; repeat for multiple repositories")
+	f.StringSliceVar(&in.RepositoryUUIDs, "repository-uuid", nil,
+		"Bitbucket repository UUID to sync instead of a name; repeat for multiple repositories")
 	// pflag renders an empty slice default as "(default [])", which reads as a
 	// value the flag accepts. An empty DefValue suppresses the default in help
 	// without changing the flag's zero value.
 	f.Lookup("repository-id").DefValue = ""
+	f.Lookup("repository-uuid").DefValue = ""
 	return cmd
 }
 
 func validateSyncInput(in syncInput) error {
-	total := len(in.RepositoryIDs) + len(in.RepositoryNames)
+	if in.Source != "" && in.Source != sourceGitHub && in.Source != sourceBitbucket {
+		cause := fmt.Errorf("unknown --source value %q: allowed values are github, bitbucket", in.Source)
+		return invalidRepositorySelectionError(cause, "Retry --source with github or bitbucket.")
+	}
+	if len(in.RepositoryIDs) > 0 && len(in.RepositoryUUIDs) > 0 {
+		cause := fmt.Errorf("--repository-id selects GitHub and --repository-uuid selects Bitbucket")
+		return invalidRepositorySelectionError(cause, "One sync serves one source. Drop one of the flags and retry.")
+	}
+	if in.Source == sourceGitHub && len(in.RepositoryUUIDs) > 0 {
+		cause := fmt.Errorf("--repository-uuid selects Bitbucket repositories")
+		return invalidRepositorySelectionError(cause, "Drop --repository-uuid, or use --source bitbucket.")
+	}
+	if in.Source == sourceBitbucket && len(in.RepositoryIDs) > 0 {
+		cause := fmt.Errorf("--repository-id selects GitHub repositories")
+		return invalidRepositorySelectionError(cause, "Drop --repository-id, or use --source github.")
+	}
+
+	total := len(in.RepositoryIDs) + len(in.RepositoryNames) + len(in.RepositoryUUIDs)
 	if total < 1 || total > maxSyncRepositories {
 		cause := fmt.Errorf("project sync requires between 1 and %d repositories", maxSyncRepositories)
 		return invalidRepositorySelectionError(
 			cause,
-			fmt.Sprintf("Provide between 1 and %d repository names or --repository-id values.", maxSyncRepositories),
+			fmt.Sprintf("Provide between 1 and %d repository names, --repository-id, or --repository-uuid values.", maxSyncRepositories),
 		)
 	}
 	if err := validateRepositoryNames(in.RepositoryNames); err != nil {
 		return err
 	}
+	if err := validateUniqueValues(in.RepositoryUUIDs, "repository UUID"); err != nil {
+		return err
+	}
 	return validateRepositoryIDs(in.RepositoryIDs)
+}
+
+type syncDeps struct {
+	githubLinks           githubLinkLister
+	githubRepositories    githubRepositoryLister
+	githubSyncer          githubProjectSyncer
+	bitbucketLinks        bitbucketlink.Lister
+	bitbucketRepositories bitbucketRepositoryLister
+	bitbucketSyncer       bitbucketProjectSyncer
+}
+
+func runSync(ctx context.Context, deps syncDeps, in syncInput) (tui.Renderable, error) {
+	if err := normalizeSyncRepositoryUUIDs(in.RepositoryUUIDs); err != nil {
+		return nil, err
+	}
+	if err := validateSyncInput(in); err != nil {
+		return nil, err
+	}
+
+	source, linkID, err := resolveSyncSource(ctx, deps, in)
+	if err != nil {
+		return nil, err
+	}
+	in.LinkID = linkID
+
+	if source == sourceBitbucket {
+		return runBitbucketSync(ctx, deps.bitbucketLinks, deps.bitbucketRepositories,
+			deps.bitbucketSyncer, in)
+	}
+	return runGitHubSync(ctx, deps.githubLinks, deps.githubRepositories,
+		deps.githubSyncer, in)
+}
+
+// resolveSyncSource picks the repository source and the link to sync
+// through. An explicit --source wins, then the source a selector flag
+// implies; those paths list nothing and keep the caller's --link-id, so the
+// per-source path resolves the link with its own single walk. With names
+// only, the tenant's links decide: --link-id picks the source that owns it,
+// a tenant with one linked source uses that source, and a tenant with both
+// must pick one. The listings also resolve the link, so the per-source path
+// never repeats the walk.
+func resolveSyncSource(ctx context.Context, deps syncDeps, in syncInput) (string, string, error) {
+	if in.Source != "" {
+		return in.Source, in.LinkID, nil
+	}
+	if len(in.RepositoryIDs) > 0 {
+		return sourceGitHub, in.LinkID, nil
+	}
+	if len(in.RepositoryUUIDs) > 0 {
+		return sourceBitbucket, in.LinkID, nil
+	}
+
+	githubLinks, err := listGitHubLinks(ctx, deps.githubLinks)
+	if err != nil {
+		return "", "", err
+	}
+	bitbucketLinks, err := listBitbucketLinksForInference(ctx, deps.bitbucketLinks)
+	if err != nil {
+		return "", "", err
+	}
+
+	if in.LinkID != "" {
+		return sourceOwningLink(in.LinkID, githubLinks, bitbucketLinks)
+	}
+
+	switch {
+	case len(githubLinks) > 0 && len(bitbucketLinks) > 0:
+		cause := errors.New("project sync: the active tenant has GitHub and Bitbucket links")
+		return "", "", invalidRepositorySelectionError(cause,
+			"Pass --source github or --source bitbucket.")
+	case len(bitbucketLinks) > 0:
+		linkID, err := bitbucketlink.PickSingle(bitbucketLinks, syncLinkLabel)
+		if err != nil {
+			return "", "", err
+		}
+		return sourceBitbucket, linkID, nil
+	case len(githubLinks) > 0:
+		linkID, err := pickGitHubLink(githubLinks)
+		if err != nil {
+			return "", "", err
+		}
+		return sourceGitHub, linkID, nil
+	default:
+		return "", "", newProjectError(
+			usefulerror.ErrNotFound,
+			"No source integration link",
+			"Install and link the SafeDep GitHub App, or link a Bitbucket workspace, then retry.",
+			errors.New("project sync: the active tenant has no GitHub or Bitbucket link"),
+		)
+	}
+}
+
+const syncLinkLabel = "project sync: resolve workspace link"
+
+// listBitbucketLinksForInference treats a control plane without the
+// Bitbucket RPCs as a tenant with no Bitbucket links, which Unimplemented
+// proves. Without this, a GitHub-only tenant against such a control plane
+// loses every names-only sync to the failing listing. Every other failure,
+// PermissionDenied included, leaves the source undecidable and stops the
+// sync: links the caller cannot inspect may exist, and picking GitHub then
+// could sync a name against the wrong source.
+func listBitbucketLinksForInference(ctx context.Context,
+	client bitbucketlink.Lister,
+) ([]bitbucketlink.Link, error) {
+	links, err := bitbucketlink.List(ctx, client, syncLinkLabel)
+	if status.Code(err) == codes.Unimplemented {
+		return nil, nil
+	}
+	return links, err
+}
+
+// sourceOwningLink maps --link-id to the source that owns it, so a tenant
+// with links to both sources can sync by name without --source.
+func sourceOwningLink(linkID string, githubLinks []githubLink,
+	bitbucketLinks []bitbucketlink.Link,
+) (string, string, error) {
+	for _, link := range githubLinks {
+		if link.id == linkID {
+			return sourceGitHub, linkID, nil
+		}
+	}
+	for _, link := range bitbucketLinks {
+		if link.ID == linkID {
+			return sourceBitbucket, linkID, nil
+		}
+	}
+	return "", "", newProjectError(
+		usefulerror.ErrNotFound,
+		"Source link not found",
+		"List link IDs with `safedep integration bitbucket link list`, or drop --link-id to use the tenant's only link.",
+		fmt.Errorf("project sync: link %q is not a GitHub or Bitbucket link of the active tenant", linkID),
+	)
+}
+
+// normalizeSyncRepositoryUUIDs rewrites every --repository-uuid value to the
+// canonical lowercase, unbraced form the control plane requires, so a UUID
+// pasted from the Bitbucket UI works and a malformed value fails before any
+// RPC. It runs before validation, so two spellings of one UUID fail the
+// duplicate check.
+func normalizeSyncRepositoryUUIDs(values []string) error {
+	for i, value := range values {
+		normalized, err := bitbucketlink.NormalizeRepositoryUUID(value)
+		if err != nil {
+			return invalidRepositorySelectionError(err, fmt.Sprintf(
+				"Provide --repository-uuid value %d as a repository UUID from `safedep integration bitbucket repository list`. Braces and uppercase are accepted.",
+				i+1))
+		}
+		values[i] = normalized
+	}
+	return nil
 }
 
 // validateRepositoryNames enforces the owner/repository shape and rejects

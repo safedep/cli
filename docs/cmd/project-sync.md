@@ -46,7 +46,7 @@ One invocation serves one source, so `--repository-id` and
 |------|-------------|
 | `--source <github\|bitbucket>` | Repository source. See Sources for the default. |
 | `--repository-id <id>` | Immutable GitHub repository ID to sync instead of a name. Repeat the flag, or pass a comma-separated list, to select multiple repositories. |
-| `--repository-uuid <uuid>` | Immutable Bitbucket repository UUID to sync instead of a name: lowercase, hyphenated, no braces. Repeat for multiple repositories. Get UUIDs from `safedep integration bitbucket repository list`. |
+| `--repository-uuid <uuid>` | Immutable Bitbucket repository UUID to sync instead of a name. Braced and uppercase forms are accepted and normalized. Repeat for multiple repositories. Get UUIDs from `safedep integration bitbucket repository list`. |
 | `--link-id <id>` | Source link to sync through. Resolved automatically when the tenant has exactly one link for the source. |
 
 Inherits root flags `--output` and `--profile`.

@@ -10,6 +10,7 @@ require (
 	github.com/cli/browser v1.3.0
 	github.com/cli/oauth v1.2.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
+	github.com/google/uuid v1.6.0
 	github.com/oklog/ulid/v2 v2.1.2
 	github.com/safedep/dry v0.0.0-20260902191040-800bc36ff686
 	github.com/spf13/cobra v1.10.2
@@ -51,7 +52,6 @@ require (
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/google/go-github/v74 v74.0.0 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0 // indirect
 	github.com/huandu/xstrings v1.5.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect

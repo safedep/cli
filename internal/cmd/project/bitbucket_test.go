@@ -229,6 +229,34 @@ func TestRunBitbucketSync(t *testing.T) {
 	})
 }
 
+func TestRunSync_NormalizesRepositoryUUIDs(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a braced uppercase UUID normalizes before the request", func(t *testing.T) {
+		syncer := &fakeBitbucketProjectSyncer{res: bitbucketSyncResponse(
+			bitbucketProjectMapping(testBitbucketRepoUUIDa, "project-1"),
+		)}
+
+		_, err := runSync(context.Background(), syncDeps{bitbucketSyncer: syncer}, syncInput{
+			LinkID:          "link-1",
+			RepositoryUUIDs: []string{"{D6C2F02B-7F78-49A8-B7E3-CF8B86EFD115}"},
+		})
+		require.NoError(t, err)
+		require.Len(t, syncer.req.GetRepositories(), 1)
+		assert.Equal(t, testBitbucketRepoUUIDa, syncer.req.GetRepositories()[0].GetRepositoryUuid())
+	})
+
+	t.Run("a malformed UUID fails before any RPC", func(t *testing.T) {
+		syncer := &fakeBitbucketProjectSyncer{}
+
+		_, err := runSync(context.Background(), syncDeps{bitbucketSyncer: syncer}, syncInput{
+			RepositoryUUIDs: []string{"not-a-uuid"},
+		})
+		require.ErrorContains(t, err, `invalid repository UUID "not-a-uuid"`)
+		assert.Equal(t, 0, syncer.calls)
+	})
+}
+
 func TestRunSync_ListsEachSourceOnceForANamesOnlySync(t *testing.T) {
 	t.Parallel()
 

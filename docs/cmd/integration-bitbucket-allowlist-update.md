@@ -26,7 +26,7 @@ opens the scope or fills the allowlist.
 |------|-------------|
 | `--link-id <id>` | Bitbucket workspace link to update. Resolved automatically when the tenant has exactly one link. |
 | `--scope <all\|selected>` | Scan scope after the update. Omit to keep the stored scope. Switching scope does not change the stored allowlist. |
-| `--enable <uuid>` | Repository UUID to add to the allowlist. Repeat for multiple repositories. A UUID already on the allowlist is a no-op. |
+| `--enable <uuid>` | Repository UUID to add to the allowlist. Braced and uppercase forms are accepted and normalized. Repeat for multiple repositories. A UUID already on the allowlist is a no-op. |
 | `--disable <uuid>` | Repository UUID to remove from the allowlist. Repeat for multiple repositories. A UUID not on the allowlist is a no-op. |
 
 Pass at least one of `--scope`, `--enable`, or `--disable`. Scope `all`

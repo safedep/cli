@@ -69,9 +69,9 @@ func allowlistUpdateCmd(a *app.App) *cobra.Command {
 		"Bitbucket workspace link to update; resolved automatically when the tenant has exactly one link")
 	f.StringVar(&in.Scope, "scope", "",
 		"scan scope after the update: all or selected (omit to keep the stored scope)")
-	f.StringArrayVar(&in.Enable, "enable", nil,
+	f.StringSliceVar(&in.Enable, "enable", nil,
 		"repository UUID to add to the scan allowlist; repeat for multiple repositories")
-	f.StringArrayVar(&in.Disable, "disable", nil,
+	f.StringSliceVar(&in.Disable, "disable", nil,
 		"repository UUID to remove from the scan allowlist; repeat for multiple repositories")
 	return cmd
 }
@@ -86,6 +86,12 @@ func runAllowlistUpdate(
 
 	scope, err := parseScanScope(in)
 	if err != nil {
+		return nil, err
+	}
+	if err := normalizeUUIDValues(in.Enable, "enable"); err != nil {
+		return nil, err
+	}
+	if err := normalizeUUIDValues(in.Disable, "disable"); err != nil {
 		return nil, err
 	}
 	if err := validateAllowlistSelection(in); err != nil {
@@ -140,6 +146,22 @@ func parseScanScope(in allowlistUpdateInput) (controltowerv1.BitbucketScanScope,
 		)
 	}
 	return scope, nil
+}
+
+// normalizeUUIDValues rewrites every value to the canonical lowercase,
+// unbraced form the control plane requires, so a UUID pasted from the
+// Bitbucket UI works and a malformed value fails before any RPC.
+func normalizeUUIDValues(values []string, flag string) error {
+	for i, value := range values {
+		normalized, err := bitbucketlink.NormalizeRepositoryUUID(value)
+		if err != nil {
+			return invalidSelectionError(err, fmt.Sprintf(
+				"Provide --%s value %d as a repository UUID from `safedep integration bitbucket repository list`. Braces and uppercase are accepted.",
+				flag, i+1))
+		}
+		values[i] = normalized
+	}
+	return nil
 }
 
 func validateAllowlistSelection(in allowlistUpdateInput) error {

@@ -107,7 +107,7 @@ func syncCmd(a *app.App) *cobra.Command {
 		"source link to sync through; resolved automatically when the tenant has exactly one link")
 	f.Int64SliceVar(&in.RepositoryIDs, "repository-id", nil,
 		"GitHub repository ID to sync instead of a name; repeat for multiple repositories")
-	f.StringArrayVar(&in.RepositoryUUIDs, "repository-uuid", nil,
+	f.StringSliceVar(&in.RepositoryUUIDs, "repository-uuid", nil,
 		"Bitbucket repository UUID to sync instead of a name; repeat for multiple repositories")
 	// pflag renders an empty slice default as "(default [])", which reads as a
 	// value the flag accepts. An empty DefValue suppresses the default in help
@@ -162,6 +162,9 @@ type syncDeps struct {
 }
 
 func runSync(ctx context.Context, deps syncDeps, in syncInput) (tui.Renderable, error) {
+	if err := normalizeSyncRepositoryUUIDs(in.RepositoryUUIDs); err != nil {
+		return nil, err
+	}
 	if err := validateSyncInput(in); err != nil {
 		return nil, err
 	}
@@ -278,6 +281,24 @@ func sourceOwningLink(linkID string, githubLinks []githubLink,
 		"List link IDs with `safedep integration bitbucket link list`, or drop --link-id to use the tenant's only link.",
 		fmt.Errorf("project sync: link %q is not a GitHub or Bitbucket link of the active tenant", linkID),
 	)
+}
+
+// normalizeSyncRepositoryUUIDs rewrites every --repository-uuid value to the
+// canonical lowercase, unbraced form the control plane requires, so a UUID
+// pasted from the Bitbucket UI works and a malformed value fails before any
+// RPC. It runs before validation, so two spellings of one UUID fail the
+// duplicate check.
+func normalizeSyncRepositoryUUIDs(values []string) error {
+	for i, value := range values {
+		normalized, err := bitbucketlink.NormalizeRepositoryUUID(value)
+		if err != nil {
+			return invalidRepositorySelectionError(err, fmt.Sprintf(
+				"Provide --repository-uuid value %d as a repository UUID from `safedep integration bitbucket repository list`. Braces and uppercase are accepted.",
+				i+1))
+		}
+		values[i] = normalized
+	}
+	return nil
 }
 
 // validateRepositoryNames enforces the owner/repository shape and rejects

@@ -278,6 +278,12 @@ func TestRunRepositoryList(t *testing.T) {
 	})
 }
 
+const (
+	testRepoUUIDa = "d6c2f02b-7f78-49a8-b7e3-cf8b86efd115"
+	testRepoUUIDb = "9a2b3c4d-0000-4000-8000-000000000001"
+	testRepoUUIDc = "9a2b3c4d-0000-4000-8000-000000000002"
+)
+
 func TestRunAllowlistUpdate(t *testing.T) {
 	newUpdaterResponse := func(scope controltowerv1.BitbucketScanScope, count uint32) *controltowerv1.UpdateBitbucketRepositoryAllowlistResponse {
 		res := &controltowerv1.UpdateBitbucketRepositoryAllowlistResponse{}
@@ -294,17 +300,30 @@ func TestRunAllowlistUpdate(t *testing.T) {
 		result, err := runAllowlistUpdate(context.Background(), &fakeLinkLister{}, updater, allowlistUpdateInput{
 			LinkID:  "link-1",
 			Scope:   "selected",
-			Enable:  []string{"uuid-a", "uuid-b"},
-			Disable: []string{"uuid-c"},
+			Enable:  []string{testRepoUUIDa, testRepoUUIDb},
+			Disable: []string{testRepoUUIDc},
 		})
 		require.NoError(t, err)
 		require.Equal(t, 1, updater.calls)
 		assert.Equal(t, "link-1", updater.req.GetLinkId())
 		assert.Equal(t, controltowerv1.BitbucketScanScope_BITBUCKET_SCAN_SCOPE_SELECTED, updater.req.GetScanScope())
-		assert.Equal(t, []string{"uuid-a", "uuid-b"}, updater.req.GetEnable())
-		assert.Equal(t, []string{"uuid-c"}, updater.req.GetDisable())
+		assert.Equal(t, []string{testRepoUUIDa, testRepoUUIDb}, updater.req.GetEnable())
+		assert.Equal(t, []string{testRepoUUIDc}, updater.req.GetDisable())
 		assert.Equal(t, "selected", result.scanScope)
 		assert.Equal(t, uint32(2), result.allowlistCount)
+	})
+
+	t.Run("normalizes braced uppercase UUIDs before the request", func(t *testing.T) {
+		updater := &fakeAllowlistUpdater{
+			res: newUpdaterResponse(controltowerv1.BitbucketScanScope_BITBUCKET_SCAN_SCOPE_SELECTED, 1),
+		}
+
+		_, err := runAllowlistUpdate(context.Background(), &fakeLinkLister{}, updater, allowlistUpdateInput{
+			LinkID: "link-1",
+			Enable: []string{"{D6C2F02B-7F78-49A8-B7E3-CF8B86EFD115}"},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []string{testRepoUUIDa}, updater.req.GetEnable())
 	})
 
 	t.Run("keeps the stored scope when the flag is omitted", func(t *testing.T) {
@@ -314,7 +333,7 @@ func TestRunAllowlistUpdate(t *testing.T) {
 
 		_, err := runAllowlistUpdate(context.Background(), &fakeLinkLister{}, updater, allowlistUpdateInput{
 			LinkID: "link-1",
-			Enable: []string{"uuid-a"},
+			Enable: []string{testRepoUUIDa},
 		})
 		require.NoError(t, err)
 		assert.Equal(t, controltowerv1.BitbucketScanScope_BITBUCKET_SCAN_SCOPE_UNSPECIFIED, updater.req.GetScanScope())
@@ -352,22 +371,32 @@ func TestRunAllowlistUpdate(t *testing.T) {
 			},
 			{
 				name: "scope all with a delta",
-				in:   allowlistUpdateInput{LinkID: "link-1", Scope: "all", Enable: []string{"uuid-a"}},
+				in:   allowlistUpdateInput{LinkID: "link-1", Scope: "all", Enable: []string{testRepoUUIDa}},
 				want: "scope all takes no --enable or --disable values",
 			},
 			{
 				name: "duplicate enable",
-				in:   allowlistUpdateInput{LinkID: "link-1", Enable: []string{"uuid-a", "uuid-a"}},
+				in:   allowlistUpdateInput{LinkID: "link-1", Enable: []string{testRepoUUIDa, testRepoUUIDa}},
 				want: "duplicate --enable value",
 			},
 			{
 				name: "empty disable",
 				in:   allowlistUpdateInput{LinkID: "link-1", Disable: []string{""}},
-				want: "--disable value at position 1 must not be empty",
+				want: `invalid repository UUID ""`,
+			},
+			{
+				name: "malformed enable",
+				in:   allowlistUpdateInput{LinkID: "link-1", Enable: []string{"not-a-uuid"}},
+				want: `invalid repository UUID "not-a-uuid"`,
+			},
+			{
+				name: "two spellings of one UUID are a duplicate",
+				in:   allowlistUpdateInput{LinkID: "link-1", Enable: []string{testRepoUUIDa, "{D6C2F02B-7F78-49A8-B7E3-CF8B86EFD115}"}},
+				want: "duplicate --enable value",
 			},
 			{
 				name: "enable and disable overlap",
-				in:   allowlistUpdateInput{LinkID: "link-1", Enable: []string{"uuid-a"}, Disable: []string{"uuid-a"}},
+				in:   allowlistUpdateInput{LinkID: "link-1", Enable: []string{testRepoUUIDa}, Disable: []string{testRepoUUIDa}},
 				want: "in both --enable and --disable",
 			},
 		}

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
+	"github.com/google/uuid"
 	"github.com/safedep/dry/usefulerror"
 	"google.golang.org/grpc"
 
@@ -20,6 +21,19 @@ import (
 
 // PageSize is the integration service's cap on a listing page.
 const PageSize = 100
+
+// NormalizeRepositoryUUID validates a repository UUID and returns the
+// canonical lowercase, unbraced form the control plane requires. Bitbucket
+// shows repository UUIDs braced and uppercase, so the CLI accepts those
+// forms instead of letting the server reject them after auth and link
+// resolution.
+func NormalizeRepositoryUUID(value string) (string, error) {
+	parsed, err := uuid.Parse(value)
+	if err != nil {
+		return "", fmt.Errorf("invalid repository UUID %q: %w", value, err)
+	}
+	return parsed.String(), nil
+}
 
 // Lister is the one RPC this package reads.
 type Lister interface {

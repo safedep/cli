@@ -367,11 +367,10 @@ func TestResolveSyncSource(t *testing.T) {
 			wantLinkID:   "gh-link-1",
 		},
 		{
-			name:         "a caller without the bitbucket permission keeps github working",
+			name:         "a caller without the bitbucket permission cannot infer a source",
 			github:       []*controltowerv1.ListGitHubAppInstallationLinksResponse{githubLinksPage("gh-link-1")},
 			bitbucketErr: status.Error(codes.PermissionDenied, "not allowed"),
-			wantSource:   sourceGitHub,
-			wantLinkID:   "gh-link-1",
+			wantErr:      "resolve workspace link",
 		},
 		{
 			name:         "any other bitbucket listing failure stops the sync",

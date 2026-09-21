@@ -245,16 +245,17 @@ func resolveSyncSource(ctx context.Context, deps syncDeps, in syncInput) (string
 const syncLinkLabel = "project sync: resolve workspace link"
 
 // listBitbucketLinksForInference treats a control plane without the
-// Bitbucket RPCs, or a caller without the permission for them, as a tenant
-// with no Bitbucket links. Without this, a GitHub-only tenant against such a
-// control plane loses every names-only sync to the failing listing. Any
-// other failure leaves the source undecidable and stops the sync.
+// Bitbucket RPCs as a tenant with no Bitbucket links, which Unimplemented
+// proves. Without this, a GitHub-only tenant against such a control plane
+// loses every names-only sync to the failing listing. Every other failure,
+// PermissionDenied included, leaves the source undecidable and stops the
+// sync: links the caller cannot inspect may exist, and picking GitHub then
+// could sync a name against the wrong source.
 func listBitbucketLinksForInference(ctx context.Context,
 	client bitbucketlink.Lister,
 ) ([]bitbucketlink.Link, error) {
 	links, err := bitbucketlink.List(ctx, client, syncLinkLabel)
-	switch status.Code(err) {
-	case codes.Unimplemented, codes.PermissionDenied:
+	if status.Code(err) == codes.Unimplemented {
 		return nil, nil
 	}
 	return links, err

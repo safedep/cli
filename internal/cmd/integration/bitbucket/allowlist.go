@@ -41,6 +41,7 @@ func allowlistUpdateCmd(a *app.App) *cobra.Command {
 	var in allowlistUpdateInput
 	cmd := &cobra.Command{
 		Use:   "update",
+		Args:  cobra.NoArgs,
 		Short: "Update the Bitbucket scan scope and repository allowlist",
 		Long: "Change which repositories of a linked Bitbucket workspace SafeDep scans. " +
 			"Scope `all` scans every repository in the workspace. Scope `selected` scans only " +

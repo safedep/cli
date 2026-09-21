@@ -27,6 +27,7 @@ type linkCreateResultJSON struct {
 func linkCreateCmd(a *app.App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "create",
+		Args:  cobra.NoArgs,
 		Short: "Issue a link code for a Bitbucket workspace",
 		Long: "Issue the short-lived, single-use code a Bitbucket workspace admin pastes into " +
 			"the workspace's SafeDep settings page (added by the SafeDep Forge app) to link the " +
@@ -116,6 +117,7 @@ type linkListResultJSON struct {
 func linkListCmd(a *app.App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
+		Args:  cobra.NoArgs,
 		Short: "List Bitbucket workspaces linked to the tenant",
 		Long: "List every Bitbucket workspace linked to the active tenant, with the link ID " +
 			"the repository and allowlist commands take.",

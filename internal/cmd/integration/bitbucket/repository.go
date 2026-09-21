@@ -49,6 +49,7 @@ func repositoryListCmd(a *app.App) *cobra.Command {
 	var in repositoryListInput
 	cmd := &cobra.Command{
 		Use:   "list",
+		Args:  cobra.NoArgs,
 		Short: "List repositories of a linked Bitbucket workspace",
 		Long: "List the repositories of a linked Bitbucket workspace with their scan state " +
 			"and the workspace's scan scope. The repository UUIDs feed " +

@@ -34,7 +34,8 @@ it for the same repository returns the same project ID.
 1. `--repository-id` implies `github` and `--repository-uuid` implies
    `bitbucket`.
 2. Otherwise the CLI uses the one source the tenant has links for. A tenant
-   with links to both sources must pass `--source`. A tenant with no link
+   with links to both sources must pass `--source` or `--link-id`, and a
+   link ID resolves to the source that owns it. A tenant with no link
    fails with guidance.
 
 One invocation serves one source, so `--repository-id` and

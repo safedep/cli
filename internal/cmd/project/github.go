@@ -11,6 +11,8 @@ import (
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/safedep/dry/usefulerror"
 	"google.golang.org/grpc"
+
+	"github.com/safedep/cli/internal/paging"
 )
 
 const (
@@ -116,9 +118,9 @@ func resolveGitHubLink(ctx context.Context, client githubLinkLister) (string, er
 	const label = "project sync: resolve installation link"
 
 	var links []githubLink
-	err := paginate(ctx, label, func(ctx context.Context, pageToken string) (string, error) {
+	err := paging.Paginate(ctx, label, func(ctx context.Context, pageToken string) (string, error) {
 		req := &controltowerv1.ListGitHubAppInstallationLinksRequest{}
-		req.SetPagination(newPaginationRequest(githubLinkPageSize, pageToken))
+		req.SetPagination(paging.NewPaginationRequest(githubLinkPageSize, pageToken))
 		res, err := client.ListGitHubAppInstallationLinks(ctx, req)
 		if err != nil {
 			return "", fmt.Errorf("%s: %w", label, err)
@@ -170,10 +172,10 @@ func resolveRepositoryNames(
 	}
 
 	matches := make(map[string]githubRepository, len(names))
-	err := paginate(ctx, label, func(ctx context.Context, pageToken string) (string, error) {
+	err := paging.Paginate(ctx, label, func(ctx context.Context, pageToken string) (string, error) {
 		req := &controltowerv1.ListGitHubInstallationRepositoriesRequest{}
 		req.SetLinkId(linkID)
-		req.SetPagination(newPaginationRequest(githubRepositoryPageSize, pageToken))
+		req.SetPagination(paging.NewPaginationRequest(githubRepositoryPageSize, pageToken))
 		res, err := client.ListGitHubInstallationRepositories(ctx, req)
 		if err != nil {
 			return "", fmt.Errorf("%s: %w", label, err)

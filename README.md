@@ -145,6 +145,10 @@ Push SafeDep malware findings to external security tools. JFrog XRay is supporte
 | [`safedep protect mcp status`](./docs/cmd/protect-mcp-status.md) | Show SafeDep MCP integration status for detected AI agents |
 | [`safedep protect mcp install`](./docs/cmd/protect-mcp-install.md) | Inject SafeDep MCP server config into detected AI agents |
 | [`safedep protect mcp uninstall`](./docs/cmd/protect-mcp-uninstall.md) | Remove SafeDep MCP server config from detected AI agents |
+| [`safedep integration bitbucket link create`](./docs/cmd/integration-bitbucket-link-create.md) | Issue a link code for a Bitbucket workspace |
+| [`safedep integration bitbucket link list`](./docs/cmd/integration-bitbucket-link-list.md) | List Bitbucket workspaces linked to the tenant |
+| [`safedep integration bitbucket repository list`](./docs/cmd/integration-bitbucket-repository-list.md) | List repositories of a linked Bitbucket workspace |
+| [`safedep integration bitbucket allowlist update`](./docs/cmd/integration-bitbucket-allowlist-update.md) | Update the Bitbucket scan scope and repository allowlist |
 | [`safedep integration jfrog run`](./docs/cmd/integration-jfrog-run.md) | Push SafeDep malware findings to JFrog XRay |
 | [`safedep integration jfrog cursor set`](./docs/cmd/integration-jfrog-cursor-set.md) | Set the JFrog feed cursor to a timestamp for the active profile |
 | [`safedep integration jfrog cursor remove`](./docs/cmd/integration-jfrog-cursor-remove.md) | Remove the saved JFrog feed cursor for the active profile |

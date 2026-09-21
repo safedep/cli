@@ -5,6 +5,7 @@ package integration
 
 import (
 	"github.com/safedep/cli/internal/app"
+	"github.com/safedep/cli/internal/cmd/integration/bitbucket"
 	"github.com/safedep/cli/internal/cmd/integration/jfrog"
 	"github.com/spf13/cobra"
 )
@@ -18,6 +19,7 @@ func Register(root *cobra.Command, a *app.App) {
 		Long:  "Commands for integrating SafeDep threat intelligence with third-party tools.",
 	}
 
+	bitbucket.Register(cmd, a)
 	jfrog.Register(cmd, a)
 	root.AddCommand(cmd)
 }

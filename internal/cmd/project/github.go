@@ -60,7 +60,7 @@ func newIntegrationClient(conn grpc.ClientConnInterface) controltowerv1grpc.Inte
 	return controltowerv1grpc.NewIntegrationServiceClient(conn)
 }
 
-func runSync(
+func runGitHubSync(
 	ctx context.Context,
 	links githubLinkLister,
 	repositories githubRepositoryLister,
@@ -114,7 +114,7 @@ func runSync(
 	return syncGitHubProjects(ctx, syncer, linkID, repositoryIDs, namesByID)
 }
 
-func resolveGitHubLink(ctx context.Context, client githubLinkLister) (string, error) {
+func listGitHubLinks(ctx context.Context, client githubLinkLister) ([]githubLink, error) {
 	const label = "project sync: resolve installation link"
 
 	var links []githubLink
@@ -133,6 +133,15 @@ func resolveGitHubLink(ctx context.Context, client githubLinkLister) (string, er
 		}
 		return res.GetPagination().GetNextPageToken(), nil
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	return links, nil
+}
+
+func resolveGitHubLink(ctx context.Context, client githubLinkLister) (string, error) {
+	links, err := listGitHubLinks(ctx, client)
 	if err != nil {
 		return "", err
 	}

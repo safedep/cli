@@ -148,10 +148,10 @@ func (r *linkListResult) RenderJSON() ([]byte, error) {
 	links := make([]workspaceLinkJSON, 0, len(r.links))
 	for _, link := range r.links {
 		links = append(links, workspaceLinkJSON{
-			LinkID:        link.linkID,
-			WorkspaceUUID: link.workspaceUUID,
-			WorkspaceSlug: link.workspaceSlug,
-			WorkspaceName: link.workspaceName,
+			LinkID:        link.ID,
+			WorkspaceUUID: link.WorkspaceUUID,
+			WorkspaceSlug: link.WorkspaceSlug,
+			WorkspaceName: link.WorkspaceName,
 		})
 	}
 	return json.MarshalIndent(linkListResultJSON{Links: links}, "", "  ")
@@ -181,7 +181,7 @@ func (r *linkListResult) RenderTable() string {
 }
 
 func workspaceLinkCells(link workspaceLink) []string {
-	return []string{link.linkID, link.workspaceUUID, link.workspaceSlug, link.workspaceName}
+	return []string{link.ID, link.WorkspaceUUID, link.WorkspaceSlug, link.WorkspaceName}
 }
 
 func pluralWorkspaces(n int) string {

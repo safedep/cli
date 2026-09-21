@@ -181,8 +181,8 @@ func TestRunLinkList(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 2, lister.calls)
 		require.Len(t, result.links, 2)
-		assert.Equal(t, "link-1", result.links[0].linkID)
-		assert.Equal(t, "uuid-2", result.links[1].workspaceUUID)
+		assert.Equal(t, "link-1", result.links[0].ID)
+		assert.Equal(t, "uuid-2", result.links[1].WorkspaceUUID)
 	})
 
 	t.Run("rejects a link without an ID", func(t *testing.T) {

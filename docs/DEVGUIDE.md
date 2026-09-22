@@ -94,6 +94,20 @@ Operational commands (no structured result) call `dry/tui` directly and do not i
 - No direct use of `fmt.Println`, `fmt.Printf`, `os.Stdout`, or `os.Stderr` outside `internal/tui` and `dry/tui` call sites in commands. **(lint, depguard)** The single allowed exception is the top-level error path in `cmd/safedep/main.go`, which writes the fatal error to stderr before exit.
 - Reusable visual components (tables, banners, diffs, badges, spinners, progress) come from `dry/tui` sub-packages. Do not reimplement.
 
+### Humanized values
+
+`RenderTable` humanizes machine values through [`dry/tui/humanize`](https://github.com/safedep/dry/tree/main/tui/humanize):
+
+- `humanize.Time(t, now)` for instants: `5m ago`, `in 3d`, an absolute UTC date beyond 30 days.
+- `humanize.Duration(d)` for durations: `45s`, `1h30m`, `1d12h`.
+
+Rules:
+
+- Only `RenderTable` humanizes. `RenderPlain` and `RenderJSON` keep exact values (RFC 3339 instants, raw durations), so pipelines and agents never parse human text.
+- Do not write a local time or duration formatter in a command package. Every relative-time cell in the CLI reads the same because they all go through the one package.
+- Call sites pass `time.Now()` at render time. The humanize functions themselves are pure and take `now` as a parameter.
+- Extension path: a value shape with no humanizer yet (bytes, counts, rates) gets a new pure function in `dry/tui/humanize` via a PR to [safedep/dry](https://github.com/safedep/dry), then a dry dependency bump here. Follow the existing style: compact output, at most two units of precision, table-driven tests next to the function. Only a formatter that is truly specific to one command (encodes its domain wording, not a general value shape) may live next to that command.
+
 ## Authentication
 
 - API key (data plane): `a.DataPlane()`.

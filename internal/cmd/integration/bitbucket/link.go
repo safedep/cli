@@ -8,6 +8,7 @@ import (
 	"time"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
+	"github.com/safedep/dry/tui/humanize"
 	"github.com/safedep/dry/tui/table"
 	"github.com/spf13/cobra"
 
@@ -80,24 +81,27 @@ func (r *linkCreateResult) RenderJSON() ([]byte, error) {
 }
 
 func (r *linkCreateResult) RenderPlain() string {
-	return "link_code\texpires_at\n" + strings.Join(r.cells(), "\t")
-}
-
-func (r *linkCreateResult) RenderTable() string {
-	return table.New().
-		Title("Bitbucket workspace link code").
-		Headers("LINK CODE", "EXPIRES AT").
-		Rows(r.cells()).
-		Footer("Paste the code into the workspace's SafeDep settings page in Bitbucket before it expires.").
-		Render()
-}
-
-func (r *linkCreateResult) cells() []string {
 	expiresAt := ""
 	if r.expiresAt != nil {
 		expiresAt = r.expiresAt.Format(time.RFC3339)
 	}
-	return []string{r.linkCode, expiresAt}
+	return "link_code\texpires_at\n" + r.linkCode + "\t" + expiresAt
+}
+
+func (r *linkCreateResult) RenderTable() string {
+	// The code lives for minutes, so the table shows the remaining lifetime
+	// via the shared humanizer, like auth status and the list commands. The
+	// plain and JSON output keep the exact instant.
+	expires := ""
+	if r.expiresAt != nil {
+		expires = humanize.Time(*r.expiresAt, time.Now())
+	}
+	return table.New().
+		Title("Bitbucket workspace link code").
+		Headers("LINK CODE", "EXPIRES").
+		Rows([]string{r.linkCode, expires}).
+		Footer("Paste the code into the workspace's SafeDep settings page in Bitbucket before it expires.").
+		Render()
 }
 
 type linkListResult struct {

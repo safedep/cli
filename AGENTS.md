@@ -32,6 +32,7 @@ make release-snapshot # Local release build via goreleaser
 - Generate mocks with mockery v3 (testify template) for non-trivial interfaces. Hand-rolled fakes for single-method interfaces or function-type parameters. See DEVGUIDE Mocks section
 - Re-use existing patterns. Prefer refactoring over copying
 - `dry/log` for internal logging (`log.Warnf` for soft failures)
+- Humanize table cells with `dry/tui/humanize` (`Time`, `Duration`). Never a local formatter. New value shapes extend the dry package. See DEVGUIDE Output section
 
 For any changes in `.github/workflows/`:
 

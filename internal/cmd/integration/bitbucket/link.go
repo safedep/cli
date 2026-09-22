@@ -80,24 +80,49 @@ func (r *linkCreateResult) RenderJSON() ([]byte, error) {
 }
 
 func (r *linkCreateResult) RenderPlain() string {
-	return "link_code\texpires_at\n" + strings.Join(r.cells(), "\t")
-}
-
-func (r *linkCreateResult) RenderTable() string {
-	return table.New().
-		Title("Bitbucket workspace link code").
-		Headers("LINK CODE", "EXPIRES AT").
-		Rows(r.cells()).
-		Footer("Paste the code into the workspace's SafeDep settings page in Bitbucket before it expires.").
-		Render()
-}
-
-func (r *linkCreateResult) cells() []string {
 	expiresAt := ""
 	if r.expiresAt != nil {
 		expiresAt = r.expiresAt.Format(time.RFC3339)
 	}
-	return []string{r.linkCode, expiresAt}
+	return "link_code\texpires_at\n" + r.linkCode + "\t" + expiresAt
+}
+
+func (r *linkCreateResult) RenderTable() string {
+	expires := ""
+	if r.expiresAt != nil {
+		expires = formatExpiresIn(time.Now(), *r.expiresAt)
+	}
+	return table.New().
+		Title("Bitbucket workspace link code").
+		Headers("LINK CODE", "EXPIRES").
+		Rows([]string{r.linkCode, expires}).
+		Footer("Paste the code into the workspace's SafeDep settings page in Bitbucket before it expires.").
+		Render()
+}
+
+// formatExpiresIn renders the remaining lifetime of the code instead of the
+// raw timestamp. The code lives for minutes, so the reader wants "how long do
+// I have", not an RFC 3339 instant to decode.
+func formatExpiresIn(now, expiresAt time.Time) string {
+	remaining := expiresAt.Sub(now)
+	if remaining <= 0 {
+		return "expired"
+	}
+	if remaining < time.Minute {
+		return "in less than a minute"
+	}
+
+	minutes := int(remaining.Round(time.Minute).Minutes())
+	hours := minutes / 60
+	minutes %= 60
+	switch {
+	case hours == 0:
+		return fmt.Sprintf("in %d min", minutes)
+	case minutes == 0:
+		return fmt.Sprintf("in %d h", hours)
+	default:
+		return fmt.Sprintf("in %d h %d min", hours, minutes)
+	}
 }
 
 type linkListResult struct {

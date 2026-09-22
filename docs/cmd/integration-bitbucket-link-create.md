@@ -35,7 +35,7 @@ safedep integration bitbucket link create --output json | jq -r '.link_code'
 | Field | Description |
 |-------|-------------|
 | `link_code` | The code to paste into the workspace's SafeDep settings page in Bitbucket. |
-| `expires_at` | The instant the code expires, RFC 3339 UTC. |
+| `expires_at` | The instant the code expires, RFC 3339 UTC, in the plain and JSON output. The table shows the remaining lifetime instead, as `in 15 min`. |
 
 ## Authentication
 

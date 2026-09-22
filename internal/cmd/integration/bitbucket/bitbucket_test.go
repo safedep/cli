@@ -172,6 +172,29 @@ func TestRunLinkCreate(t *testing.T) {
 	})
 }
 
+func TestFormatExpiresIn(t *testing.T) {
+	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name      string
+		expiresAt time.Time
+		expected  string
+	}{
+		{"already expired", now.Add(-time.Second), "expired"},
+		{"under a minute", now.Add(30 * time.Second), "in less than a minute"},
+		{"minutes only", now.Add(15 * time.Minute), "in 15 min"},
+		{"seconds round to the nearest minute", now.Add(14*time.Minute + 40*time.Second), "in 15 min"},
+		{"whole hours", now.Add(2 * time.Hour), "in 2 h"},
+		{"hours and minutes", now.Add(90 * time.Minute), "in 1 h 30 min"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, formatExpiresIn(now, tc.expiresAt))
+		})
+	}
+}
+
 func TestRunLinkList(t *testing.T) {
 	t.Run("walks every page", func(t *testing.T) {
 		lister := &fakeLinkLister{pages: []*controltowerv1.ListBitbucketWorkspaceLinksResponse{

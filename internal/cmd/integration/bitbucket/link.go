@@ -8,6 +8,7 @@ import (
 	"time"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
+	"github.com/safedep/dry/tui/humanize"
 	"github.com/safedep/dry/tui/table"
 	"github.com/spf13/cobra"
 
@@ -88,9 +89,12 @@ func (r *linkCreateResult) RenderPlain() string {
 }
 
 func (r *linkCreateResult) RenderTable() string {
+	// The code lives for minutes, so the table shows the remaining lifetime
+	// via the shared humanizer, like auth status and the list commands. The
+	// plain and JSON output keep the exact instant.
 	expires := ""
 	if r.expiresAt != nil {
-		expires = formatExpiresIn(time.Now(), *r.expiresAt)
+		expires = humanize.Time(*r.expiresAt, time.Now())
 	}
 	return table.New().
 		Title("Bitbucket workspace link code").
@@ -98,31 +102,6 @@ func (r *linkCreateResult) RenderTable() string {
 		Rows([]string{r.linkCode, expires}).
 		Footer("Paste the code into the workspace's SafeDep settings page in Bitbucket before it expires.").
 		Render()
-}
-
-// formatExpiresIn renders the remaining lifetime of the code instead of the
-// raw timestamp. The code lives for minutes, so the reader wants "how long do
-// I have", not an RFC 3339 instant to decode.
-func formatExpiresIn(now, expiresAt time.Time) string {
-	remaining := expiresAt.Sub(now)
-	if remaining <= 0 {
-		return "expired"
-	}
-	if remaining < time.Minute {
-		return "in less than a minute"
-	}
-
-	minutes := int(remaining.Round(time.Minute).Minutes())
-	hours := minutes / 60
-	minutes %= 60
-	switch {
-	case hours == 0:
-		return fmt.Sprintf("in %d min", minutes)
-	case minutes == 0:
-		return fmt.Sprintf("in %d h", hours)
-	default:
-		return fmt.Sprintf("in %d h %d min", hours, minutes)
-	}
 }
 
 type linkListResult struct {

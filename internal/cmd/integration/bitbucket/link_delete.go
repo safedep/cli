@@ -35,8 +35,9 @@ func linkDeleteCmd(a *app.App) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Unlink a Bitbucket workspace from the tenant",
 		Long: "Unlink a Bitbucket workspace from the active tenant. SafeDep revokes the link " +
-			"and discards the stored app token. The command is idempotent: a link already " +
-			"revoked succeeds. The SafeDep Forge app stays installed in the workspace until a " +
+			"and discards the stored app token. With --link-id, a repeat delete succeeds. " +
+			"Without it, the command needs exactly one active link, so a repeat delete of the " +
+			"tenant's only link fails with not found. The SafeDep Forge app stays installed in the workspace until a " +
 			"workspace admin uninstalls it in Bitbucket.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, err := a.ControlPlane()

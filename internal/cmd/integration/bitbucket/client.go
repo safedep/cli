@@ -16,6 +16,14 @@ type linkCodeCreator interface {
 	) (*controltowerv1.CreateBitbucketWorkspaceLinkCodeResponse, error)
 }
 
+type linkDeleter interface {
+	DeleteBitbucketWorkspaceLink(
+		context.Context,
+		*controltowerv1.DeleteBitbucketWorkspaceLinkRequest,
+		...grpc.CallOption,
+	) (*controltowerv1.DeleteBitbucketWorkspaceLinkResponse, error)
+}
+
 type repositoryLister interface {
 	ListBitbucketRepositories(
 		context.Context,

@@ -91,9 +91,29 @@ func (f *fakeAllowlistUpdater) UpdateBitbucketRepositoryAllowlist(
 	return f.res, f.err
 }
 
+type fakeLinkDeleter struct {
+	calls int
+	req   *controltowerv1.DeleteBitbucketWorkspaceLinkRequest
+	err   error
+}
+
+func (f *fakeLinkDeleter) DeleteBitbucketWorkspaceLink(
+	_ context.Context,
+	req *controltowerv1.DeleteBitbucketWorkspaceLinkRequest,
+	_ ...grpc.CallOption,
+) (*controltowerv1.DeleteBitbucketWorkspaceLinkResponse, error) {
+	f.calls++
+	f.req = req
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &controltowerv1.DeleteBitbucketWorkspaceLinkResponse{}, nil
+}
+
 var (
 	_ linkCodeCreator      = (*fakeLinkCodeCreator)(nil)
 	_ bitbucketlink.Lister = (*fakeLinkLister)(nil)
+	_ linkDeleter          = (*fakeLinkDeleter)(nil)
 	_ repositoryLister     = (*fakeRepositoryLister)(nil)
 	_ allowlistUpdater     = (*fakeAllowlistUpdater)(nil)
 )
@@ -194,6 +214,80 @@ func TestRunLinkList(t *testing.T) {
 
 		_, err := runLinkList(context.Background(), lister)
 		require.ErrorContains(t, err, "invalid response: link 1 is missing its ID")
+	})
+}
+
+func TestRunLinkDelete(t *testing.T) {
+	t.Run("deletes the given link without listing", func(t *testing.T) {
+		links := &fakeLinkLister{}
+		deleter := &fakeLinkDeleter{}
+
+		result, err := runLinkDelete(context.Background(), links, deleter, linkDeleteInput{LinkID: "link-1"})
+		require.NoError(t, err)
+		assert.Equal(t, 0, links.calls)
+		require.Equal(t, 1, deleter.calls)
+		assert.Equal(t, "link-1", deleter.req.GetLinkId())
+		assert.Equal(t, "Unlinked Bitbucket workspace link link-1", result.message())
+	})
+
+	t.Run("resolves the only link and names its workspace", func(t *testing.T) {
+		links := &fakeLinkLister{pages: []*controltowerv1.ListBitbucketWorkspaceLinksResponse{
+			newWorkspaceLinkPage("", newWorkspaceLink("link-1", "uuid-1", "safedep", "SafeDep")),
+		}}
+		deleter := &fakeLinkDeleter{}
+
+		result, err := runLinkDelete(context.Background(), links, deleter, linkDeleteInput{})
+		require.NoError(t, err)
+		require.Equal(t, 1, deleter.calls)
+		assert.Equal(t, "link-1", deleter.req.GetLinkId())
+		assert.Equal(t, "Unlinked Bitbucket workspace safedep (link link-1)", result.message())
+	})
+
+	t.Run("names the workspace by UUID when the slug is empty", func(t *testing.T) {
+		links := &fakeLinkLister{pages: []*controltowerv1.ListBitbucketWorkspaceLinksResponse{
+			newWorkspaceLinkPage("", newWorkspaceLink("link-1", "uuid-1", "", "")),
+		}}
+
+		result, err := runLinkDelete(context.Background(), links, &fakeLinkDeleter{}, linkDeleteInput{})
+		require.NoError(t, err)
+		assert.Equal(t, "Unlinked Bitbucket workspace uuid-1 (link link-1)", result.message())
+	})
+
+	t.Run("does not delete without a linked workspace", func(t *testing.T) {
+		links := &fakeLinkLister{pages: []*controltowerv1.ListBitbucketWorkspaceLinksResponse{
+			newWorkspaceLinkPage(""),
+		}}
+		deleter := &fakeLinkDeleter{}
+
+		_, err := runLinkDelete(context.Background(), links, deleter, linkDeleteInput{})
+		require.Error(t, err)
+		usefulErr, ok := usefulerror.AsUsefulError(err)
+		require.True(t, ok)
+		assert.Equal(t, usefulerror.ErrNotFound, usefulErr.Code())
+		assert.Equal(t, 0, deleter.calls)
+	})
+
+	t.Run("does not delete on an ambiguous link", func(t *testing.T) {
+		links := &fakeLinkLister{pages: []*controltowerv1.ListBitbucketWorkspaceLinksResponse{
+			newWorkspaceLinkPage("",
+				newWorkspaceLink("link-1", "uuid-1", "one", "One"),
+				newWorkspaceLink("link-2", "uuid-2", "two", "Two")),
+		}}
+		deleter := &fakeLinkDeleter{}
+
+		_, err := runLinkDelete(context.Background(), links, deleter, linkDeleteInput{})
+		require.Error(t, err)
+		usefulErr, ok := usefulerror.AsUsefulError(err)
+		require.True(t, ok)
+		assert.Contains(t, usefulErr.Help(), "link-1 (one)")
+		assert.Equal(t, 0, deleter.calls)
+	})
+
+	t.Run("wraps a server error with the command label", func(t *testing.T) {
+		deleter := &fakeLinkDeleter{err: errors.New("boom")}
+
+		_, err := runLinkDelete(context.Background(), &fakeLinkLister{}, deleter, linkDeleteInput{LinkID: "link-1"})
+		require.ErrorContains(t, err, "integration bitbucket link delete: boom")
 	})
 }
 

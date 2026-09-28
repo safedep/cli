@@ -147,6 +147,7 @@ Push SafeDep malware findings to external security tools. JFrog XRay is supporte
 | [`safedep protect mcp uninstall`](./docs/cmd/protect-mcp-uninstall.md) | Remove SafeDep MCP server config from detected AI agents |
 | [`safedep integration bitbucket link create`](./docs/cmd/integration-bitbucket-link-create.md) | Issue a link code for a Bitbucket workspace |
 | [`safedep integration bitbucket link list`](./docs/cmd/integration-bitbucket-link-list.md) | List Bitbucket workspaces linked to the tenant |
+| [`safedep integration bitbucket link delete`](./docs/cmd/integration-bitbucket-link-delete.md) | Unlink a Bitbucket workspace from the tenant |
 | [`safedep integration bitbucket repository list`](./docs/cmd/integration-bitbucket-repository-list.md) | List repositories of a linked Bitbucket workspace |
 | [`safedep integration bitbucket allowlist update`](./docs/cmd/integration-bitbucket-allowlist-update.md) | Update the Bitbucket scan scope and repository allowlist |
 | [`safedep integration jfrog run`](./docs/cmd/integration-jfrog-run.md) | Push SafeDep malware findings to JFrog XRay |

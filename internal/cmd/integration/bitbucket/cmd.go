@@ -21,11 +21,12 @@ func Register(parent *cobra.Command, a *app.App) {
 	link := &cobra.Command{
 		Use:   "link",
 		Short: "Manage Bitbucket workspace links",
-		Long: "Commands for issuing workspace link codes and listing the Bitbucket " +
-			"workspaces linked to the active tenant.",
+		Long: "Commands for issuing workspace link codes, listing the Bitbucket " +
+			"workspaces linked to the active tenant, and unlinking a workspace.",
 	}
 	link.AddCommand(linkCreateCmd(a))
 	link.AddCommand(linkListCmd(a))
+	link.AddCommand(linkDeleteCmd(a))
 
 	repository := &cobra.Command{
 		Use:   "repository",

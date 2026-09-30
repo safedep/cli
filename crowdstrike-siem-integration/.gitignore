@@ -1,0 +1,4 @@
+# Runtime cursor state, not source
+cursor.json
+*.tmp
+__pycache__/

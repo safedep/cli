@@ -226,3 +226,19 @@ func TestRequireProjects(t *testing.T) {
 	assert.ErrorContains(t, requireProjects(labelInput{}), "give at least one project")
 	assert.ErrorContains(t, requireProjects(labelInput{Names: []string{"a", "a"}}), `duplicate project name "a"`)
 }
+
+func TestRunProjectList_EscapesLabelValues(t *testing.T) {
+	client := &fakeListProjectsClient{listFn: func(*controltowerv1.ListProjectsRequest) (*controltowerv1.ListProjectsResponse, error) {
+		return projectsResponse(labeledProject("p_1", "acme/x", messagescontroltowerv1.Project_SOURCE_GITHUB,
+			map[string]string{"custom/team": "pay\x1b[31m\u202e"})), nil
+	}}
+	got, err := runProjectList(context.Background(), client, projectListInput{})
+	require.NoError(t, err)
+	for _, out := range []string{got.RenderTable(), got.RenderPlain()} {
+		assert.NotContains(t, out, "\x1b")
+		assert.Contains(t, out, `custom/team=pay\x1b[31m\u202e`)
+	}
+	b, err := got.RenderJSON()
+	require.NoError(t, err)
+	assert.Contains(t, string(b), `\u001b[31m`, "JSON keeps the raw value")
+}

@@ -12,6 +12,7 @@ import (
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/cloudpolicy"
+	"github.com/safedep/cli/internal/tui"
 	"github.com/safedep/dry/tui/humanize"
 	"github.com/safedep/dry/tui/table"
 	"github.com/spf13/cobra"
@@ -234,10 +235,8 @@ func (r *listResult) RenderPlain() string {
 	var b strings.Builder
 	b.WriteString("ID\tHOSTNAME\tOS\tCAPS\tLAST SYNC\tBLOCKED\tINVENTORY\tPOLICY\n")
 	for _, e := range r.endpoints {
-		fmt.Fprintf(&b, "%s\t%s\t%s/%s\t%s\t%s\t%d\t%d\t%s\n",
-			e.ID, e.Hostname, e.OS, e.Arch, strings.Join(capabilityNames(e.Capabilities), ","),
-			formatTime(e.LastSync), e.PMGBlockedEvents, e.InventoryEvents, policyCell(e.ToolPolicies),
-		)
+		b.WriteString(tui.PlainRow(e.ID, e.Hostname, e.OS+"/"+e.Arch, strings.Join(capabilityNames(e.Capabilities), ","),
+			formatTime(e.LastSync), fmt.Sprint(e.PMGBlockedEvents), fmt.Sprint(e.InventoryEvents), policyCell(e.ToolPolicies)) + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -258,7 +257,7 @@ func (r *listResult) RenderTable() string {
 	t := table.New().
 		Title("Endpoints").
 		Headers("ID", "Hostname", "OS/Arch", "Capabilities", "Last Sync", "Blocked", "Inventory", "Policy").
-		Rows(rows...).
+		Rows(tui.EscapeCells(rows)...).
 		EmptyMessage("No endpoints found. Endpoints appear after a SafeDep tool syncs. Try a wider --since window.")
 	if len(rows) > 0 {
 		footer := fmt.Sprintf("%d %s", len(rows), plural(len(rows), "endpoint", "endpoints"))

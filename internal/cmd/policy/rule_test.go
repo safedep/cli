@@ -358,7 +358,7 @@ func TestRunRuleUpdateAndDelete(t *testing.T) {
 	})).Return(upd, nil)
 	update := &policyv1.PackageRuleUpdate{}
 	update.SetRuleId("r_77e")
-	res, err := runRuleUpdate(context.Background(), client, update, "m")
+	res, err := runRuleUpdate(context.Background(), client, update, "m", fixedNow)
 	require.NoError(t, err)
 	assert.Equal(t, uint64(50), res.GetRevision().GetRevision())
 
@@ -370,4 +370,87 @@ func TestRunRuleUpdateAndDelete(t *testing.T) {
 	rev, err := runRuleDelete(context.Background(), client, "r_80b", "no longer needed", "")
 	require.NoError(t, err)
 	assert.Equal(t, uint64(51), rev)
+}
+
+func TestExpandScopes_AllMixedWithANamedScope(t *testing.T) {
+	for _, in := range [][]string{{"malware", "all"}, {"all", "cooldown"}, {"ALL"}} {
+		got, err := expandScopes(in)
+		require.NoError(t, err)
+		assert.Equal(t, []corev1.TrustScope{
+			corev1.TrustScope_TRUST_SCOPE_MALWARE,
+			corev1.TrustScope_TRUST_SCOPE_COOLDOWN,
+			corev1.TrustScope_TRUST_SCOPE_VULNERABILITY,
+		}, got, "%v", in)
+	}
+}
+
+func TestBuildRuleCreates_TrustExpiryLimit(t *testing.T) {
+	in := ruleCreateInput{Trust: true, Selector: "pkg:pypi/foo@1.0.3", Scopes: []string{"malware"}, Reason: "FP", Expires: "90d"}
+	_, err := buildRuleCreates(in, nil, fixedNow)
+	require.NoError(t, err)
+
+	in.Expires = "91d"
+	_, err = buildRuleCreates(in, nil, fixedNow)
+	ue, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Contains(t, ue.HumanError(), "a trust entry expires at most 90 days from now")
+
+	block := ruleCreateInput{Block: true, Selector: "pkg:npm/evil", Reason: "x", Expires: "365d"}
+	_, err = buildRuleCreates(block, nil, fixedNow)
+	require.NoError(t, err, "a block entry has no expiry limit")
+}
+
+func TestAnnounceRuleCreate_WarnsAboutAWideSelector(t *testing.T) {
+	stderr := captureStderr(t)
+	in := ruleCreateInput{Block: true, Selector: "pkg:npm/*", Reason: "x"}
+	creates, err := buildRuleCreates(in, nil, fixedNow)
+	require.NoError(t, err)
+	announceRuleCreate(in, creates)
+	assert.Contains(t, stderr.String(), "Selector pkg:npm/* blocks every package of its ecosystem")
+
+	stderr.Reset()
+	in.Selector = "pkg:npm/@acme/*"
+	creates, err = buildRuleCreates(in, nil, fixedNow)
+	require.NoError(t, err)
+	announceRuleCreate(in, creates)
+	assert.NotContains(t, stderr.String(), "every package of its ecosystem")
+}
+
+func TestRunRuleUpdate_TrustExpiryLimit(t *testing.T) {
+	client := mocks.NewPolicyServiceClientMock(t)
+	res := &policyv1.GetPackageRuleResponse{}
+	res.SetRule(ruleWithAttributes("r_77e", corev1.Effect_EFFECT_TRUST, ""))
+	client.EXPECT().GetPackageRule(mock.Anything, mock.Anything).Return(res, nil)
+
+	update := &policyv1.PackageRuleUpdate{}
+	update.SetRuleId("r_77e")
+	update.SetExpiresAt(timestamppb.New(fixedNow.Add(120 * 24 * time.Hour)))
+	_, err := runRuleUpdate(context.Background(), client, update, "", fixedNow)
+	ue, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Contains(t, ue.HumanError(), "a trust entry expires at most 90 days from now")
+}
+
+func TestRuleList_RenderPlainEscapesServerText(t *testing.T) {
+	r := ruleWithAttributes("r_1", corev1.Effect_EFFECT_BLOCK, "")
+	r.GetRule().SetReason("IR-1\x1b[2J\tsecond column?")
+	res := &ruleListResult{Rules: []ruleView{newRuleView(r, nil)}}
+
+	plain := res.RenderPlain()
+	assert.NotContains(t, plain, "\x1b")
+	assert.Contains(t, plain, `IR-1\x1b[2J\tsecond column?`)
+	lines := strings.Split(plain, "\n")
+	require.Len(t, lines, 2)
+	assert.Len(t, strings.Split(lines[1], "\t"), 9, "a tab in a value adds no column")
+	assert.NotContains(t, res.RenderTable(), "\x1b")
+}
+
+func TestMapRestoreError_MissingRevision(t *testing.T) {
+	client := mocks.NewPolicyServiceClientMock(t)
+	client.EXPECT().CreatePolicyChange(mock.Anything, mock.Anything).Return(nil, status.Error(codes.NotFound, "no revision"))
+	_, err := runChangeCreate(context.Background(), client, changeCreateInput{FromRevision: 99, PackageRules: "head"})
+	ue, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Equal(t, "Policy revision 99 does not exist", ue.HumanError())
+	assert.Equal(t, "List the revisions: safedep policy revision list", ue.Help())
 }

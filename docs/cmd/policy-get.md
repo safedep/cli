@@ -33,7 +33,8 @@ base:
   scan_gate:
     fail_on: high
 overrides:
-  - name: payments
+  - id: ov_7c2
+    name: payments
     description: Stricter gate for payment services (CUST-412)
     priority: 200
     selector:
@@ -60,7 +61,8 @@ The document form:
 - An enum value is a short token, as in `medium` for `SEVERITY_MEDIUM`.
 - A duration is a Go duration, as in `168h`. An edit also accepts days, as in `7d`.
 - A selector has the Kubernetes form: `matchLabels` and `matchExpressions`.
-- The server owns the id of a policy override, so the document leaves it out.
+- Each policy override has its `id`, which the server sets and keeps. A rename
+  keeps the id. A policy override with no id is a new one.
 
 ## Authentication
 

@@ -16,6 +16,7 @@ import (
 
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/cloudpolicy"
+	clitui "github.com/safedep/cli/internal/tui"
 )
 
 type projectShowResult struct {
@@ -96,7 +97,7 @@ func runShow(
 	if err != nil {
 		// The project data is still useful when the policy service does not
 		// answer, so the command warns and shows the rest.
-		tui.Warning("Could not read the policy of project %s: %v", name, err)
+		tui.Warning("Could not read the policy of project %s: %s", clitui.EscapeLine(name), clitui.EscapeLine(err.Error()))
 		return out, nil
 	}
 	out.Policy = policy
@@ -140,20 +141,29 @@ func (r *projectShowResult) RenderTable() string {
 	if p.created != nil {
 		created = humanize.Time(*p.created, time.Now())
 	}
-	labels := strings.Join(p.Labels, "\n")
-	if labels == "" {
-		labels = "-"
-	}
-	return cloudpolicy.KeyValues([][2]string{
+	rows := [][2]string{
 		{"Project", p.Name},
 		{"ID", p.ID},
 		{"Source", source},
-		{"Labels", labels},
+	}
+	labels := p.Labels
+	if len(labels) == 0 {
+		labels = []string{"-"}
+	}
+	for i, l := range labels {
+		key := ""
+		if i == 0 {
+			key = "Labels"
+		}
+		rows = append(rows, [2]string{key, l})
+	}
+	rows = append(rows, [][2]string{
 		{"Policy", r.policyLine()},
 		{"Vulnerabilities", countCell(p.Vulnerabilities)},
 		{"Violations", countCell(p.PolicyViolations)},
 		{"Created", created},
-	}) + "\n\nPolicy of each field: safedep project policy show " + p.Name
+	}...)
+	return cloudpolicy.KeyValues(rows) + "\n\nPolicy of each field: safedep project policy show " + clitui.EscapeLine(p.Name)
 }
 
 func (r *projectShowResult) RenderPlain() string {
@@ -163,12 +173,12 @@ func (r *projectShowResult) RenderPlain() string {
 		policy = fmt.Sprintf("%d", r.Policy.Revision)
 	}
 	return strings.Join([]string{
-		"project_id\t" + p.ID,
-		"name\t" + p.Name,
-		"source\t" + p.Source,
-		"origin_url\t" + p.OriginURL,
-		"labels\t" + strings.Join(p.Labels, ","),
-		"policy_revision\t" + policy,
-		"created_at\t" + p.CreatedAt,
+		clitui.PlainRow("project_id", p.ID),
+		clitui.PlainRow("name", p.Name),
+		clitui.PlainRow("source", p.Source),
+		clitui.PlainRow("origin_url", p.OriginURL),
+		clitui.PlainRow("labels", strings.Join(p.Labels, ",")),
+		clitui.PlainRow("policy_revision", policy),
+		clitui.PlainRow("created_at", p.CreatedAt),
 	}, "\n")
 }

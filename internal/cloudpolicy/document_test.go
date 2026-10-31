@@ -10,6 +10,7 @@ import (
 	policyv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/policy/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -26,7 +27,8 @@ func TestMarshalPolicy_WritesTheWalkthroughForm(t *testing.T) {
   scan_gate:
     fail_on: high
 overrides:
-  - name: ci
+  - id: ov_2
+    name: ci
     priority: 300
     selector:
       matchLabels: {managed/deployment-kind: ci}
@@ -34,7 +36,8 @@ overrides:
       package_admission:
         cooldown:
           min_age: 168h
-  - name: payments
+  - id: ov_1
+    name: payments
     description: Stricter gate for payment services (CUST-412)
     priority: 200
     selector:
@@ -47,7 +50,6 @@ overrides:
         fail_on: medium
 `
 	assert.Equal(t, want, string(b))
-	assert.NotContains(t, string(b), "override_id", "the server owns override ids")
 }
 
 func TestUnmarshalPolicy_RoundTrips(t *testing.T) {
@@ -57,7 +59,6 @@ func TestUnmarshalPolicy_RoundTrips(t *testing.T) {
 
 	got, err := UnmarshalPolicy(b)
 	require.NoError(t, err)
-	RestoreOverrideIDs(got, original)
 	assert.True(t, proto.Equal(original, got), "got %v", got)
 }
 
@@ -170,20 +171,44 @@ func TestEmptySelectorKeepsItsPresence(t *testing.T) {
 	assert.True(t, got.HasSelector(), "selector: {} selects every subject and must stay set")
 }
 
-func TestRestoreOverrideIDs(t *testing.T) {
-	head := samplePolicy()
-	edited := samplePolicy()
-	for _, o := range edited.GetOverrides() {
-		o.SetOverrideId("")
-	}
-	added := &policyv1.Override{}
-	added.SetName("new")
-	edited.SetOverrides(append(edited.GetOverrides(), added))
+func TestUnmarshalPolicy_KeepsTheIDThatTheUserLeaves(t *testing.T) {
+	got, err := UnmarshalPolicy([]byte(`
+overrides:
+  - id: ov_1
+    name: renamed
+    priority: 1
+    selector: {}
+  - override_id: ov_2
+    name: proto-name-also-works
+    priority: 2
+    selector: {}
+  - name: new
+    priority: 3
+    selector: {}
+`))
+	require.NoError(t, err)
+	require.Len(t, got.GetOverrides(), 3)
+	assert.Equal(t, "ov_1", got.GetOverrides()[0].GetOverrideId(), "a rename keeps the id")
+	assert.Equal(t, "ov_2", got.GetOverrides()[1].GetOverrideId())
+	assert.Empty(t, got.GetOverrides()[2].GetOverrideId(), "a new override gets its id from the server")
+}
 
-	RestoreOverrideIDs(edited, head)
-	assert.Equal(t, "ov_2", edited.GetOverrides()[0].GetOverrideId())
-	assert.Equal(t, "ov_1", edited.GetOverrides()[1].GetOverrideId())
-	assert.Empty(t, edited.GetOverrides()[2].GetOverrideId(), "a new override gets its id from the server")
+func TestCheckKnownFields(t *testing.T) {
+	require.NoError(t, CheckKnownFields(samplePolicy()))
+	require.NoError(t, CheckKnownFields(nil))
+
+	p := samplePolicy()
+	// Field 99 of ScanGate is a field that a later contract can add.
+	unknown := protowire.AppendTag(nil, 99, protowire.VarintType)
+	unknown = protowire.AppendVarint(unknown, 1)
+	p.GetOverrides()[1].GetSpec().GetScanGate().ProtoReflect().SetUnknown(unknown)
+	p.ProtoReflect().SetUnknown(unknown)
+
+	err := CheckKnownFields(p)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrUnknownFields)
+	assert.Contains(t, err.Error(), "the document root")
+	assert.Contains(t, err.Error(), "overrides[1].spec.scan_gate")
 }
 
 func TestHasUserComments(t *testing.T) {

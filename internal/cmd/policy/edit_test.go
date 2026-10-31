@@ -9,12 +9,14 @@ import (
 
 	scangatev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/scangate/v1"
 	policyv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/policy/v1"
+	"github.com/safedep/dry/usefulerror"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protowire"
 
 	"github.com/safedep/cli/internal/cloudpolicy/mocks"
 )
@@ -46,9 +48,13 @@ func replace(old, new string) func(string) string {
 
 func keep(s string) string { return s }
 
+func sameAs(original string) func([]byte) bool {
+	return func(saved []byte) bool { return string(saved) == original }
+}
+
 func TestEditLoop_NoChange(t *testing.T) {
 	ed := &scriptedEditor{edits: []func(string) string{keep}}
-	err := editLoop(context.Background(), ed.open, []byte("a: 1\n"), func([]byte) error {
+	err := editLoop(context.Background(), ed.open, []byte("a: 1\n"), sameAs("a: 1\n"), func([]byte) error {
 		t.Fatal("save must not run")
 		return nil
 	})
@@ -61,7 +67,7 @@ func TestEditLoop_ReopensWithTheErrorAndSaves(t *testing.T) {
 		replace("a: bad", "a: 2"),
 	}}
 	var saved []string
-	err := editLoop(context.Background(), ed.open, []byte("a: 1\n"), func(text []byte) error {
+	err := editLoop(context.Background(), ed.open, []byte("a: 1\n"), sameAs("a: 1\n"), func(text []byte) error {
 		saved = append(saved, string(text))
 		if strings.Contains(string(text), "bad") {
 			return retryable(errors.New("line 1: a: expected a number"))
@@ -78,7 +84,7 @@ func TestEditLoop_ReopensWithTheErrorAndSaves(t *testing.T) {
 func TestEditLoop_ServerRejectionIsRetryable(t *testing.T) {
 	ed := &scriptedEditor{edits: []func(string) string{replace("1", "2"), replace("2", "3")}}
 	calls := 0
-	err := editLoop(context.Background(), ed.open, []byte("a: 1\n"), func([]byte) error {
+	err := editLoop(context.Background(), ed.open, []byte("a: 1\n"), sameAs("a: 1\n"), func([]byte) error {
 		calls++
 		if calls == 1 {
 			return status.Error(codes.InvalidArgument, "override priorities must be unique")
@@ -91,7 +97,7 @@ func TestEditLoop_ServerRejectionIsRetryable(t *testing.T) {
 
 func TestEditLoop_StopsWhenTheUserGivesUp(t *testing.T) {
 	ed := &scriptedEditor{edits: []func(string) string{replace("1", "x"), keep}}
-	err := editLoop(context.Background(), ed.open, []byte("a: 1\n"), func([]byte) error {
+	err := editLoop(context.Background(), ed.open, []byte("a: 1\n"), sameAs("a: 1\n"), func([]byte) error {
 		return retryable(errors.New("bad"))
 	})
 	require.Error(t, err)
@@ -100,7 +106,7 @@ func TestEditLoop_StopsWhenTheUserGivesUp(t *testing.T) {
 
 func TestEditLoop_KeepsTheFileOnAnRPCFailure(t *testing.T) {
 	ed := &scriptedEditor{edits: []func(string) string{replace("1", "2")}}
-	err := editLoop(context.Background(), ed.open, []byte("a: 1\n"), func([]byte) error {
+	err := editLoop(context.Background(), ed.open, []byte("a: 1\n"), sameAs("a: 1\n"), func([]byte) error {
 		return status.Error(codes.Unavailable, "down")
 	})
 	require.Error(t, err)
@@ -204,4 +210,124 @@ func TestValidateSettings(t *testing.T) {
 			assert.ErrorContains(t, err, tt.want)
 		})
 	}
+}
+
+func TestRunEdit_RenameKeepsTheOverrideID(t *testing.T) {
+	stderr := captureStderr(t)
+	client := mocks.NewPolicyServiceClientMock(t)
+	client.EXPECT().GetPolicy(mock.Anything, mock.Anything).Return(headResponse(), nil)
+	var req *policyv1.CreatePolicyChangeRequest
+	client.EXPECT().CreatePolicyChange(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, r *policyv1.CreatePolicyChangeRequest, _ ...grpc.CallOption) (*policyv1.CreatePolicyChangeResponse, error) {
+			req = r
+			res := &policyv1.CreatePolicyChangeResponse{}
+			res.SetChange(openChange("18"))
+			return res, nil
+		})
+
+	ed := &scriptedEditor{edits: []func(string) string{replace("name: payments", "name: payments-critical")}}
+	_, err := runEdit(context.Background(), client, ed.open, "", editInput{})
+	require.NoError(t, err)
+	assert.Contains(t, ed.seen[0], "  - id: ov_pay\n    name: payments\n")
+
+	o := req.GetSettings().GetOverrides()[0]
+	assert.Equal(t, "payments-critical", o.GetName())
+	assert.Equal(t, "ov_pay", o.GetOverrideId(), "a rename keeps the id, so it is not a new override")
+	assert.NotContains(t, stderr.String(), "This removes")
+}
+
+func TestRunEdit_WarnsAboutARemovedOverride(t *testing.T) {
+	stderr := captureStderr(t)
+	client := mocks.NewPolicyServiceClientMock(t)
+	client.EXPECT().GetPolicy(mock.Anything, mock.Anything).Return(headResponse(), nil)
+	var req *policyv1.CreatePolicyChangeRequest
+	client.EXPECT().CreatePolicyChange(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, r *policyv1.CreatePolicyChangeRequest, _ ...grpc.CallOption) (*policyv1.CreatePolicyChangeResponse, error) {
+			req = r
+			res := &policyv1.CreatePolicyChangeResponse{}
+			res.SetChange(openChange("18"))
+			return res, nil
+		})
+
+	removeCI := func(s string) string {
+		i := strings.Index(s, "  - id: ov_ci")
+		return s[:i]
+	}
+	ed := &scriptedEditor{edits: []func(string) string{removeCI}}
+	_, err := runEdit(context.Background(), client, ed.open, "", editInput{})
+	require.NoError(t, err)
+	require.Len(t, req.GetSettings().GetOverrides(), 1)
+	assert.Contains(t, stderr.String(), `This removes policy override "ci" (id ov_ci)`)
+}
+
+func TestRunEdit_RefusesAnIDThatIsNotInThePolicy(t *testing.T) {
+	captureStderr(t)
+	client := mocks.NewPolicyServiceClientMock(t)
+	client.EXPECT().GetPolicy(mock.Anything, mock.Anything).Return(headResponse(), nil)
+	ed := &scriptedEditor{edits: []func(string) string{replace("id: ov_ci", "id: ov_other"), keep}}
+	_, err := runEdit(context.Background(), client, ed.open, "", editInput{})
+	require.Error(t, err)
+	assert.Contains(t, ed.seen[1], `id "ov_other" is not in the policy`)
+}
+
+func TestRunEdit_RefusesFieldsThatThisCLIDoesNotKnow(t *testing.T) {
+	head := headResponse()
+	unknown := protowire.AppendTag(nil, 99, protowire.VarintType)
+	unknown = protowire.AppendVarint(unknown, 1)
+	head.GetPolicy().GetBase().GetScanGate().ProtoReflect().SetUnknown(unknown)
+	client := mocks.NewPolicyServiceClientMock(t)
+	client.EXPECT().GetPolicy(mock.Anything, mock.Anything).Return(head, nil)
+
+	_, err := runEdit(context.Background(), client, (&scriptedEditor{}).open, "", editInput{})
+	require.Error(t, err)
+	ue, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Contains(t, ue.HumanError(), "the policy holds fields that this safedep CLI does not know: at base.scan_gate")
+	assert.Contains(t, ue.Help(), "Update the safedep CLI")
+}
+
+func TestRunEdit_PermissionDenied(t *testing.T) {
+	client := mocks.NewPolicyServiceClientMock(t)
+	client.EXPECT().GetPolicy(mock.Anything, mock.Anything).Return(headResponse(), nil)
+	client.EXPECT().CreatePolicyChange(mock.Anything, mock.Anything).Return(nil, status.Error(codes.PermissionDenied, "member"))
+
+	ed := &scriptedEditor{edits: []func(string) string{replace("fail_on: critical", "fail_on: high")}}
+	_, err := runEdit(context.Background(), client, ed.open, "", editInput{})
+	require.Error(t, err)
+	ue, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Equal(t, usefulerror.ErrAuthorizationFailed, ue.Code())
+	assert.Contains(t, ue.HumanError(), "Your role cannot change the policy")
+	assert.Contains(t, ue.Help(), "Ask an Admin of the tenant to do it")
+	assert.Contains(t, ue.Help(), "Your edit is in")
+}
+
+func TestRunEdit_RewrittenLineEndingsAreNoChange(t *testing.T) {
+	client := mocks.NewPolicyServiceClientMock(t)
+	client.EXPECT().GetPolicy(mock.Anything, mock.Anything).Return(headResponse(), nil)
+	crlf := func(s string) string { return strings.ReplaceAll(s, "\n", "\r\n") }
+	_, err := runEdit(context.Background(), client, (&scriptedEditor{edits: []func(string) string{crlf}}).open, "", editInput{})
+	assert.ErrorIs(t, err, errNoChange)
+}
+
+func TestRunChangeEdit_RestoreChange(t *testing.T) {
+	stderr := captureStderr(t)
+	client := mocks.NewPolicyServiceClientMock(t)
+	c := openChange("20")
+	restore := &policyv1.RestoreSource{}
+	restore.SetFromRevision(46)
+	c.SetRestore(restore)
+	client.EXPECT().GetPolicyChange(mock.Anything, mock.Anything).Return(changeResponse(c), nil)
+	client.EXPECT().GetPolicy(mock.Anything, mock.Anything).Return(headResponse(), nil)
+	res := &policyv1.UpdatePolicyChangeResponse{}
+	res.SetChange(c)
+	client.EXPECT().UpdatePolicyChange(mock.Anything, mock.MatchedBy(func(r *policyv1.UpdatePolicyChangeRequest) bool {
+		return r.HasSettings() && r.GetSettings().GetBase().GetScanGate().GetFailOn() == scangatev1.Severity_SEVERITY_LOW
+	})).Return(res, nil)
+
+	ed := &scriptedEditor{edits: []func(string) string{replace("base:\n  scan_gate:\n    fail_on: high", "base:\n  scan_gate:\n    fail_on: low")}}
+	_, err := runChangeEdit(context.Background(), client, ed.open, "", "20", editInput{})
+	require.NoError(t, err)
+	assert.Contains(t, stderr.String(), "Change 20 restores from revision 46. Saving replaces the settings that the restore made")
+	assert.Contains(t, ed.seen[0], "fail_on: high", "a change with no settings starts from head")
 }

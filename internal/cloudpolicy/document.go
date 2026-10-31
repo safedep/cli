@@ -14,18 +14,24 @@ import (
 
 	policyv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/policy/v1"
 	yaml "go.yaml.in/yaml/v3"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 // documentCodec writes the policy settings document. It leaves out the
-// package rules, because admins change them through rule operations, and the
-// override ids, which the server owns. RestoreOverrideIDs puts the ids back
-// by name before a save.
-var documentCodec = &yamlCodec{skip: map[protoreflect.FullName]string{
-	"safedep.policy.spec.v1.PolicySpec.core": "package rules are not in this file. " +
-		"Change them with: safedep policy rule",
-	"safedep.services.controltower.policy.v1.Override.override_id": "",
-}}
+// package rules, because admins change them through rule operations. It
+// writes the id of each policy override as "id", so a rename keeps the
+// override: the server sets the id, keeps it, and refuses an id that is not
+// at head. An override with no id is a new one.
+var documentCodec = &yamlCodec{
+	skip: map[protoreflect.FullName]string{
+		"safedep.policy.spec.v1.PolicySpec.core": "package rules are not in this file. " +
+			"Change them with: safedep policy rule",
+	},
+	names: map[protoreflect.FullName]string{
+		"safedep.services.controltower.policy.v1.Override.override_id": "id",
+	},
+}
 
 // ErrEmptyDocument is the error for a saved file with no content.
 var ErrEmptyDocument = errors.New("the file is empty")
@@ -102,24 +108,6 @@ func PolicyMap(p *policyv1.Policy) (any, error) {
 	return out, nil
 }
 
-// RestoreOverrideIDs gives each edited policy override with no id the id of
-// the head policy override with the same name. The document leaves the ids
-// out, so the server can tell an edit of a policy override from a new one.
-func RestoreOverrideIDs(edited, head *policyv1.Policy) {
-	ids := make(map[string]string, len(head.GetOverrides()))
-	for _, o := range head.GetOverrides() {
-		ids[o.GetName()] = o.GetOverrideId()
-	}
-	for _, o := range edited.GetOverrides() {
-		if o.GetOverrideId() != "" {
-			continue
-		}
-		if id, ok := ids[o.GetName()]; ok {
-			o.SetOverrideId(id)
-		}
-	}
-}
-
 // HasUserComments reports whether the saved file holds a comment other than
 // the header that the CLI wrote. The policy keeps no comments, so a person
 // loses them on save.
@@ -171,4 +159,55 @@ func parseDocument(data []byte) (*yaml.Node, error) {
 		return nil, ErrEmptyDocument
 	}
 	return node, nil
+}
+
+// ErrUnknownFields is the error for a policy with fields that the SDK of
+// this CLI does not know.
+var ErrUnknownFields = errors.New("the policy holds fields that this safedep CLI does not know")
+
+// CheckKnownFields walks every level of a message and fails when one holds
+// fields that the SDK of this CLI does not know. An edit cannot show such a
+// field, and a save would drop it from the policy, so the edit must stop.
+func CheckKnownFields(m proto.Message) error {
+	if m == nil {
+		return nil
+	}
+	var paths []string
+	collectUnknown(m.ProtoReflect(), "", &paths)
+	if len(paths) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: at %s", ErrUnknownFields, strings.Join(paths, ", "))
+}
+
+func collectUnknown(m protoreflect.Message, path string, out *[]string) {
+	if len(m.GetUnknown()) > 0 {
+		at := path
+		if at == "" {
+			at = "the document root"
+		}
+		*out = append(*out, at)
+	}
+	m.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
+		fieldPath := joinPath(path, string(fd.Name()))
+		switch {
+		case fd.IsList() && isMessageKind(fd):
+			list := v.List()
+			for i := 0; i < list.Len(); i++ {
+				collectUnknown(list.Get(i).Message(), fmt.Sprintf("%s[%d]", fieldPath, i), out)
+			}
+		case fd.IsMap() && isMessageKind(fd.MapValue()):
+			v.Map().Range(func(k protoreflect.MapKey, mv protoreflect.Value) bool {
+				collectUnknown(mv.Message(), joinPath(fieldPath, k.String()), out)
+				return true
+			})
+		case !fd.IsList() && !fd.IsMap() && isMessageKind(fd):
+			collectUnknown(v.Message(), fieldPath, out)
+		}
+		return true
+	})
+}
+
+func isMessageKind(fd protoreflect.FieldDescriptor) bool {
+	return fd.Kind() == protoreflect.MessageKind || fd.Kind() == protoreflect.GroupKind
 }

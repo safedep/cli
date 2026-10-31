@@ -24,67 +24,6 @@ type changeListInput struct {
 	PageToken string
 }
 
-type changeView struct {
-	ID                string `json:"change_id"`
-	Title             string `json:"title"`
-	State             string `json:"state"`
-	BaseRevision      uint64 `json:"base_revision"`
-	PublishedRevision uint64 `json:"published_revision,omitempty"`
-	Author            string `json:"author"`
-	EditsSettings     bool   `json:"edits_settings"`
-	RuleOperations    int    `json:"package_rule_operations"`
-	RestoreFrom       uint64 `json:"restore_from_revision,omitempty"`
-	Created           string `json:"created_at,omitempty"`
-	Updated           string `json:"updated_at,omitempty"`
-	updatedAt         *time.Time
-}
-
-func newChangeView(c *policyv1.PolicyChange) changeView {
-	updated := timeOf(c.GetUpdatedAt())
-	v := changeView{
-		ID:                c.GetChangeId(),
-		Title:             c.GetTitle(),
-		State:             tui.EnumToken(c.GetState().String(), changeStatePrefix),
-		BaseRevision:      c.GetBaseRevision(),
-		PublishedRevision: c.GetPublishedRevision(),
-		Author:            actorName(c.GetAuthor()),
-		EditsSettings:     c.HasSettings(),
-		RuleOperations:    len(c.GetPackageRuleOperations()),
-		Created:           cloudpolicy.RFC3339(timeOf(c.GetCreatedAt())),
-		Updated:           cloudpolicy.RFC3339(updated),
-		updatedAt:         updated,
-	}
-	if c.HasRestore() {
-		v.RestoreFrom = c.GetRestore().GetFromRevision()
-	}
-	return v
-}
-
-func (v changeView) titleOrUntitled() string {
-	if v.Title == "" {
-		return "(untitled)"
-	}
-	return v.Title
-}
-
-// contents says what the change edits, as in "settings, 2 rule operations".
-func (v changeView) contents() string {
-	var parts []string
-	if v.RestoreFrom > 0 {
-		parts = append(parts, fmt.Sprintf("restore from revision %d", v.RestoreFrom))
-	}
-	if v.EditsSettings {
-		parts = append(parts, "settings")
-	}
-	if v.RuleOperations > 0 {
-		parts = append(parts, fmt.Sprintf("%d rule %s", v.RuleOperations, plural(v.RuleOperations, "operation", "operations")))
-	}
-	if len(parts) == 0 {
-		return "nothing"
-	}
-	return strings.Join(parts, ", ")
-}
-
 type changeListResult struct {
 	Changes       []changeView `json:"changes"`
 	NextPageToken string       `json:"next_page_token,omitempty"`
@@ -95,8 +34,8 @@ func changeListCmd(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List policy changes, newest first",
-		Long: "List the policy changes of the tenant, newest first. Filter by state. One page is returned " +
-			"per invocation, so follow --page-token to read the next page.",
+		Long: "List the policy changes of the tenant, newest first. Filter by state. The command reads one page. " +
+			"Pass --page-token to read the next page.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if err := cobra.NoArgs(cmd, args); err != nil {
 				return err
@@ -184,16 +123,16 @@ func (r *changeListResult) RenderTable() string {
 		}
 		rows = append(rows, []string{
 			c.ID, c.titleOrUntitled(), state, fmt.Sprintf("%d", c.BaseRevision),
-			c.contents(), emptyDash(c.Author), humanTimeCell(c.updatedAt, now),
+			c.contents(), cloudpolicy.EmptyDash(c.Author), humanTimeCell(c.updatedAt, now),
 		})
 	}
 	t := table.New().
 		Title("Policy changes").
 		Headers("CHANGE", "TITLE", "STATE", "BASE REV", "EDITS", "AUTHOR", "UPDATED").
-		Rows(rows...).
+		Rows(tui.EscapeCells(rows)...).
 		EmptyMessage("No policy changes. Create one with: safedep policy edit")
 	if len(rows) > 0 {
-		footer := fmt.Sprintf("%d %s", len(rows), plural(len(rows), "change", "changes"))
+		footer := fmt.Sprintf("%d %s", len(rows), cloudpolicy.Plural(len(rows), "change", "changes"))
 		if r.NextPageToken != "" {
 			footer += ". More available: --page-token " + r.NextPageToken
 		}
@@ -206,8 +145,8 @@ func (r *changeListResult) RenderPlain() string {
 	var b strings.Builder
 	b.WriteString("change_id\ttitle\tstate\tbase_revision\tpublished_revision\tauthor\tupdated_at")
 	for _, c := range r.Changes {
-		fmt.Fprintf(&b, "\n%s\t%s\t%s\t%d\t%d\t%s\t%s",
-			c.ID, c.Title, c.State, c.BaseRevision, c.PublishedRevision, c.Author, c.Updated)
+		b.WriteString("\n" + tui.PlainRow(c.ID, c.Title, c.State, fmt.Sprint(c.BaseRevision),
+			fmt.Sprint(c.PublishedRevision), c.Author, c.Updated))
 	}
 	return b.String()
 }

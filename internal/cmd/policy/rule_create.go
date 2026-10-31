@@ -1,14 +1,7 @@
 package policy
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"errors"
-	"fmt"
-	"io"
-	"os"
-	"slices"
 	"strings"
 	"time"
 
@@ -18,10 +11,10 @@ import (
 	"github.com/safedep/dry/tui"
 	"github.com/safedep/dry/tui/humanize"
 	"github.com/spf13/cobra"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/cloudpolicy"
+	clitui "github.com/safedep/cli/internal/tui"
 )
 
 const (
@@ -105,170 +98,6 @@ func ruleCreateCmd(a *app.App) *cobra.Command {
 	return cmd
 }
 
-func validateRuleCreate(in ruleCreateInput) error {
-	switch {
-	case in.Block == in.Trust:
-		return invalidInputError(errors.New("give one of --block or --trust"),
-			"Block: safedep policy rule create --block pkg:npm/name --reason TEXT")
-	case in.File != "" && in.Selector != "":
-		return invalidInputError(errors.New("give a PURL or --file, not both"), "Use --file for a list of selectors")
-	case in.File == "" && in.Selector == "":
-		return invalidInputError(errors.New("give the PURL of the package"),
-			"As in: safedep policy rule create --block pkg:npm/evil --reason TEXT")
-	case in.File != "" && in.Trust:
-		return invalidInputError(errors.New("only block entries can come from a file"),
-			"Create each trust entry with its own command")
-	case in.File != "" && in.Vers != "":
-		return invalidInputError(errors.New("--vers applies to one PURL: in a file, write the range after the PURL"),
-			"Write each line as: PURL [RANGE]")
-	case strings.TrimSpace(in.Reason) == "":
-		return invalidInputError(errors.New("--reason is required"), "Say why the rule exists, as in --reason \"IR-2291 credential stealer\"")
-	case in.Trust && len(in.Scopes) == 0:
-		return invalidInputError(errors.New("a trust entry needs --scope"),
-			"Name each verdict that it waives: --scope "+strings.Join(trustScopeTokens(), ", --scope ")+", or --scope all")
-	case in.Trust && in.Expires == "":
-		return invalidInputError(errors.New("a trust entry needs --expires"), "As in --expires 30d")
-	case in.Block && len(in.Scopes) > 0:
-		return invalidInputError(errors.New("a block entry has no scope"), "Remove --scope")
-	}
-	_, err := expandScopes(in.Scopes)
-	return err
-}
-
-// expandScopes reads the --scope values. "all" expands to every trust scope
-// that this SDK knows, because the contract has no "all" value: a scope that
-// a later release adds never widens a stored entry.
-func expandScopes(values []string) ([]corev1.TrustScope, error) {
-	var out []corev1.TrustScope
-	for _, v := range values {
-		if strings.EqualFold(strings.TrimSpace(v), scopeAll) {
-			out = out[:0]
-			for _, token := range trustScopeTokens() {
-				scope, err := parseTrustScope(token)
-				if err != nil {
-					return nil, err
-				}
-				out = append(out, scope)
-			}
-			return out, nil
-		}
-		scope, err := parseTrustScope(v)
-		if err != nil {
-			return nil, err
-		}
-		if !slices.Contains(out, scope) {
-			out = append(out, scope)
-		}
-	}
-	return out, nil
-}
-
-// buildRuleCreates checks every selector and builds the rules, before any
-// RPC, so one bad line in a file stops the whole create.
-func buildRuleCreates(in ruleCreateInput, stdin io.Reader, now time.Time) ([]*policyv1.PackageRuleCreate, error) {
-	if err := validateRuleCreate(in); err != nil {
-		return nil, err
-	}
-	effect := corev1.Effect_EFFECT_BLOCK
-	if in.Trust {
-		effect = corev1.Effect_EFFECT_TRUST
-	}
-	scopes, err := expandScopes(in.Scopes)
-	if err != nil {
-		return nil, err
-	}
-	var expires *timestamppb.Timestamp
-	if in.Expires != "" {
-		t, err := parseExpiry(in.Expires, now)
-		if err != nil {
-			return nil, invalidInputError(err, "Use a duration, as in 30d, or a date, as in 2027-01-26")
-		}
-		expires = timestamppb.New(t)
-	}
-
-	entries := []selectorEntry{{purl: in.Selector, vers: in.Vers}}
-	if in.File != "" {
-		entries, err = readSelectorFile(in.File, stdin)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	creates := make([]*policyv1.PackageRuleCreate, 0, len(entries))
-	for _, e := range entries {
-		selector, err := buildSelector(e.purl, e.vers, effect)
-		if err != nil {
-			if e.line > 0 {
-				err = fmt.Errorf("%s line %d: %w", in.File, e.line, err)
-			}
-			return nil, invalidInputError(err, "Fix the selector and run the command again")
-		}
-		rule := &corev1.PackageRule{}
-		rule.SetSelector(selector)
-		rule.SetEffect(effect)
-		rule.SetScopes(scopes)
-		rule.SetReason(in.Reason)
-		if expires != nil {
-			rule.SetExpiresAt(expires)
-		}
-		create := &policyv1.PackageRuleCreate{}
-		create.SetRule(rule)
-		create.SetTicket(in.Ticket)
-		create.SetRequestedBy(in.RequestedBy)
-		creates = append(creates, create)
-	}
-	return creates, nil
-}
-
-type selectorEntry struct {
-	purl string
-	vers string
-	line int
-}
-
-// readSelectorFile reads one selector on each line: a PURL and an optional
-// range after a space. A line that starts with # and an empty line are
-// skipped.
-func readSelectorFile(path string, stdin io.Reader) ([]selectorEntry, error) {
-	r := stdin
-	if path != "-" {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil, invalidInputError(fmt.Errorf("read %s: %w", path, err), "Check the path of --file")
-		}
-		r = bytes.NewReader(data)
-	}
-	var entries []selectorEntry
-	scanner := bufio.NewScanner(r)
-	for n := 1; scanner.Scan(); n++ {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) > 2 {
-			return nil, invalidInputError(fmt.Errorf("%s line %d: write a PURL and an optional range, not %d values", path, n, len(fields)),
-				"Write each line as: PURL [RANGE]")
-		}
-		entry := selectorEntry{purl: fields[0], line: n}
-		if len(fields) == 2 {
-			entry.vers = fields[1]
-		}
-		entries = append(entries, entry)
-		if len(entries) > maxBulkRules {
-			return nil, invalidInputError(fmt.Errorf("%s has more than %d selectors", path, maxBulkRules),
-				fmt.Sprintf("Split the file into parts of %d lines or fewer", maxBulkRules))
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("read %s: %w", path, err)
-	}
-	if len(entries) == 0 {
-		return nil, invalidInputError(fmt.Errorf("%s has no selectors", path), "Write one PURL on each line")
-	}
-	return entries, nil
-}
-
 func runRuleCreate(
 	ctx context.Context,
 	client policyv1grpc.PolicyServiceClient,
@@ -303,15 +132,21 @@ func announceRuleCreate(in ruleCreateInput, creates []*policyv1.PackageRuleCreat
 	if in.Override == "" {
 		tui.Info("Applies to every endpoint and project of the tenant (base). Use --override NAME to narrow it.")
 	} else {
-		tui.Info("Applies to the subjects that policy override %q selects.", in.Override)
+		tui.Info("Applies to the subjects that policy override %q selects.", clitui.EscapeLine(in.Override))
 	}
 	if in.Block {
+		for _, c := range creates {
+			if purl := c.GetRule().GetSelector().GetPurl(); isWideSelector(purl) {
+				tui.Warning("Selector %s blocks every package of its ecosystem. It stops every install of that ecosystem in the tenant",
+					clitui.EscapeLine(purl))
+			}
+		}
 		tui.Info("A block stops new installs. It does not remove installed copies.")
 		return
 	}
 	purl := creates[0].GetRule().GetSelector().GetPurl()
 	for _, scope := range creates[0].GetRule().GetScopes() {
-		tui.Warning("This rule loosens the policy: it waives %s for %s.", scopeEffect(scope), purl)
+		tui.Warning("This rule loosens the policy: it waives %s for %s.", scopeEffect(scope), clitui.EscapeLine(purl))
 	}
 	tui.Warning("Verified malware stays blocked")
 }
@@ -331,12 +166,12 @@ func scopeEffect(scope corev1.TrustScope) string {
 
 func reportRuleCreate(in ruleCreateInput, res *ruleCreateResult, now time.Time) {
 	if len(res.Rules) == 1 {
-		tui.Success("rule %s created%srevision %d published", res.Rules[0].GetRule().GetRuleId(), sep, res.Revision)
+		tui.Success("rule %s created%srevision %d published", clitui.EscapeLine(res.Rules[0].GetRule().GetRuleId()), sep, res.Revision)
 	} else {
 		tui.Success("%d rules created%srevision %d published", len(res.Rules), sep, res.Revision)
 	}
 	if in.Trust && len(res.Rules) == 1 {
-		if expires := timeOf(res.Rules[0].GetRule().GetExpiresAt()); expires != nil {
+		if expires := cloudpolicy.TimeOf(res.Rules[0].GetRule().GetExpiresAt()); expires != nil {
 			tui.Info("  The rule expires %s (%s)", humanize.Time(*expires, now), expires.Format(time.DateOnly))
 		}
 	}

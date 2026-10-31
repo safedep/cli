@@ -38,6 +38,7 @@ The file starts with a header that shows the layers:
 #   3. overrides - apply to the subjects that their selector matches.
 #                  For each field, the highest priority that sets it wins.
 #
+# Keep the id of each override. A new override has no id.
 # Package rules are not in this file: 211 rules (safedep policy rule list)
 # The policy keeps no comments. Write the reason for a value in a description field.
 ```
@@ -55,6 +56,13 @@ safedep policy edit --override payments
 
 ## Behavior
 
+- Each policy override has its `id`. Keep it when you rename an override. Remove
+  an override, or add one with no `id`. The command refuses an `id` that is not in
+  the policy, and warns before the save for each override that the edit removes.
+  The server refuses to remove an override while package rules attach to it.
+- When the policy holds fields that this CLI does not know, the command stops
+  before the editor opens, because a save would drop them. Update the CLI.
+- An editor that only rewrites line endings or spacing makes no change.
 - When you close the editor with no change, the command saves nothing.
 - When the file does not parse, or the server rejects it as invalid, the editor
   opens again with the error at the top. Close it with no change to stop.

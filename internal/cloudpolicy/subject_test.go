@@ -132,6 +132,26 @@ func TestGetSubjectPolicy(t *testing.T) {
 	assert.Contains(t, got.RenderPlain(), "scan_gate.fail_on\tmedium\toverride \"payments\" (200)")
 }
 
+func TestSubjectPolicy_EscapesServerText(t *testing.T) {
+	res := subjectPolicyResponse()
+	label := res.GetLabels()[0]
+	label.SetValue("high\x1b[2J\x1b]0;pwned\x07")
+	got, err := GetSubjectPolicy(context.Background(), &fakeSubjectPolicyClient{res: res},
+		NewSubject(specv1.SubjectKind_SUBJECT_KIND_ENDPOINT, "ep_1"), "host\nname", nil)
+	require.NoError(t, err)
+
+	for _, out := range []string{got.RenderTable(), got.RenderPlain()} {
+		assert.NotContains(t, out, "\x1b")
+		assert.NotContains(t, out, "\x07")
+	}
+	assert.Contains(t, got.RenderTable(), `custom/criticality=high\x1b[2J\x1b]0;pwned\x07`)
+	assert.Contains(t, got.RenderTable(), `host\nname`)
+
+	b, err := got.RenderJSON()
+	require.NoError(t, err)
+	assert.Contains(t, string(b), `\u001b[2J`, "JSON keeps the raw value, escaped by the JSON encoder")
+}
+
 func TestGetSubjectPolicy_FieldFilter(t *testing.T) {
 	client := &fakeSubjectPolicyClient{res: subjectPolicyResponse()}
 	subject := NewSubject(specv1.SubjectKind_SUBJECT_KIND_ENDPOINT, "ep_1")

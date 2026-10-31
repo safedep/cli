@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/cloudpolicy"
 	"github.com/safedep/cli/internal/paging"
+	clitui "github.com/safedep/cli/internal/tui"
 )
 
 type revisionListInput struct {
@@ -34,8 +34,8 @@ func revisionListCmd(a *app.App) *cobra.Command {
 		Use:   "list",
 		Short: "List policy revisions, newest first",
 		Long: "List the policy revisions of the tenant, newest first, with the author, the source, the change " +
-			"direction and the publish message. One page is returned per invocation, so follow " +
-			"--page-token to read the next page.",
+			"direction and the publish message. The command reads one page. Pass --page-token to " +
+			"read the next page.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, err := a.ControlPlane()
@@ -84,14 +84,14 @@ func (r *revisionListResult) RenderTable() string {
 	rows := make([][]string, 0, len(r.Revisions))
 	for _, rev := range r.Revisions {
 		rows = append(rows, []string{
-			fmt.Sprintf("%d", rev.Revision), humanTimeCell(rev.PublishedAt, now), emptyDash(rev.Author),
-			rev.Source, rev.Direction, emptyDash(rev.Message),
+			fmt.Sprintf("%d", rev.Revision), humanTimeCell(rev.PublishedAt, now), cloudpolicy.EmptyDash(rev.Author),
+			rev.Source, rev.Direction, cloudpolicy.EmptyDash(rev.Message),
 		})
 	}
 	t := table.New().
 		Title("Policy revisions").
 		Headers("REV", "PUBLISHED", "BY", "SOURCE", "DIRECTION", "MESSAGE").
-		Rows(rows...).
+		Rows(clitui.EscapeCells(rows)...).
 		EmptyMessage("No policy revisions. The tenant has not published a policy yet.")
 	if r.NextPageToken != "" {
 		t = t.Footer("More available: --page-token " + r.NextPageToken)
@@ -103,98 +103,8 @@ func (r *revisionListResult) RenderPlain() string {
 	var b strings.Builder
 	b.WriteString("revision\tpublished_at\tauthor\tsource\tdirection\tchange_id\tmessage")
 	for _, rev := range r.Revisions {
-		fmt.Fprintf(&b, "\n%d\t%s\t%s\t%s\t%s\t%s\t%s",
-			rev.Revision, rev.Published, rev.Author, rev.Source, rev.Direction, rev.ChangeID, rev.Message)
+		b.WriteString("\n" + clitui.PlainRow(fmt.Sprint(rev.Revision), rev.Published, rev.Author, rev.Source,
+			rev.Direction, rev.ChangeID, rev.Message))
 	}
 	return b.String()
-}
-
-type revisionShowResult struct {
-	Revision *revisionView
-	Document any
-	YAML     string
-}
-
-func revisionShowCmd(a *app.App) *cobra.Command {
-	return &cobra.Command{
-		Use:   "show REVISION",
-		Short: "Show one policy revision with its policy settings",
-		Long: "Show one policy revision: who published it, when, from which change, its change direction, " +
-			"and the policy settings document at that revision.",
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			revision, err := parseRevision(args[0])
-			if err != nil {
-				return err
-			}
-			client, err := a.ControlPlane()
-			if err != nil {
-				return err
-			}
-			res, err := runRevisionShow(cmd.Context(), cloudpolicy.NewPolicyClient(client.Connection()), revision)
-			if err != nil {
-				return err
-			}
-			return a.Output.Print(res)
-		},
-	}
-}
-
-func parseRevision(text string) (uint64, error) {
-	n, err := strconv.ParseUint(strings.TrimPrefix(text, "rev"), 10, 64)
-	if err != nil || n == 0 {
-		return 0, invalidInputError(fmt.Errorf("revision %q is not a revision number", text),
-			"Give a number from: safedep policy revision list")
-	}
-	return n, nil
-}
-
-func runRevisionShow(ctx context.Context, client policyv1grpc.PolicyServiceClient, revision uint64) (*revisionShowResult, error) {
-	req := &policyv1.GetPolicyRevisionRequest{}
-	req.SetRevision(revision)
-	res, err := client.GetPolicyRevision(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("policy revision show: %w", err)
-	}
-	doc, err := cloudpolicy.PolicyMap(res.GetPolicy())
-	if err != nil {
-		return nil, err
-	}
-	text, err := cloudpolicy.MarshalPolicy(res.GetPolicy(), "")
-	if err != nil {
-		return nil, err
-	}
-	view := newRevisionView(res.GetRevision())
-	if view == nil {
-		return nil, fmt.Errorf("policy revision show: invalid response: revision %d is missing", revision)
-	}
-	return &revisionShowResult{Revision: view, Document: doc, YAML: string(trimNewline(text))}, nil
-}
-
-func (r *revisionShowResult) RenderJSON() ([]byte, error) {
-	return json.MarshalIndent(struct {
-		Revision *revisionView `json:"revision"`
-		Policy   any           `json:"policy"`
-	}{Revision: r.Revision, Policy: r.Document}, "", "  ")
-}
-
-func (r *revisionShowResult) RenderTable() string {
-	rev := r.Revision
-	change := "-"
-	if rev.ChangeID != "" {
-		change = rev.ChangeID + sep + "safedep policy change show " + rev.ChangeID
-	}
-	rows := [][2]string{
-		{"Revision", rev.summary(time.Now())},
-		{"Source", rev.Source},
-		{"Direction", rev.Direction},
-		{"Change", change},
-	}
-	return cloudpolicy.KeyValues(rows) + "\n\nPolicy settings\n" + r.YAML
-}
-
-func (r *revisionShowResult) RenderPlain() string {
-	rev := r.Revision
-	return fmt.Sprintf("revision\t%d\npublished_at\t%s\nauthor\t%s\nsource\t%s\ndirection\t%s\nchange_id\t%s\nmessage\t%s\n%s",
-		rev.Revision, rev.Published, rev.Author, rev.Source, rev.Direction, rev.ChangeID, rev.Message, r.YAML)
 }

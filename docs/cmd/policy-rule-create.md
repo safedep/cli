@@ -22,7 +22,7 @@ safedep policy rule create --trust PURL --scope SCOPE --expires DURATION --reaso
 | `-f`, `--file <path>` | With `--block`: a file with one selector on each line, a PURL and an optional range after a space. `#` starts a comment. `-` reads stdin. At most 1,000 selectors, in one revision. |
 | `--vers <range>` | A version range, as `'>=1.2.0'` or `'vers:npm/>=1.2.0\|<2.0.0'`. A bare range gets the `vers:` prefix and the type of the PURL. |
 | `--scope <scope>` | With `--trust`: `malware`, `cooldown`, `vulnerability` or `all`. Repeatable. Required. |
-| `--expires <when>` | A duration from now, as `30d`, or a date, as `2027-01-26`. Required with `--trust`. |
+| `--expires <when>` | A duration from now, as `30d`, or a date, as `2027-01-26`. Required with `--trust`, and at most 90 days from now for a trust entry. |
 | `--reason <text>` | Why the rule exists. Required. Tools show it in a block message. |
 | `--ticket <ref>` | A ticket or incident reference, as `IR-2291`. |
 | `--requested-by <who>` | The team or person that asked for the rule. |
@@ -37,6 +37,8 @@ Selector rules, which the CLI checks before the request:
   has no version, qualifiers or subpath. Use `--vers` for a range.
 - A trust entry selects one package.
 - Set a version in the PURL or a `--vers` range, not both.
+- A prefix such as `pkg:npm/*` selects every package of an ecosystem. The command
+  warns, because such a block stops every install of that ecosystem in the tenant.
 
 `--scope all` expands to every trust scope that this CLI knows. The contract has
 no "all" value, so a scope that a later release adds never widens a stored entry.

@@ -14,7 +14,6 @@ import (
 	"github.com/safedep/dry/tui/humanize"
 	"github.com/safedep/dry/tui/table"
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/safedep/cli/internal/tui"
 )
@@ -190,9 +189,9 @@ func translateApplied(a *policyv1.AppliedPolicy) AppliedPolicy {
 		DefaultRevision: report.GetDefaultPolicyRevision(),
 		State:           tui.EnumToken(report.GetState().String(), applyStatePrefix),
 		RejectedReason:  report.GetRejectedReason(),
-		FetchedAt:       timePtr(report.GetFetchedAt()),
-		AppliedAt:       timePtr(report.GetAppliedAt()),
-		ReportedAt:      timePtr(a.GetReportedAt()),
+		FetchedAt:       TimeOf(report.GetFetchedAt()),
+		AppliedAt:       TimeOf(report.GetAppliedAt()),
+		ReportedAt:      TimeOf(a.GetReportedAt()),
 	}
 	for _, e := range report.GetExceptions() {
 		out.Exceptions = append(out.Exceptions, FieldException{
@@ -238,14 +237,6 @@ func appendUnique(values []string, v string) []string {
 		}
 	}
 	return append(values, v)
-}
-
-func timePtr(ts *timestamppb.Timestamp) *time.Time {
-	if ts == nil {
-		return nil
-	}
-	t := ts.AsTime().UTC()
-	return &t
 }
 
 // PolicyLine summarises the intended policy in one line: the revision and
@@ -346,12 +337,16 @@ func (p *SubjectPolicy) RenderTable() string {
 		{"Package rules", fmt.Sprintf("%d (%d trust, %d block)", p.TrustRules+p.BlockRules, p.TrustRules, p.BlockRules)},
 	}
 	if !p.Filtered {
-		rows = append(rows, [2]string{"Labels", emptyDash(strings.Join(p.Labels, "  "))})
+		labels := make([]string, 0, len(p.Labels))
+		for _, l := range p.Labels {
+			labels = append(labels, tui.EscapeLine(l))
+		}
+		rows = append(rows, [2]string{"Labels", EmptyDash(strings.Join(labels, "  "))})
 	}
 
 	fieldRows := make([][]string, 0, len(p.Fields))
 	for _, f := range p.Fields {
-		fieldRows = append(fieldRows, []string{f.Path, f.Human, f.Source, emptyDash(strings.Join(f.Exceptions, "; "))})
+		fieldRows = append(fieldRows, []string{f.Path, f.Human, f.Source, EmptyDash(strings.Join(f.Exceptions, "; "))})
 	}
 	empty := "The policy sets no fields for this " + p.Kind + "."
 	if p.Filtered {
@@ -359,21 +354,21 @@ func (p *SubjectPolicy) RenderTable() string {
 	}
 	fieldTable := table.New().
 		Headers("FIELD", "VALUE", "SOURCE", "EXCEPTIONS").
-		Rows(fieldRows...).
+		Rows(tui.EscapeCells(fieldRows)...).
 		EmptyMessage(empty).
 		Render()
 
 	appliedRows := make([][]string, 0, len(p.Applied))
 	for _, a := range p.Applied {
 		appliedRows = append(appliedRows, []string{
-			a.Implementer, emptyDash(a.Version), fmt.Sprintf("%d", a.Revision), a.State,
+			a.Implementer, EmptyDash(a.Version), fmt.Sprintf("%d", a.Revision), a.State,
 			humanTime(a.FetchedAt, now), humanTime(a.ReportedAt, now),
 		})
 	}
 	appliedTable := table.New().
 		Title("Applied policy, as each tool reported it").
 		Headers("TOOL", "VERSION", "REVISION", "STATE", "FETCHED", "REPORTED").
-		Rows(appliedRows...).
+		Rows(tui.EscapeCells(appliedRows)...).
 		EmptyMessage("No tool or check reported the policy that it applies for this " + p.Kind + " yet.").
 		Render()
 
@@ -384,10 +379,10 @@ func (p *SubjectPolicy) RenderPlain() string {
 	var b strings.Builder
 	b.WriteString("path\tvalue\tsource\texceptions")
 	for _, f := range p.Fields {
-		fmt.Fprintf(&b, "\n%s\t%s\t%s\t%s", f.Path, f.Value, f.Source, strings.Join(f.Exceptions, "; "))
+		b.WriteString("\n" + tui.PlainRow(f.Path, f.Value, f.Source, strings.Join(f.Exceptions, "; ")))
 	}
 	for _, a := range p.Applied {
-		fmt.Fprintf(&b, "\napplied:%s\t%d\t%s\t%s", a.Implementer, a.Revision, a.State, RFC3339(a.ReportedAt))
+		b.WriteString("\n" + tui.PlainRow("applied:"+a.Implementer, fmt.Sprint(a.Revision), a.State, RFC3339(a.ReportedAt)))
 	}
 	return b.String()
 }
@@ -405,11 +400,4 @@ func RFC3339(t *time.Time) string {
 		return ""
 	}
 	return t.UTC().Format(time.RFC3339)
-}
-
-func emptyDash(s string) string {
-	if s == "" {
-		return "-"
-	}
-	return s
 }

@@ -5,7 +5,7 @@ Publish an open policy change as a new policy revision for the whole tenant.
 ## Synopsis
 
 ```
-safedep policy change publish CHANGE [-m MESSAGE]
+safedep policy change publish CHANGE [-m MESSAGE] [--yes]
 ```
 
 ## Flags
@@ -13,6 +13,12 @@ safedep policy change publish CHANGE [-m MESSAGE]
 | Flag | Description |
 |------|-------------|
 | `-m`, `--message <text>` | The publish message. |
+| `-y`, `--yes` | Publish a change that loosens the policy with no prompt. Required when no terminal is present. |
+
+The command previews the change first. It shows the change direction, each part
+that loosens the policy, and every warning. A change that loosens the policy
+needs a confirmation: the command asks in a terminal, and needs `--yes` in a
+script.
 
 ## Examples
 
@@ -21,7 +27,9 @@ safedep policy change publish 18 -m "payments: fail on medium, 7d cooldown (CUST
 ```
 
 ```
-✓ revision 47 published
+Change 18 · TIGHTENS. An Admin can publish it
+! LOW_ENFORCED_COVERAGE scan_gate.fail_on: 1 of 3 projects cannot enforce "medium" yet
+✓ revision 47 published · TIGHTENS
   Projects resolve it at their next check. Endpoints apply it after their next policy fetch
   Endpoints that have not applied it yet: safedep endpoint list --applied-revision '<47'
 ```

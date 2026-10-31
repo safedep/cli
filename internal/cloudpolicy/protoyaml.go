@@ -38,9 +38,35 @@ var selectorOperators = map[protoreflect.EnumNumber]string{
 }
 
 // yamlCodec encodes and decodes proto messages as YAML nodes. skip names the
-// fields that the document leaves out, by full name.
+// fields that the document leaves out, by full name, with the reason that a
+// decode gives when a document sets one. names gives a field another key in
+// the document, by full name.
 type yamlCodec struct {
-	skip map[protoreflect.FullName]string
+	skip  map[protoreflect.FullName]string
+	names map[protoreflect.FullName]string
+}
+
+// key is the document key of a field.
+func (c *yamlCodec) key(fd protoreflect.FieldDescriptor) string {
+	if name, ok := c.names[fd.FullName()]; ok {
+		return name
+	}
+	return string(fd.Name())
+}
+
+// fieldByKey finds the field of a document key. It also accepts the proto
+// name and the JSON name of a field.
+func (c *yamlCodec) fieldByKey(md protoreflect.MessageDescriptor, key string) protoreflect.FieldDescriptor {
+	fields := md.Fields()
+	for i := 0; i < fields.Len(); i++ {
+		if c.key(fields.Get(i)) == key {
+			return fields.Get(i)
+		}
+	}
+	if fd := fields.ByName(protoreflect.Name(key)); fd != nil {
+		return fd
+	}
+	return fields.ByJSONName(key)
 }
 
 func (c *yamlCodec) encodeMessage(m protoreflect.Message) *yaml.Node {
@@ -58,7 +84,7 @@ func (c *yamlCodec) encodeMessage(m protoreflect.Message) *yaml.Node {
 		if _, skipped := c.skip[fd.FullName()]; skipped || !m.Has(fd) {
 			continue
 		}
-		out.Content = append(out.Content, scalarNode(string(fd.Name())), c.encodeField(fd, m.Get(fd)))
+		out.Content = append(out.Content, scalarNode(c.key(fd)), c.encodeField(fd, m.Get(fd)))
 	}
 	return out
 }
@@ -265,19 +291,15 @@ func (c *yamlCodec) decodeMessage(n *yaml.Node, m protoreflect.Message, path str
 		return errAt(n, path, "expected a mapping of fields")
 	}
 
-	fields := m.Descriptor().Fields()
 	seen := make(map[protoreflect.Name]struct{}, len(n.Content)/2)
 	for i := 0; i+1 < len(n.Content); i += 2 {
 		key, value := n.Content[i], n.Content[i+1]
 		fieldPath := joinPath(path, key.Value)
-		fd := fields.ByName(protoreflect.Name(key.Value))
-		if fd == nil {
-			fd = fields.ByJSONName(key.Value)
-		}
+		fd := c.fieldByKey(m.Descriptor(), key.Value)
 		if fd == nil {
 			return errAt(key, fieldPath, "unknown field. Known fields: %s", strings.Join(c.knownFields(m.Descriptor()), ", "))
 		}
-		if reason, skipped := c.skip[fd.FullName()]; skipped && reason != "" {
+		if reason, skipped := c.skip[fd.FullName()]; skipped {
 			return errAt(key, fieldPath, "%s", reason)
 		}
 		if _, dup := seen[fd.Name()]; dup {
@@ -301,7 +323,7 @@ func (c *yamlCodec) knownFields(md protoreflect.MessageDescriptor) []string {
 		if _, skipped := c.skip[fd.FullName()]; skipped {
 			continue
 		}
-		names = append(names, string(fd.Name()))
+		names = append(names, c.key(fd))
 	}
 	return names
 }

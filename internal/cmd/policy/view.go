@@ -9,11 +9,9 @@ import (
 	"time"
 
 	policyv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/policy/v1/policyv1grpc"
-	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	corev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/core/v1"
 	policyv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/policy/v1"
 	"github.com/safedep/dry/tui/humanize"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/safedep/cli/internal/cloudpolicy"
 	"github.com/safedep/cli/internal/tui"
@@ -47,11 +45,11 @@ func newRevisionView(r *policyv1.PolicyRevision) *revisionView {
 	if r == nil {
 		return nil
 	}
-	published := timeOf(r.GetPublishedAt())
+	published := cloudpolicy.TimeOf(r.GetPublishedAt())
 	return &revisionView{
 		Revision:    r.GetRevision(),
 		ChangeID:    r.GetChangeId(),
-		Author:      actorName(r.GetAuthor()),
+		Author:      cloudpolicy.ActorName(r.GetAuthor()),
 		Message:     r.GetMessage(),
 		Source:      strings.ToUpper(tui.EnumToken(r.GetSource().String(), sourcePrefix)),
 		Direction:   directionToken(r.GetDirection()),
@@ -73,31 +71,13 @@ func (r *revisionView) summary(now time.Time) string {
 	}
 	parts = append(parts, published)
 	if r.Message != "" {
-		parts = append(parts, fmt.Sprintf("%q", r.Message))
+		parts = append(parts, "\""+tui.EscapeLine(r.Message)+"\"")
 	}
 	return strings.Join(parts, sep)
 }
 
-func actorName(a *messagescontroltowerv1.Actor) string {
-	if a == nil {
-		return ""
-	}
-	if a.GetDisplayName() != "" {
-		return a.GetDisplayName()
-	}
-	return a.GetId()
-}
-
 func directionToken(d policyv1.ChangeDirection) string {
 	return strings.ToUpper(tui.EnumToken(d.String(), directionPrefix))
-}
-
-func timeOf(ts *timestamppb.Timestamp) *time.Time {
-	if ts == nil {
-		return nil
-	}
-	t := ts.AsTime().UTC()
-	return &t
 }
 
 func humanTimeCell(t *time.Time, now time.Time) string {
@@ -105,20 +85,6 @@ func humanTimeCell(t *time.Time, now time.Time) string {
 		return "-"
 	}
 	return humanize.Time(*t, now)
-}
-
-func emptyDash(s string) string {
-	if s == "" {
-		return "-"
-	}
-	return s
-}
-
-func plural(n int, singular, pluralForm string) string {
-	if n == 1 {
-		return singular
-	}
-	return pluralForm
 }
 
 // overrideView is a policy override without its values.
@@ -137,7 +103,7 @@ type overrideView struct {
 func overrideViews(p *policyv1.Policy) []overrideView {
 	out := make([]overrideView, 0, len(p.GetOverrides()))
 	for _, o := range p.GetOverrides() {
-		expires := timeOf(o.GetExpiresAt())
+		expires := cloudpolicy.TimeOf(o.GetExpiresAt())
 		out = append(out, overrideView{
 			ID:          o.GetOverrideId(),
 			Name:        o.GetName(),

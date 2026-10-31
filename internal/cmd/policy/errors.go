@@ -7,8 +7,6 @@ import (
 	"github.com/safedep/dry/usefulerror"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-
-	"github.com/safedep/cli/internal/rpcerror"
 )
 
 func newPolicyError(code, humanError, help string, cause error) error {
@@ -27,7 +25,7 @@ func invalidInputError(cause error, help string) error {
 // a stale base, an old etag, or a change that does not exist.
 func mapChangeError(op, changeID string, err error) error {
 	cause := fmt.Errorf("policy change %s: %w", op, err)
-	switch rpcerror.Reason(err) {
+	switch reason, _ := usefulerror.ReasonOf(err); reason {
 	case errorv1.ErrorReason_ERROR_REASON_POLICY_CHANGE_STALE:
 		return newPolicyError(usefulerror.ErrConflict,
 			fmt.Sprintf("The policy moved: a part that change %s edits changed after its base revision", changeID),
@@ -42,6 +40,9 @@ func mapChangeError(op, changeID string, err error) error {
 	if st, ok := status.FromError(err); ok {
 		switch st.Code() {
 		case codes.NotFound:
+			if changeID == "" {
+				return cause
+			}
 			return newPolicyError(usefulerror.ErrNotFound,
 				fmt.Sprintf("Policy change %s does not exist", changeID),
 				"List the changes: safedep policy change list",
@@ -54,6 +55,19 @@ func mapChangeError(op, changeID string, err error) error {
 		}
 	}
 	return cause
+}
+
+// mapRestoreError gives the recovery for the errors of a create that
+// restores an old revision. A missing revision is the usual cause of
+// NotFound.
+func mapRestoreError(fromRevision uint64, err error) error {
+	if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
+		return newPolicyError(usefulerror.ErrNotFound,
+			fmt.Sprintf("Policy revision %d does not exist", fromRevision),
+			"List the revisions: safedep policy revision list",
+			fmt.Errorf("policy change create: %w", err))
+	}
+	return mapChangeError("create", "", err)
 }
 
 // mapRuleError gives the recovery for the errors of a package rule RPC.

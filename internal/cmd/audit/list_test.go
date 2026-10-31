@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,4 +140,23 @@ func TestRunList_MemberIsDenied(t *testing.T) {
 	ue, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok)
 	assert.Equal(t, "Only an Admin can read the audit log", ue.HumanError())
+}
+
+func TestRender_EscapesServerText(t *testing.T) {
+	e := auditEvent()
+	e.GetActor().SetDisplayName("mallory\x1b]0;owned\x07")
+	details, err := structpb.NewStruct(map[string]any{"reason": "a\nb"})
+	require.NoError(t, err)
+	e.SetDetails(details)
+	res := &auditv1.ListAuditEventsResponse{}
+	res.SetEvents([]*auditv1.AuditEvent{e})
+
+	got, err := runList(context.Background(), &fakeLister{res: res}, listInput{}, now)
+	require.NoError(t, err)
+	for _, out := range []string{got.RenderTable(), got.RenderPlain()} {
+		assert.NotContains(t, out, "\x1b")
+		assert.Contains(t, out, `mallory\x1b]0;owned\x07`)
+		assert.Contains(t, out, `reason=a\nb`)
+	}
+	assert.Len(t, strings.Split(got.RenderPlain(), "\n"), 2, "a line break in a value adds no row")
 }

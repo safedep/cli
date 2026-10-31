@@ -72,7 +72,7 @@ func TestRunGet(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, uint64(46), res.Revision)
 	assert.Contains(t, res.RenderPlain(), "# Policy settings of acme · revision 46\n")
-	assert.Contains(t, res.RenderTable(), "overrides:\n  - name: payments")
+	assert.Contains(t, res.RenderTable(), "overrides:\n  - id: ov_pay\n    name: payments")
 	b, err := res.RenderJSON()
 	require.NoError(t, err)
 	assert.Contains(t, string(b), `"revision": 46`)

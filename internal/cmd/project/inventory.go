@@ -32,18 +32,6 @@ type projectListInput struct {
 	PageToken string
 }
 
-type projectView struct {
-	ID               string   `json:"project_id"`
-	Name             string   `json:"name"`
-	Source           string   `json:"source"`
-	OriginURL        string   `json:"origin_url,omitempty"`
-	Labels           []string `json:"labels"`
-	Vulnerabilities  *uint32  `json:"vulnerabilities,omitempty"`
-	PolicyViolations *uint32  `json:"policy_violations,omitempty"`
-	CreatedAt        string   `json:"created_at,omitempty"`
-	created          *time.Time
-}
-
 type projectListResult struct {
 	Projects      []projectView `json:"projects"`
 	NextPageToken string        `json:"next_page_token,omitempty"`
@@ -57,7 +45,7 @@ func projectListCmd(a *app.App) *cobra.Command {
 		Long: "List the projects of the tenant with their labels. --selector takes a label selector, as a " +
 			"policy override does, so you can see which projects an override selects: " +
 			"key=value, key!=value, key in (a,b), key notin (a,b), key or !key, separated by commas. " +
-			"The terms AND together. One page is returned per invocation, so follow --page-token to read " +
+			"The terms AND together. The command reads one page. Pass --page-token to read " +
 			"the next page.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if err := cobra.NoArgs(cmd, args); err != nil {
@@ -150,30 +138,6 @@ func runProjectList(ctx context.Context, client listProjectsClient, in projectLi
 	return out, nil
 }
 
-func newProjectView(p *controltowerv1.ProjectWithAttributes) projectView {
-	project := p.GetProject()
-	attrs := p.GetAttributes()
-	v := projectView{
-		ID:        project.GetProjectId(),
-		Name:      project.GetName(),
-		Source:    tui.EnumToken(project.GetSource().String(), projectSourcePrefix),
-		OriginURL: project.GetOriginUrl(),
-		Labels:    cloudpolicy.FormatLabels(attrs.GetLabels()),
-	}
-	if attrs.HasVulnerabilities() {
-		v.Vulnerabilities = new(attrs.GetVulnerabilities())
-	}
-	if attrs.HasPolicyViolations() {
-		v.PolicyViolations = new(attrs.GetPolicyViolations())
-	}
-	if ts := project.GetCreatedAt(); ts != nil {
-		t := ts.AsTime().UTC()
-		v.created = &t
-		v.CreatedAt = t.Format(time.RFC3339)
-	}
-	return v
-}
-
 func (r *projectListResult) RenderJSON() ([]byte, error) {
 	return json.MarshalIndent(r, "", "  ")
 }
@@ -197,7 +161,7 @@ func (r *projectListResult) RenderTable() string {
 	t := table.New().
 		Title("Projects").
 		Headers("PROJECT", "SOURCE", "LABELS", "VULNS", "VIOLATIONS", "CREATED").
-		Rows(rows...).
+		Rows(tui.EscapeCells(rows)...).
 		EmptyMessage("No projects match. Sync repositories with: safedep project sync")
 	if len(rows) > 0 {
 		footer := fmt.Sprintf("%d %s", len(rows), pluralProjects(len(rows)))
@@ -213,8 +177,8 @@ func (r *projectListResult) RenderPlain() string {
 	var b strings.Builder
 	b.WriteString("project_id\tname\tsource\tlabels\tvulnerabilities\tpolicy_violations\tcreated_at")
 	for _, p := range r.Projects {
-		fmt.Fprintf(&b, "\n%s\t%s\t%s\t%s\t%s\t%s\t%s", p.ID, p.Name, p.Source, strings.Join(p.Labels, ","),
-			countCell(p.Vulnerabilities), countCell(p.PolicyViolations), p.CreatedAt)
+		b.WriteString("\n" + tui.PlainRow(p.ID, p.Name, p.Source, strings.Join(p.Labels, ","),
+			countCell(p.Vulnerabilities), countCell(p.PolicyViolations), p.CreatedAt))
 	}
 	return b.String()
 }

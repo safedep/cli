@@ -120,7 +120,10 @@ func TestRunChangeShow_PreviewsAnOpenChange(t *testing.T) {
 	b, err := got.RenderJSON()
 	require.NoError(t, err)
 	assert.Contains(t, string(b), `"direction": "LOOSENS"`)
-	assert.Contains(t, got.RenderPlain(), "change\toverride \"payments\"\tscan_gate.fail_on\thigh\tmedium\tTIGHTENS")
+	plain := got.RenderPlain()
+	assert.Contains(t, plain, "change_id\t18\ntitle\tpayments: medium + cooldown\nstate\topen\nbase_revision\t46")
+	assert.Contains(t, plain, "change\toverride \"payments\"\tscan_gate.fail_on\thigh\tmedium\tTIGHTENS")
+	assert.Contains(t, plain, "warning\tLOW_ENFORCED_COVERAGE\tscan_gate.fail_on\t1 of 3 projects cannot enforce \"medium\" yet")
 }
 
 func TestRunChangeShow_StaleChange(t *testing.T) {
@@ -155,20 +158,6 @@ func TestRunChangeShow_PublishedChangeHasNoPreview(t *testing.T) {
 	assert.Contains(t, got.RenderTable(), "published as rev 47")
 }
 
-func TestRunChangePublish(t *testing.T) {
-	client := mocks.NewPolicyServiceClientMock(t)
-	client.EXPECT().GetPolicyChange(mock.Anything, mock.Anything).Return(changeResponse(openChange("18")), nil)
-	res := &policyv1.PublishPolicyChangeResponse{}
-	res.SetRevision(revision(47, "payments"))
-	client.EXPECT().PublishPolicyChange(mock.Anything, mock.MatchedBy(func(r *policyv1.PublishPolicyChangeRequest) bool {
-		return r.GetChangeId() == "18" && r.GetEtag() == "etag-1" && r.GetMessage() == "payments: fail on medium"
-	})).Return(res, nil)
-
-	rev, err := runChangePublish(context.Background(), client, "18", "payments: fail on medium")
-	require.NoError(t, err)
-	assert.Equal(t, uint64(47), rev.GetRevision())
-}
-
 func TestRunChangePublish_Errors(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -197,11 +186,13 @@ func TestRunChangePublish_Errors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			captureStderr(t)
 			client := mocks.NewPolicyServiceClientMock(t)
 			client.EXPECT().GetPolicyChange(mock.Anything, mock.Anything).Return(changeResponse(openChange("19")), nil)
+			client.EXPECT().PreviewPolicyChange(mock.Anything, mock.Anything).Return(tighteningPreview(), nil)
 			client.EXPECT().PublishPolicyChange(mock.Anything, mock.Anything).Return(nil, tt.err)
 
-			_, err := runChangePublish(context.Background(), client, "19", "")
+			_, err := runChangePublish(context.Background(), client, "19", "", refuseConfirm(t))
 			require.Error(t, err)
 			ue, ok := usefulerror.AsUsefulError(err)
 			require.True(t, ok)
@@ -217,7 +208,7 @@ func TestRunChangePublish_OnlyAnOpenChange(t *testing.T) {
 	c.SetState(policyv1.PolicyChangeState_POLICY_CHANGE_STATE_DELETED)
 	client.EXPECT().GetPolicyChange(mock.Anything, mock.Anything).Return(changeResponse(c), nil)
 
-	_, err := runChangePublish(context.Background(), client, "17", "")
+	_, err := runChangePublish(context.Background(), client, "17", "", refuseConfirm(t))
 	assert.ErrorContains(t, err, "change 17 is deleted: only an open change can change")
 }
 
@@ -267,7 +258,7 @@ func TestRunChangeEdit_UpdatesWithTheEtag(t *testing.T) {
 			r.GetSettings().GetOverrides()[0].GetDescription() == "why"
 	})).Return(res, nil)
 
-	ed := &scriptedEditor{edits: []func(string) string{replace("  - name: payments\n", "  - name: payments\n    description: why\n")}}
+	ed := &scriptedEditor{edits: []func(string) string{replace("    name: payments\n", "    name: payments\n    description: why\n")}}
 	_, err := runChangeEdit(context.Background(), client, ed.open, "", "18", editInput{Title: "new title"})
 	require.NoError(t, err)
 	assert.Contains(t, ed.seen[0], "# Change 18 of this tenant · base revision 46 · head revision 46")

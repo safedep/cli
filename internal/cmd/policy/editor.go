@@ -46,10 +46,18 @@ func isRetryable(err error) bool {
 }
 
 // editLoop writes text to a temporary file, opens the editor on it, and
-// gives the saved text to save. When save fails with an error that the user
+// gives the saved text to save. unchanged reports whether the saved text
+// means the same as text. It compares decoded messages, so an editor that
+// only rewrites line endings or spacing makes no change. When save fails with an error that the user
 // can fix, the loop opens the file again with the error at the top. The file
 // stays on disk when the edit fails for another reason, so no work is lost.
-func editLoop(ctx context.Context, open openEditorFunc, text []byte, save func([]byte) error) error {
+func editLoop(
+	ctx context.Context,
+	open openEditorFunc,
+	text []byte,
+	unchanged func(saved []byte) bool,
+	save func([]byte) error,
+) error {
 	f, err := os.CreateTemp("", "safedep-policy-*.yaml")
 	if err != nil {
 		return fmt.Errorf("policy edit: temporary file: %w", err)
@@ -72,10 +80,10 @@ func editLoop(ctx context.Context, open openEditorFunc, text []byte, save func([
 			return fmt.Errorf("policy edit: read %s: %w", path, err)
 		}
 		saved = stripErrorLines(saved)
-		if bytes.Equal(saved, stripErrorLines(last)) {
-			if attempt == 0 {
-				return errors.Join(errNoChange, os.Remove(path))
-			}
+		if attempt == 0 && unchanged(saved) {
+			return errors.Join(errNoChange, os.Remove(path))
+		}
+		if attempt > 0 && bytes.Equal(saved, stripErrorLines(last)) {
 			return keptEditError(path, errors.New("the file still has errors"))
 		}
 
@@ -118,10 +126,20 @@ func stripErrorLines(text []byte) []byte {
 	return text
 }
 
+// keptEditError keeps the code, the message and the help of a useful
+// error, such as the one for a role that cannot change the policy, and adds
+// the path of the kept file.
 func keptEditError(path string, cause error) error {
+	code, human, help := usefulerror.ErrBadRequest, "The policy edit was not saved: "+cause.Error(), ""
+	if ue, ok := usefulerror.AsUsefulError(cause); ok {
+		code, human = ue.Code(), "The policy edit was not saved: "+ue.HumanError()
+		if ue.Help() != "" {
+			help = ue.Help() + ". "
+		}
+	}
 	return usefulerror.NewUsefulError().
-		WithCode(usefulerror.ErrBadRequest).
-		WithHumanError("The policy edit was not saved: " + cause.Error()).
-		WithHelp("Your edit is in " + path + ". Copy what you need from it, then run the command again").
+		WithCode(code).
+		WithHumanError(human).
+		WithHelp(help + "Your edit is in " + path + ". Copy what you need from it, then run the command again").
 		Wrap(cause)
 }

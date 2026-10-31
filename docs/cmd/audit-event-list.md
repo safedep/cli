@@ -17,11 +17,15 @@ safedep audit event list [--since DURATION] [--until DURATION] [--action PREFIX]
 |------|-------------|
 | `--since <duration>` | Only events in this time before now, as `7d` or `12h`. |
 | `--until <duration>` | Only events older than this time before now, as `1d`. It must be shorter than `--since`. |
-| `--action <prefix>` | Only events whose action starts with this text, as `policy.` or `policy.rule.`. |
-| `--resource <kind[/id]>` | Only events about a resource kind, or one resource, as `package_rule` or `policy_change/18`. |
+| `--action <prefix>` | Only events whose action starts with this text. `policy.` lists every policy action, and `policy.rule.` lists the package rule actions. |
+| `--resource <kind[/id]>` | Only events about a resource kind, or one resource. The kinds are `policy_change`, `package_rule`, `endpoint` and `project`, as in `--resource package_rule` or `--resource policy_change/18`. |
 | `--actor <actor>` | Only events of this actor. The server matches the actor id or the display name exactly. |
 | `--limit <n>` | Page size. The server default applies when 0. |
 | `--page-token <token>` | Continuation token from a prior response. |
+
+Actions have the form `<domain>.<resource>.<verb>`, as `policy.change.publish`.
+To list the policy events, use `--action policy.`. `--resource` takes a resource
+kind, not a domain.
 
 ## Examples
 

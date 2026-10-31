@@ -14,6 +14,7 @@ import (
 
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/cloudpolicy"
+	clitui "github.com/safedep/cli/internal/tui"
 )
 
 const (
@@ -54,10 +55,11 @@ func changeCreateCmd(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			tui.Success("change %s %s", change.GetChangeId(), restoreSummary(change.GetRestore()))
+			id := clitui.EscapeLine(change.GetChangeId())
+			tui.Success("change %s %s", id, clitui.EscapeLine(restoreSummary(change.GetRestore())))
 			reportRestoreDirection(cmd.Context(), policyClient, change.GetChangeId())
-			tui.Info("  Review it: safedep policy change show %s", change.GetChangeId())
-			tui.Info("  Publish it: safedep policy change publish %s", change.GetChangeId())
+			tui.Info("  Review it: safedep policy change show %s", id)
+			tui.Info("  Publish it: safedep policy change publish %s", id)
 			return nil
 		},
 	}
@@ -118,7 +120,7 @@ func runChangeCreate(
 	req.SetRestore(restore)
 	res, err := client.CreatePolicyChange(ctx, req)
 	if err != nil {
-		return nil, mapChangeError("create", fmt.Sprintf("from revision %d", in.FromRevision), err)
+		return nil, mapRestoreError(in.FromRevision, err)
 	}
 	return res.GetChange(), nil
 }
@@ -129,13 +131,8 @@ func runChangeCreate(
 func reportRestoreDirection(ctx context.Context, client policyv1grpc.PolicyServiceClient, id string) {
 	preview, err := previewChange(ctx, client, id)
 	if err != nil {
-		tui.Warning("Could not preview change %s: %v", id, err)
+		tui.Warning("Could not preview change %s: %s", clitui.EscapeLine(id), clitui.EscapeLine(err.Error()))
 		return
 	}
-	for _, item := range preview.Items {
-		if item.Direction != "LOOSENS" {
-			continue
-		}
-		tui.Warning("It loosens %s (%s -> %s) in %s", item.What, item.oldHuman, item.newHuman, item.Where)
-	}
+	reportLoosening(preview)
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/cloudpolicy"
+	clitui "github.com/safedep/cli/internal/tui"
 )
 
 type getInput struct {
@@ -112,8 +113,12 @@ func (r *getResult) RenderJSON() ([]byte, error) {
 	}{Revision: r.Revision, Policy: r.Document}, "", "  ")
 }
 
-func (r *getResult) RenderTable() string { return r.YAML }
+// RenderTable escapes the document for a terminal. yaml.v3 escapes control
+// characters in strings, but not bidirectional format characters.
+func (r *getResult) RenderTable() string { return clitui.EscapeText(r.YAML) }
 
+// RenderPlain writes the document as it is, because `policy get > file`
+// must give back the exact values.
 func (r *getResult) RenderPlain() string { return r.YAML }
 
 func trimNewline(b []byte) []byte {

@@ -21,7 +21,7 @@ safedep policy rule update RULE [--reason TEXT] [--expires WHEN] [--ticket REF]
 | `--requested-by <who>` | The new requester. An empty value clears it. |
 | `-m`, `--message <text>` | The publish message. |
 
-Give at least one of the fields. A later expiry of a trust entry loosens the policy.
+Give at least one of the fields. A later expiry of a trust entry loosens the policy. A trust entry expires at most 90 days from now. The command reads the rule to check it before the request.
 
 ## Examples
 

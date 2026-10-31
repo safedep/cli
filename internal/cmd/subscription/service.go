@@ -11,8 +11,8 @@ import (
 	msgv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	errorv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/error/v1"
 	ctv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
-	"github.com/safedep/cli/internal/rpcerror"
 	"github.com/safedep/cli/internal/tui"
+	"github.com/safedep/dry/usefulerror"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -499,7 +499,7 @@ func catalogFromProto(pb *msgv1.BillingCatalog) *Catalog {
 // an actionable message naming the next command, matching the on-demand enable
 // path.
 func mapAddOnAttachError(err error) error {
-	switch rpcerror.Reason(err) {
+	switch reason, _ := usefulerror.ReasonOf(err); reason {
 	case errorv1.ErrorReason_ERROR_REASON_ENTITLEMENT_NOT_AVAILABLE:
 		return errors.New("add-ons need an active paid plan: subscribe first with `safedep subscription create`")
 	case errorv1.ErrorReason_ERROR_REASON_SUBSCRIPTION_PAST_DUE:
@@ -527,7 +527,7 @@ func mapCheckoutError(err error) error {
 // mapOnDemandEnableError routes the typed ErrorReason to an actionable
 // message so the user knows the next command to run.
 func mapOnDemandEnableError(err error) error {
-	switch rpcerror.Reason(err) {
+	switch reason, _ := usefulerror.ReasonOf(err); reason {
 	case errorv1.ErrorReason_ERROR_REASON_ENTITLEMENT_NOT_AVAILABLE:
 		return errors.New("on-demand billing needs a paid plan: subscribe first with `safedep subscription create`")
 	case errorv1.ErrorReason_ERROR_REASON_PAYMENT_METHOD_REQUIRED:

@@ -13,6 +13,7 @@ import (
 
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/cloudpolicy"
+	clitui "github.com/safedep/cli/internal/tui"
 )
 
 type showResult struct {
@@ -171,13 +172,13 @@ func (r *showResult) RenderTable() string {
 			expires = humanTimeCell(o.expires, now)
 		}
 		overrideRows = append(overrideRows, []string{
-			fmt.Sprintf("%d", o.Priority), o.Name, o.Selector, expires, emptyDash(o.Description),
+			fmt.Sprintf("%d", o.Priority), o.Name, o.Selector, expires, cloudpolicy.EmptyDash(o.Description),
 		})
 	}
 	overrides := table.New().
 		Title("Overrides (priority, highest first)").
 		Headers("PRIORITY", "NAME", "SELECTOR", "EXPIRES", "DESCRIPTION").
-		Rows(overrideRows...).
+		Rows(clitui.EscapeCells(overrideRows)...).
 		EmptyMessage("No policy overrides. The policy base applies to every subject. Add one with: safedep policy edit").
 		Render()
 	return cloudpolicy.KeyValues(rows) + "\n\n" + overrides
@@ -185,7 +186,7 @@ func (r *showResult) RenderTable() string {
 
 func (r *showResult) RenderPlain() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "tenant\t%s\n", r.Tenant)
+	fmt.Fprintf(&b, "tenant\t%s\n", clitui.EscapeLine(r.Tenant))
 	fmt.Fprintf(&b, "head_revision\t%d\n", r.HeadRevision)
 	fmt.Fprintf(&b, "default_policy_revision\t%d\n", r.DefaultRevision)
 	fmt.Fprintf(&b, "open_change_count\t%d\n", r.OpenChanges)
@@ -193,7 +194,7 @@ func (r *showResult) RenderPlain() string {
 	fmt.Fprintf(&b, "block_rules\t%d\n", r.BlockRules)
 	fmt.Fprintf(&b, "trust_expiring_in_7d\t%d", r.ExpiringSoon)
 	for _, o := range r.Overrides {
-		fmt.Fprintf(&b, "\noverride\t%d\t%s\t%s\t%s", o.Priority, o.Name, o.Selector, o.ExpiresAt)
+		b.WriteString("\n" + clitui.PlainRow("override", fmt.Sprint(o.Priority), o.Name, o.Selector, o.ExpiresAt))
 	}
 	return b.String()
 }

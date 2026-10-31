@@ -67,6 +67,8 @@ jobs:
           api-key: ${{ secrets.SAFEDEP_CLOUD_API_KEY }}
           tenant-id: ${{ secrets.SAFEDEP_CLOUD_TENANT_DOMAIN }}
           endpoint-id: CICD_GHA_SAFEDEP_CLI
+          # The cooldown and its skip list. The path is relative to the checkout.
+          config-file: .github/pmg/config.yml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

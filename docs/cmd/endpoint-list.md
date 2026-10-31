@@ -1,6 +1,6 @@
 # safedep endpoint list
 
-List endpoints reporting to SafeDep Cloud, with optional filters for capability, blocked installs, silent duration, and identity search.
+List endpoints reporting to SafeDep Cloud, with optional filters for capability, blocked installs, silent duration, identity search, labels, and the applied policy revision.
 
 ## Synopsis
 
@@ -17,12 +17,25 @@ safedep endpoint list [flags] [--output table|plain|json] [--profile <name>]
 | `--blocked` | Only endpoints with at least one blocked package-guard install in the window. |
 | `--silent-for <duration>` | Only endpoints whose last sync is older than this duration (client-side filter; best-effort within `--limit`). |
 | `--search <substring>` | Case-insensitive substring match on hostname or name (client-side filter; best-effort within `--limit`). |
+| `--selector <selector>` | Only endpoints whose labels match this label selector, as `managed/deployment-kind=laptop,custom/team=release`. The syntax is the one of [`safedep project list`](./project-list.md). |
+| `--applied-revision '<N'` | Only endpoints where a tool applies a policy revision lower than `N`, as `'<48'`. Quote the value, because the shell reads `<`. |
 | `--limit <n>` | Page size. Server default applies when `0` (the default). |
 | `--page-token <token>` | Continuation token from a prior response, to fetch the following page. |
 
 Inherits root flags `--output` and `--profile`.
 
 ## Examples
+
+Find the endpoints that have not applied policy revision 48 yet:
+
+```bash
+safedep endpoint list --applied-revision '<48'
+```
+
+The `Policy` column shows the applied policy revision that each tool reported:
+`rev 48` when every tool applies the same revision, or `pmg 48, vet 47`. JSON
+output carries `tool_policies` for each endpoint: the tool, its version, its
+applied policy revision and the state of the policy in the tool.
 
 List all endpoints active in the last 24 hours (default window):
 

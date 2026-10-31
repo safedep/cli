@@ -12,7 +12,7 @@ func Register(root *cobra.Command, a *app.App) {
 	parent := &cobra.Command{
 		Use:   "endpoint",
 		Short: "Inspect endpoints reporting to SafeDep Cloud",
-		Long:  "View fleet health, inspect individual endpoints, audit recent activity, and inspect inventory across endpoints reporting to SafeDep Cloud (Endpoint Hub).",
+		Long:  "View fleet health, inspect individual endpoints, audit recent activity, inspect inventory, and manage the labels and policy of endpoints reporting to SafeDep Cloud (Endpoint Hub).",
 	}
 	parent.AddCommand(
 		statusCmd(a),
@@ -20,6 +20,8 @@ func Register(root *cobra.Command, a *app.App) {
 		showCmd(a),
 		activityCmd(a),
 		inventoryCmd(a),
+		labelCmd(a),
+		policyCmd(a),
 	)
 	root.AddCommand(parent)
 }

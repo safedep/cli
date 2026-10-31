@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"github.com/safedep/cli/internal/app"
+	"github.com/safedep/cli/internal/cmd/audit"
 	"github.com/safedep/cli/internal/cmd/auth"
 	"github.com/safedep/cli/internal/cmd/endpoint"
 	"github.com/safedep/cli/internal/cmd/integration"
@@ -20,6 +21,7 @@ import (
 // convention tests both consume this so they walk an identical tree.
 func NewSafedep(a *app.App) *cobra.Command {
 	root := NewRootCommand(a)
+	audit.Register(root, a)
 	auth.Register(root, a)
 	endpoint.Register(root, a)
 	packages.Register(root, a)

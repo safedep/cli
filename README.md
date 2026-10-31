@@ -83,6 +83,13 @@ Edit the one policy of your tenant: the policy base, policy overrides that selec
 endpoints and projects by label, and package rules that trust or block packages.
 Review each policy change before you publish it, and roll back from any policy revision.
 
+**Projects and labels**: `safedep project`
+List projects by label selector, set `custom/` labels, and see which policy applies
+to a project and why.
+
+**Audit log**: `safedep audit`
+See who changed the policy, what, and when.
+
 **Security telemetry queries**: `safedep query`
 Run SQL against SafeDep Cloud's query service. Inspect packages, events, and findings
 across your entire fleet.
@@ -123,6 +130,9 @@ Push SafeDep malware findings to external security tools. JFrog XRay is supporte
 | [`safedep endpoint show`](./docs/cmd/endpoint-show.md) | Show endpoint detail |
 | [`safedep endpoint activity list`](./docs/cmd/endpoint-activity-list.md) | List recent endpoint activity |
 | [`safedep endpoint inventory list`](./docs/cmd/endpoint-inventory-list.md) | List current endpoint inventory |
+| [`safedep endpoint label set`](./docs/cmd/endpoint-label-set.md) | Set custom labels on endpoints |
+| [`safedep endpoint label delete`](./docs/cmd/endpoint-label-delete.md) | Delete custom labels from endpoints |
+| [`safedep endpoint policy show`](./docs/cmd/endpoint-policy-show.md) | Show the policy of an endpoint and the source of each value |
 | [`safedep policy show`](./docs/cmd/policy-show.md) | Show a summary of the tenant policy |
 | [`safedep policy get`](./docs/cmd/policy-get.md) | Write the policy settings document as YAML |
 | [`safedep policy edit`](./docs/cmd/policy-edit.md) | Edit the policy settings document in your editor |
@@ -140,11 +150,17 @@ Push SafeDep malware findings to external security tools. JFrog XRay is supporte
 | [`safedep policy rule show`](./docs/cmd/policy-rule-show.md) | Show one package rule |
 | [`safedep policy rule update`](./docs/cmd/policy-rule-update.md) | Change the reason, expiry, ticket or requester of a package rule |
 | [`safedep policy rule delete`](./docs/cmd/policy-rule-delete.md) | Delete a package rule |
+| [`safedep audit event list`](./docs/cmd/audit-event-list.md) | List audit events of the tenant |
 | [`safedep query exec`](./docs/cmd/query-exec.md) | Execute a SQL query against SafeDep Cloud |
 | [`safedep query schema list`](./docs/cmd/query-schema-list.md) | List tables in the query schema |
 | [`safedep query schema show`](./docs/cmd/query-schema-show.md) | Show one table from the query schema |
 | [`safedep query schema get`](./docs/cmd/query-schema-get.md) | Get the full schema in one call (for AI agents and scripts) |
 | [`safedep project sync`](./docs/cmd/project-sync.md) | Sync GitHub or Bitbucket repositories into SafeDep projects |
+| [`safedep project list`](./docs/cmd/project-list.md) | List projects with their labels |
+| [`safedep project show`](./docs/cmd/project-show.md) | Show one project with its labels and policy |
+| [`safedep project label set`](./docs/cmd/project-label-set.md) | Set custom labels on projects |
+| [`safedep project label delete`](./docs/cmd/project-label-delete.md) | Delete custom labels from projects |
+| [`safedep project policy show`](./docs/cmd/project-policy-show.md) | Show the policy of a project and the source of each value |
 | [`safedep project scan create`](./docs/cmd/project-scan-create.md) | Submit project scans by name to SafeDep Cloud-hosted scanners |
 | [`safedep project scan list`](./docs/cmd/project-scan-list.md) | List project scans with filters |
 | [`safedep package scan run`](./docs/cmd/package-scan-run.md) | Submit a package for on-demand scanning |

@@ -180,7 +180,7 @@ func formatSingular(fd protoreflect.FieldDescriptor, v protoreflect.Value) (stri
 			return duration.Format(d), humanDuration(d)
 		case *timestamppb.Timestamp:
 			t := msg.AsTime().UTC()
-			return t.Format(time.RFC3339), humanize.Time(t, time.Now())
+			return t.Format(time.RFC3339Nano), humanize.Time(t, time.Now())
 		default:
 			text := fmt.Sprint(v.Message().Interface())
 			return text, text

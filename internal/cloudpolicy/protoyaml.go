@@ -136,7 +136,10 @@ func (c *yamlCodec) formatWellKnown(m protoreflect.Message) string {
 	case *durationpb.Duration:
 		return duration.Format(msg.AsDuration())
 	case *timestamppb.Timestamp:
-		return msg.AsTime().UTC().Format(time.RFC3339)
+		// RFC3339Nano keeps fractional seconds and omits a zero fraction.
+		// RFC3339 drops them, and an edit with no change would then send a
+		// truncated time.
+		return msg.AsTime().UTC().Format(time.RFC3339Nano)
 	default:
 		return ""
 	}

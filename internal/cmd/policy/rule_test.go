@@ -454,3 +454,29 @@ func TestMapRestoreError_MissingRevision(t *testing.T) {
 	assert.Equal(t, "Policy revision 99 does not exist", ue.HumanError())
 	assert.Equal(t, "List the revisions: safedep policy revision list", ue.Help())
 }
+
+func TestRunRuleList_AtRevisionResolvesTheOverrideAtThatRevision(t *testing.T) {
+	client := mocks.NewPolicyServiceClientMock(t)
+	// At revision 40 the override ov_pay had the name "payments-old". Head
+	// renamed it, so a lookup at head would fail. The test sets no GetPolicy
+	// expectation, so a read of head fails the test.
+	old := headPolicy()
+	old.GetOverrides()[0].SetName("payments-old")
+	rev := &policyv1.GetPolicyRevisionResponse{}
+	rev.SetRevision(revision(40, "old"))
+	rev.SetPolicy(old)
+	client.EXPECT().GetPolicyRevision(mock.Anything, mock.MatchedBy(func(r *policyv1.GetPolicyRevisionRequest) bool {
+		return r.GetRevision() == 40
+	})).Return(rev, nil).Once()
+
+	res := &policyv1.ListPackageRulesResponse{}
+	res.SetRules([]*policyv1.PackageRuleWithAttributes{ruleWithAttributes("r_77e", corev1.Effect_EFFECT_TRUST, "ov_pay")})
+	client.EXPECT().ListPackageRules(mock.Anything, mock.MatchedBy(func(r *policyv1.ListPackageRulesRequest) bool {
+		return r.GetFilters().GetOverrideId() == "ov_pay" && r.GetFilters().GetAtRevision() == 40
+	})).Return(res, nil)
+
+	got, err := runRuleList(context.Background(), client, &ruleListInput{AtRevision: 40, Override: "payments-old"})
+	require.NoError(t, err)
+	require.Len(t, got.Rules, 1)
+	assert.Equal(t, `override "payments-old"`, got.Rules[0].AttachesTo)
+}

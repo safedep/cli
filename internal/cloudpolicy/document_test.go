@@ -240,3 +240,19 @@ func TestPolicyMap(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, map[string]any{"fail_on": "high"}, base["scan_gate"])
 }
+
+func TestOverrideExpiry_KeepsFractionalSeconds(t *testing.T) {
+	p := samplePolicy()
+	expires := time.Date(2027, 1, 26, 10, 30, 0, 123456789, time.UTC)
+	p.GetOverrides()[0].SetExpiresAt(timestamppb.New(expires))
+	p.GetOverrides()[1].SetExpiresAt(timestamppb.New(time.Date(2027, 2, 1, 0, 0, 0, 0, time.UTC)))
+
+	b, err := MarshalPolicy(p, "")
+	require.NoError(t, err)
+	assert.Contains(t, string(b), "expires_at: 2027-01-26T10:30:00.123456789Z")
+	assert.Contains(t, string(b), "expires_at: 2027-02-01T00:00:00Z", "a zero fraction stays out")
+
+	got, err := UnmarshalPolicy(b)
+	require.NoError(t, err)
+	assert.True(t, proto.Equal(p, got), "an edit with no change must not change the expiry")
+}

@@ -78,20 +78,38 @@ func ruleListCmd(a *app.App) *cobra.Command {
 	return cmd
 }
 
+// runRuleList reads the policy at --at-revision, or at head, once, and uses
+// that one snapshot to resolve --override and to name the policy overrides
+// of the rules. An override that a later revision renamed or removed then
+// still resolves, and a reused name never selects the wrong override.
 func runRuleList(ctx context.Context, client policyv1grpc.PolicyServiceClient, in *ruleListInput) (*ruleListResult, error) {
-	var names map[string]string
-	overrideID := ""
-	if in.Override != "" {
-		head, err := getPolicy(ctx, client)
+	var snapshot *policyv1.Policy
+	loadSnapshot := func() (*policyv1.Policy, error) {
+		if snapshot != nil {
+			return snapshot, nil
+		}
+		_, p, err := readPolicyAt(ctx, client, in.AtRevision)
 		if err != nil {
 			return nil, err
 		}
-		o, err := findOverride(head.GetPolicy(), in.Override)
+		if p == nil {
+			p = &policyv1.Policy{}
+		}
+		snapshot = p
+		return p, nil
+	}
+
+	overrideID := ""
+	if in.Override != "" {
+		p, err := loadSnapshot()
+		if err != nil {
+			return nil, err
+		}
+		o, err := findOverride(p, in.Override)
 		if err != nil {
 			return nil, err
 		}
 		overrideID = o.GetOverrideId()
-		names = overrideNames(head.GetPolicy())
 	}
 	filters, err := ruleListFilters(in, overrideID)
 	if err != nil {
@@ -107,12 +125,13 @@ func runRuleList(ctx context.Context, client policyv1grpc.PolicyServiceClient, i
 		return nil, fmt.Errorf("policy rule list: %w", err)
 	}
 
-	if names == nil && attachesToOverride(res.GetRules()) {
-		head, err := getPolicy(ctx, client)
+	var names map[string]string
+	if in.Override != "" || attachesToOverride(res.GetRules()) {
+		p, err := loadSnapshot()
 		if err != nil {
 			return nil, err
 		}
-		names = overrideNames(head.GetPolicy())
+		names = overrideNames(p)
 	}
 	out := &ruleListResult{
 		Rules:         make([]ruleView, 0, len(res.GetRules())),

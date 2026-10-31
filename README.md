@@ -78,6 +78,11 @@ Log in to SafeDep Cloud, manage credential profiles, and switch between tenants.
 Monitor the health of every endpoint reporting to your tenant, list active machines,
 and drill into package inventory and recent activity.
 
+**Policy management**: `safedep policy`
+Edit the one policy of your tenant: the policy base, policy overrides that select
+endpoints and projects by label, and package rules that trust or block packages.
+Review each policy change before you publish it, and roll back from any policy revision.
+
 **Security telemetry queries**: `safedep query`
 Run SQL against SafeDep Cloud's query service. Inspect packages, events, and findings
 across your entire fleet.
@@ -118,6 +123,23 @@ Push SafeDep malware findings to external security tools. JFrog XRay is supporte
 | [`safedep endpoint show`](./docs/cmd/endpoint-show.md) | Show endpoint detail |
 | [`safedep endpoint activity list`](./docs/cmd/endpoint-activity-list.md) | List recent endpoint activity |
 | [`safedep endpoint inventory list`](./docs/cmd/endpoint-inventory-list.md) | List current endpoint inventory |
+| [`safedep policy show`](./docs/cmd/policy-show.md) | Show a summary of the tenant policy |
+| [`safedep policy get`](./docs/cmd/policy-get.md) | Write the policy settings document as YAML |
+| [`safedep policy edit`](./docs/cmd/policy-edit.md) | Edit the policy settings document in your editor |
+| [`safedep policy change list`](./docs/cmd/policy-change-list.md) | List policy changes |
+| [`safedep policy change show`](./docs/cmd/policy-change-show.md) | Show what a policy change does |
+| [`safedep policy change edit`](./docs/cmd/policy-change-edit.md) | Edit the policy settings of an open policy change |
+| [`safedep policy change sync`](./docs/cmd/policy-change-sync.md) | Move the base of a policy change to the head revision |
+| [`safedep policy change publish`](./docs/cmd/policy-change-publish.md) | Publish a policy change as a new policy revision |
+| [`safedep policy change delete`](./docs/cmd/policy-change-delete.md) | Delete an open policy change |
+| [`safedep policy change create`](./docs/cmd/policy-change-create.md) | Create a policy change that restores an old revision |
+| [`safedep policy revision list`](./docs/cmd/policy-revision-list.md) | List policy revisions |
+| [`safedep policy revision show`](./docs/cmd/policy-revision-show.md) | Show one policy revision with its policy settings |
+| [`safedep policy rule create`](./docs/cmd/policy-rule-create.md) | Create a trust entry or block entries |
+| [`safedep policy rule list`](./docs/cmd/policy-rule-list.md) | List package rules |
+| [`safedep policy rule show`](./docs/cmd/policy-rule-show.md) | Show one package rule |
+| [`safedep policy rule update`](./docs/cmd/policy-rule-update.md) | Change the reason, expiry, ticket or requester of a package rule |
+| [`safedep policy rule delete`](./docs/cmd/policy-rule-delete.md) | Delete a package rule |
 | [`safedep query exec`](./docs/cmd/query-exec.md) | Execute a SQL query against SafeDep Cloud |
 | [`safedep query schema list`](./docs/cmd/query-schema-list.md) | List tables in the query schema |
 | [`safedep query schema show`](./docs/cmd/query-schema-show.md) | Show one table from the query schema |

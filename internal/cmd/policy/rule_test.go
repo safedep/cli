@@ -1,0 +1,373 @@
+package policy
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	corev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/core/v1"
+	policyv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/policy/v1"
+	"github.com/safedep/dry/usefulerror"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/safedep/cli/internal/cloudpolicy/mocks"
+)
+
+func TestValidateRuleCreate(t *testing.T) {
+	block := ruleCreateInput{Block: true, Selector: "pkg:npm/evil", Reason: "IR-2291"}
+	trust := ruleCreateInput{Trust: true, Selector: "pkg:pypi/foo@1.0.3", Reason: "FP", Scopes: []string{"malware"}, Expires: "30d"}
+	tests := []struct {
+		name   string
+		mutate func(*ruleCreateInput)
+		base   ruleCreateInput
+		want   string
+	}{
+		{"block", func(*ruleCreateInput) {}, block, ""},
+		{"trust", func(*ruleCreateInput) {}, trust, ""},
+		{"neither", func(in *ruleCreateInput) { in.Block = false }, block, "give one of --block or --trust"},
+		{"both", func(in *ruleCreateInput) { in.Trust = true }, block, "give one of --block or --trust"},
+		{"no selector", func(in *ruleCreateInput) { in.Selector = "" }, block, "give the PURL"},
+		{"selector and file", func(in *ruleCreateInput) { in.File = "x" }, block, "not both"},
+		{"trust from file", func(in *ruleCreateInput) { in.Selector, in.File = "", "x" }, trust, "only block entries can come from a file"},
+		{"vers with file", func(in *ruleCreateInput) { in.Selector, in.File, in.Vers = "", "x", ">=1" }, block, "--vers applies to one PURL"},
+		{"no reason", func(in *ruleCreateInput) { in.Reason = " " }, block, "--reason is required"},
+		{"trust without scope", func(in *ruleCreateInput) { in.Scopes = nil }, trust, "a trust entry needs --scope"},
+		{"trust without expiry", func(in *ruleCreateInput) { in.Expires = "" }, trust, "a trust entry needs --expires"},
+		{"block with scope", func(in *ruleCreateInput) { in.Scopes = []string{"malware"} }, block, "a block entry has no scope"},
+		{"unknown scope", func(in *ruleCreateInput) { in.Scopes = []string{"license"} }, trust, `unknown trust scope "license"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := tt.base
+			tt.mutate(&in)
+			err := validateRuleCreate(in)
+			if tt.want == "" {
+				require.NoError(t, err)
+				return
+			}
+			assert.ErrorContains(t, err, tt.want)
+		})
+	}
+}
+
+func TestExpandScopes_AllIsEveryKnownScope(t *testing.T) {
+	all, err := expandScopes([]string{"all"})
+	require.NoError(t, err)
+	assert.Equal(t, []corev1.TrustScope{
+		corev1.TrustScope_TRUST_SCOPE_MALWARE,
+		corev1.TrustScope_TRUST_SCOPE_COOLDOWN,
+		corev1.TrustScope_TRUST_SCOPE_VULNERABILITY,
+	}, all)
+	for _, s := range all {
+		assert.NotEqual(t, corev1.TrustScope_TRUST_SCOPE_UNSPECIFIED, s)
+	}
+
+	some, err := expandScopes([]string{"malware", "COOLDOWN", "malware"})
+	require.NoError(t, err)
+	assert.Equal(t, []corev1.TrustScope{corev1.TrustScope_TRUST_SCOPE_MALWARE, corev1.TrustScope_TRUST_SCOPE_COOLDOWN}, some)
+}
+
+func TestBuildSelector(t *testing.T) {
+	block, trust := corev1.Effect_EFFECT_BLOCK, corev1.Effect_EFFECT_TRUST
+	tests := []struct {
+		purl, vers string
+		effect     corev1.Effect
+		wantVers   string
+		wantErr    string
+	}{
+		{purl: "pkg:npm/evil", vers: ">=1.2.0", effect: block, wantVers: "vers:npm/>=1.2.0"},
+		{purl: "pkg:npm/evil", vers: "vers:npm/>=1.2.0|<2.0.0", effect: block, wantVers: "vers:npm/>=1.2.0|<2.0.0"},
+		{purl: "pkg:npm/@acme/*", effect: block},
+		{purl: "pkg:maven/org.apache.*", effect: block},
+		{purl: "pkg:nuget/Microsoft.*", effect: block},
+		{purl: "pkg:npm/*", effect: block},
+		{purl: "pkg:pypi/foo@1.0.3", effect: trust},
+		{purl: "pkg:npm/@acme/foo", vers: ">=1", effect: trust, wantVers: "vers:npm/>=1"},
+		{purl: "pkg:npm/@acme/*", effect: trust, wantErr: "a trust entry selects one package"},
+		{purl: "pkg:npm/ac*", effect: block, wantErr: "a prefix has one '*'"},
+		{purl: "pkg:npm/*/x", effect: block, wantErr: "a prefix has one '*'"},
+		{purl: "pkg:npm/x@1.*", effect: block, wantErr: "a prefix has no version"},
+		{purl: "pkg:npm/x?a=1/*", effect: block, wantErr: "a prefix has one '*'"},
+		{purl: "pkg:npm/%2A", effect: block, wantErr: "do not encode '*'"},
+		{purl: "npm/evil", effect: block, wantErr: "write a PURL"},
+		{purl: "pkg:npm", effect: block, wantErr: "a PURL has a type and a name"},
+		{purl: "pkg:", effect: block, wantErr: "write a PURL"},
+		{purl: "pkg:npm//x", effect: block, wantErr: "a PURL has a type and a name"},
+		{purl: "pkg:pypi/foo@1.0.3", vers: ">=1", effect: trust, wantErr: "not both"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.purl+" "+tt.vers, func(t *testing.T) {
+			got, err := buildSelector(tt.purl, tt.vers, tt.effect)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.purl, got.GetPurl())
+			assert.Equal(t, tt.wantVers, got.GetVers())
+		})
+	}
+}
+
+func TestParseExpiry(t *testing.T) {
+	got, err := parseExpiry("30d", fixedNow)
+	require.NoError(t, err)
+	assert.Equal(t, fixedNow.Add(30*24*time.Hour), got)
+
+	got, err = parseExpiry("2027-01-26", fixedNow)
+	require.NoError(t, err)
+	assert.Equal(t, time.Date(2027, 1, 26, 0, 0, 0, 0, time.UTC), got)
+
+	_, err = parseExpiry("2026-01-01", fixedNow)
+	assert.ErrorContains(t, err, "in the past")
+	_, err = parseExpiry("0s", fixedNow)
+	assert.ErrorContains(t, err, "after now")
+	_, err = parseExpiry("soon", fixedNow)
+	assert.ErrorContains(t, err, "give a duration")
+}
+
+func TestBuildRuleCreates_Trust(t *testing.T) {
+	in := ruleCreateInput{
+		Trust: true, Selector: "pkg:pypi/foo@1.0.3", Scopes: []string{"malware"},
+		Reason: "False positive, S-88", Expires: "30d", RequestedBy: "data-eng", Ticket: "S-88",
+	}
+	creates, err := buildRuleCreates(in, nil, fixedNow)
+	require.NoError(t, err)
+	require.Len(t, creates, 1)
+	rule := creates[0].GetRule()
+	assert.Equal(t, corev1.Effect_EFFECT_TRUST, rule.GetEffect())
+	assert.Equal(t, []corev1.TrustScope{corev1.TrustScope_TRUST_SCOPE_MALWARE}, rule.GetScopes())
+	assert.Equal(t, fixedNow.Add(30*24*time.Hour), rule.GetExpiresAt().AsTime())
+	assert.Empty(t, rule.GetRuleId(), "the server sets the rule id")
+	assert.Equal(t, "data-eng", creates[0].GetRequestedBy())
+	assert.Equal(t, "S-88", creates[0].GetTicket())
+}
+
+func TestBuildRuleCreates_BulkBlockFromFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "list.txt")
+	require.NoError(t, os.WriteFile(path, []byte("# incident IR-2291\npkg:npm/evil >=1.2.0\n\npkg:npm/@evil/*\n"), 0o600))
+
+	creates, err := buildRuleCreates(ruleCreateInput{Block: true, File: path, Reason: "IR-2291"}, nil, fixedNow)
+	require.NoError(t, err)
+	require.Len(t, creates, 2)
+	assert.Equal(t, "vers:npm/>=1.2.0", creates[0].GetRule().GetSelector().GetVers())
+	assert.Equal(t, "pkg:npm/@evil/*", creates[1].GetRule().GetSelector().GetPurl())
+	assert.False(t, creates[0].GetRule().HasExpiresAt())
+
+	creates, err = buildRuleCreates(ruleCreateInput{Block: true, File: "-", Reason: "x"}, strings.NewReader("pkg:npm/a\n"), fixedNow)
+	require.NoError(t, err)
+	assert.Len(t, creates, 1, "- reads stdin")
+}
+
+func TestBuildRuleCreates_FileErrors(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, text string) string {
+		p := filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(p, []byte(text), 0o600))
+		return p
+	}
+	var many strings.Builder
+	for i := 0; i <= maxBulkRules; i++ {
+		fmt.Fprintf(&many, "pkg:npm/p%d\n", i)
+	}
+	tests := []struct {
+		name, path, want string
+	}{
+		{"bad line", write("bad.txt", "pkg:npm/ok\npkg:npm/ac*\n"), "bad.txt line 2: selector"},
+		{"too many values", write("vals.txt", "pkg:npm/a >=1 extra\n"), "write a PURL and an optional range"},
+		{"empty", write("empty.txt", "# nothing\n"), "has no selectors"},
+		{"too many", write("many.txt", many.String()), "more than 1000 selectors"},
+		{"missing", filepath.Join(dir, "missing.txt"), "Check the path"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := buildRuleCreates(ruleCreateInput{Block: true, File: tt.path, Reason: "x"}, nil, fixedNow)
+			require.Error(t, err)
+			msg := err.Error()
+			if ue, ok := usefulerror.AsUsefulError(err); ok {
+				msg += " " + ue.HumanError() + " " + ue.Help()
+			}
+			assert.Contains(t, msg, tt.want)
+		})
+	}
+}
+
+func ruleWithAttributes(id string, effect corev1.Effect, overrideID string) *policyv1.PackageRuleWithAttributes {
+	sel := &corev1.PackageSelector{}
+	sel.SetPurl("pkg:npm/leftpad")
+	rule := &corev1.PackageRule{}
+	rule.SetRuleId(id)
+	rule.SetSelector(sel)
+	rule.SetEffect(effect)
+	rule.SetReason("FP, S-71")
+	if effect == corev1.Effect_EFFECT_TRUST {
+		rule.SetScopes([]corev1.TrustScope{corev1.TrustScope_TRUST_SCOPE_MALWARE})
+		rule.SetExpiresAt(timestamppb.New(time.Now().Add(49 * time.Hour)))
+	}
+	r := &policyv1.PackageRuleWithAttributes{}
+	r.SetRule(rule)
+	r.SetOverrideId(overrideID)
+	r.SetRequestedBy("web")
+	r.SetAddedRevision(40)
+	return r
+}
+
+func TestRunRuleCreate_AttachesToAnOverride(t *testing.T) {
+	client := mocks.NewPolicyServiceClientMock(t)
+	client.EXPECT().GetPolicy(mock.Anything, mock.Anything).Return(headResponse(), nil)
+	res := &policyv1.CreatePackageRulesResponse{}
+	res.SetRules([]*policyv1.PackageRuleWithAttributes{ruleWithAttributes("r_9c1", corev1.Effect_EFFECT_BLOCK, "ov_pay")})
+	res.SetRevision(revision(48, "block"))
+	client.EXPECT().CreatePackageRules(mock.Anything, mock.MatchedBy(func(r *policyv1.CreatePackageRulesRequest) bool {
+		return len(r.GetRules()) == 1 && r.GetRules()[0].GetOverrideId() == "ov_pay" && r.GetMessage() == "IR-2291"
+	})).Return(res, nil)
+
+	in := ruleCreateInput{Block: true, Selector: "pkg:npm/evil", Reason: "x", Override: "payments", Message: "IR-2291"}
+	creates, err := buildRuleCreates(in, nil, fixedNow)
+	require.NoError(t, err)
+	got, err := runRuleCreate(context.Background(), client, in, creates)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(48), got.Revision)
+}
+
+func TestRunRuleCreate_PermissionDenied(t *testing.T) {
+	client := mocks.NewPolicyServiceClientMock(t)
+	client.EXPECT().CreatePackageRules(mock.Anything, mock.Anything).Return(nil, status.Error(codes.PermissionDenied, "member"))
+	in := ruleCreateInput{Block: true, Selector: "pkg:npm/evil", Reason: "x"}
+	creates, err := buildRuleCreates(in, nil, fixedNow)
+	require.NoError(t, err)
+	_, err = runRuleCreate(context.Background(), client, in, creates)
+	ue, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Equal(t, "Your role cannot change package rules", ue.HumanError())
+}
+
+func TestRuleListFilters(t *testing.T) {
+	in := &ruleListInput{Effect: "trust", Scope: "malware", SelectorPrefix: "pkg:npm/", Expiring: 7 * 24 * time.Hour, AtRevision: 40}
+	f, err := ruleListFilters(in, "")
+	require.NoError(t, err)
+	assert.Equal(t, corev1.Effect_EFFECT_TRUST, f.GetEffect())
+	assert.Equal(t, corev1.TrustScope_TRUST_SCOPE_MALWARE, f.GetScope())
+	assert.Equal(t, "pkg:npm/", f.GetSelectorPrefix())
+	assert.Equal(t, 7*24*time.Hour, f.GetExpiringWithin().AsDuration())
+	assert.Equal(t, uint64(40), f.GetAtRevision())
+	assert.False(t, f.HasOverrideId())
+
+	f, err = ruleListFilters(&ruleListInput{Base: true}, "")
+	require.NoError(t, err)
+	assert.True(t, f.HasOverrideId(), "--base sends an empty override id")
+	assert.Empty(t, f.GetOverrideId())
+
+	f, err = ruleListFilters(&ruleListInput{}, "")
+	require.NoError(t, err)
+	assert.Nil(t, f)
+
+	_, err = ruleListFilters(&ruleListInput{Base: true, Override: "x"}, "")
+	assert.ErrorContains(t, err, "--override and --base")
+	_, err = ruleListFilters(&ruleListInput{Effect: "allow"}, "")
+	assert.ErrorContains(t, err, `unknown --effect value "allow"`)
+}
+
+func TestRunRuleList_NamesTheOverride(t *testing.T) {
+	client := mocks.NewPolicyServiceClientMock(t)
+	res := &policyv1.ListPackageRulesResponse{}
+	res.SetRules([]*policyv1.PackageRuleWithAttributes{
+		ruleWithAttributes("r_77e", corev1.Effect_EFFECT_TRUST, "ov_pay"),
+		ruleWithAttributes("r_80b", corev1.Effect_EFFECT_BLOCK, ""),
+	})
+	client.EXPECT().ListPackageRules(mock.Anything, mock.Anything).Return(res, nil)
+	client.EXPECT().GetPolicy(mock.Anything, mock.Anything).Return(headResponse(), nil)
+
+	got, err := runRuleList(context.Background(), client, &ruleListInput{})
+	require.NoError(t, err)
+	require.Len(t, got.Rules, 2)
+	assert.Equal(t, `override "payments"`, got.Rules[0].AttachesTo)
+	assert.Equal(t, "base", got.Rules[1].AttachesTo)
+	assert.Equal(t, []string{"malware"}, got.Rules[0].Scopes)
+
+	table := got.RenderTable()
+	assert.Contains(t, table, "r_77e")
+	assert.Contains(t, table, "in 2d")
+	assert.Contains(t, table, "never")
+	assert.Contains(t, got.RenderPlain(), "r_80b\tpkg:npm/leftpad\t\tblock\t\tFP, S-71\tweb\t\t")
+}
+
+func TestRunRuleShow(t *testing.T) {
+	client := mocks.NewPolicyServiceClientMock(t)
+	res := &policyv1.GetPackageRuleResponse{}
+	res.SetRule(ruleWithAttributes("r_9c1", corev1.Effect_EFFECT_BLOCK, ""))
+	client.EXPECT().GetPackageRule(mock.Anything, mock.Anything).Return(res, nil)
+
+	got, err := runRuleShow(context.Background(), client, "r_9c1")
+	require.NoError(t, err)
+	table := got.RenderTable()
+	assert.Contains(t, table, "Rule          r_9c1")
+	assert.Contains(t, table, "added in revision 40 · active")
+
+	missing := mocks.NewPolicyServiceClientMock(t)
+	missing.EXPECT().GetPackageRule(mock.Anything, mock.Anything).Return(nil, status.Error(codes.NotFound, "x"))
+	_, err = runRuleShow(context.Background(), missing, "r_x")
+	ue, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Equal(t, "Package rule r_x does not exist", ue.HumanError())
+}
+
+func TestBuildRuleUpdate(t *testing.T) {
+	changed := func(names ...string) func(string) bool {
+		return func(n string) bool {
+			for _, c := range names {
+				if c == n {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	update, err := buildRuleUpdate("r_77e", ruleUpdateInput{Expires: "90d", Reason: "renewed", changed: changed("expires", "reason")}, fixedNow)
+	require.NoError(t, err)
+	assert.Equal(t, fixedNow.Add(90*24*time.Hour), update.GetExpiresAt().AsTime())
+	assert.Equal(t, "renewed", update.GetReason())
+	assert.False(t, update.HasTicket())
+
+	update, err = buildRuleUpdate("r_77e", ruleUpdateInput{changed: changed("ticket")}, fixedNow)
+	require.NoError(t, err)
+	assert.True(t, update.HasTicket(), "an empty --ticket clears the ticket")
+
+	_, err = buildRuleUpdate("r_77e", ruleUpdateInput{}, fixedNow)
+	assert.ErrorContains(t, err, "give at least one of")
+	_, err = buildRuleUpdate("r_77e", ruleUpdateInput{changed: changed("reason")}, fixedNow)
+	assert.ErrorContains(t, err, "--reason must not be empty")
+}
+
+func TestRunRuleUpdateAndDelete(t *testing.T) {
+	client := mocks.NewPolicyServiceClientMock(t)
+	upd := &policyv1.UpdatePackageRuleResponse{}
+	upd.SetRevision(revision(50, ""))
+	client.EXPECT().UpdatePackageRule(mock.Anything, mock.MatchedBy(func(r *policyv1.UpdatePackageRuleRequest) bool {
+		return r.GetUpdate().GetRuleId() == "r_77e" && r.GetMessage() == "m"
+	})).Return(upd, nil)
+	update := &policyv1.PackageRuleUpdate{}
+	update.SetRuleId("r_77e")
+	res, err := runRuleUpdate(context.Background(), client, update, "m")
+	require.NoError(t, err)
+	assert.Equal(t, uint64(50), res.GetRevision().GetRevision())
+
+	del := &policyv1.DeletePackageRuleResponse{}
+	del.SetRevision(revision(51, ""))
+	client.EXPECT().DeletePackageRule(mock.Anything, mock.MatchedBy(func(r *policyv1.DeletePackageRuleRequest) bool {
+		return r.GetDelete().GetRuleId() == "r_80b" && r.GetDelete().GetReason() == "no longer needed"
+	})).Return(del, nil)
+	rev, err := runRuleDelete(context.Background(), client, "r_80b", "no longer needed", "")
+	require.NoError(t, err)
+	assert.Equal(t, uint64(51), rev)
+}

@@ -3,8 +3,8 @@ module github.com/safedep/cli
 go 1.26.2
 
 require (
-	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260924172335-b3803903c9fd.1
-	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20260924172335-b3803903c9fd.1
+	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20261031065119-dc85a10c2beb.1
+	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20261031065119-dc85a10c2beb.2
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/cli/browser v1.3.0
@@ -16,6 +16,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
+	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sync v0.22.0
 	golang.org/x/term v0.45.0
@@ -97,7 +98,6 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
-	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/exp v0.0.0-20260212183809-81e46e3db34a // indirect
 	golang.org/x/mod v0.37.0 // indirect
 	golang.org/x/net v0.57.0 // indirect

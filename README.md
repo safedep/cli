@@ -82,6 +82,7 @@ and drill into package inventory and recent activity.
 Edit the one policy of your tenant: the policy base, policy overrides that select
 endpoints and projects by label, and package rules that trust or block packages.
 Review each policy change before you publish it, and roll back from any policy revision.
+See which rule made each decision of pmg and the pull request check, and where.
 
 **Projects and labels**: `safedep project`
 List projects by label selector, set `custom/` labels, and see which policy applies
@@ -150,6 +151,7 @@ Push SafeDep malware findings to external security tools. JFrog XRay is supporte
 | [`safedep policy rule show`](./docs/cmd/policy-rule-show.md) | Show one package rule |
 | [`safedep policy rule update`](./docs/cmd/policy-rule-update.md) | Change the reason, expiry, ticket or requester of a package rule |
 | [`safedep policy rule delete`](./docs/cmd/policy-rule-delete.md) | Delete a package rule |
+| [`safedep policy decision list`](./docs/cmd/policy-decision-list.md) | List the decisions that the policy made, and where |
 | [`safedep audit event list`](./docs/cmd/audit-event-list.md) | List audit events of the tenant |
 | [`safedep query exec`](./docs/cmd/query-exec.md) | Execute a SQL query against SafeDep Cloud |
 | [`safedep query schema list`](./docs/cmd/query-schema-list.md) | List tables in the query schema |

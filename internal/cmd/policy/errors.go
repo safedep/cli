@@ -5,8 +5,11 @@ import (
 
 	errorv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/error/v1"
 	"github.com/safedep/dry/usefulerror"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/safedep/cli/internal/tui"
 )
 
 func newPolicyError(code, humanError, help string, cause error) error {
@@ -86,6 +89,52 @@ func mapRuleError(op, ruleID string, err error) error {
 				"Ask an Admin of the tenant to do it",
 				cause)
 		}
+	}
+	return cause
+}
+
+// mapDecisionListError gives the recovery for the errors of the decision
+// log: a tenant without policy management, a role that cannot read the
+// policy, a bad filter or page token, and a server that does not have the
+// RPC yet.
+func mapDecisionListError(err error) error {
+	cause := fmt.Errorf("policy decision list: %w", err)
+	if reason, _ := usefulerror.ReasonOf(err); reason == errorv1.ErrorReason_ERROR_REASON_ENTITLEMENT_NOT_AVAILABLE {
+		return newPolicyError(usefulerror.ErrMissingEntitlements,
+			"Policy management is not enabled for this tenant",
+			"See the plans at https://safedep.io/pricing, or ask SafeDep support to enable it",
+			cause)
+	}
+	st, ok := status.FromError(err)
+	if !ok {
+		return cause
+	}
+	switch st.Code() {
+	case codes.PermissionDenied:
+		return newPolicyError(usefulerror.ErrAuthorizationFailed,
+			"Your role cannot read the policy decision log",
+			"Ask an Admin of the tenant for a role that can read the policy",
+			cause)
+	case codes.InvalidArgument:
+		if bad, ok := usefulerror.DetailAs[*errdetails.BadRequest](err); ok {
+			for _, v := range bad.GetFieldViolations() {
+				if v.GetField() == "pagination.page_token" {
+					return newPolicyError(usefulerror.ErrBadRequest,
+						"The page token is not valid",
+						"Run the command again without --page-token",
+						cause)
+				}
+			}
+		}
+		return newPolicyError(usefulerror.ErrBadRequest,
+			"The server refused the filters: "+tui.EscapeLine(st.Message()),
+			"See the filters: safedep policy decision list --help",
+			cause)
+	case codes.Unimplemented:
+		return newPolicyError(usefulerror.ErrServiceUnavailable,
+			"SafeDep Cloud does not have the policy decision log yet",
+			"Try again after the next SafeDep Cloud release",
+			cause)
 	}
 	return cause
 }

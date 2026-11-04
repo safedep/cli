@@ -1,7 +1,7 @@
 // Package policy registers the `safedep policy` command tree, the CLI for
 // policy management in SafeDep Cloud: the policy settings document, policy
-// changes, policy revisions and package rules. Every verb needs control
-// plane credentials.
+// changes, policy revisions, package rules and the decision log. Every
+// verb needs control plane credentials.
 package policy
 
 import (
@@ -54,6 +54,15 @@ func Register(root *cobra.Command, a *app.App) {
 	}
 	rule.AddCommand(ruleCreateCmd(a), ruleListCmd(a), ruleShowCmd(a), ruleUpdateCmd(a), ruleDeleteCmd(a))
 
-	parent.AddCommand(change, revision, rule)
+	decision := &cobra.Command{
+		Use:   "decision",
+		Short: "Read the decisions that the policy made",
+		Long: "Read the decision log: the decisions that pmg and the pull request check made with the policy " +
+			"of the tenant. Each decision cites the policy revision and the rule or field that decided, and " +
+			"says where it happened. The roles that can read the policy can read the decision log.",
+	}
+	decision.AddCommand(decisionListCmd(a))
+
+	parent.AddCommand(change, revision, rule, decision)
 	root.AddCommand(parent)
 }

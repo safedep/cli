@@ -2,7 +2,6 @@ package audit
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -95,19 +94,16 @@ func invalidFilter(cause error, help string) error {
 func newListRequest(in listInput, now time.Time) (*auditv1.ListAuditEventsRequest, error) {
 	filters := &auditv1.ListAuditEventsRequest_Filters{}
 	set := false
-	if in.Since < 0 || in.Until < 0 {
-		return nil, invalidFilter(errors.New("--since and --until must not be negative"), "Use a duration such as 7d")
+	after, before, err := duration.Window(in.Since, in.Until, now)
+	if err != nil {
+		return nil, err
 	}
-	if in.Since > 0 {
-		filters.SetOccurredAfter(timestamppb.New(now.Add(-in.Since)))
+	if after != nil {
+		filters.SetOccurredAfter(timestamppb.New(*after))
 		set = true
 	}
-	if in.Until > 0 {
-		if in.Since > 0 && in.Until >= in.Since {
-			return nil, invalidFilter(errors.New("--until must be shorter than --since"),
-				"As in --since 7d --until 1d for the events from 7 days ago to 1 day ago")
-		}
-		filters.SetOccurredBefore(timestamppb.New(now.Add(-in.Until)))
+	if before != nil {
+		filters.SetOccurredBefore(timestamppb.New(*before))
 		set = true
 	}
 	if in.Action != "" {

@@ -85,7 +85,6 @@ Report at most five Nits per review. Put Important findings first.
 - Anything that `make lint`, `make lint-conventions`, `make test` or CodeQL already reports:
   golangci-lint (errcheck, govet, staticcheck, gosec, errorlint, gocritic, revive, misspell,
   forbidigo) and the convention tests.
-- Secrets that gitleaks finds in the pre-commit hook.
 - Generated mocks in `**/mocks/*_mock.go`. Review `.mockery.yml` instead.
 - Lockfiles and module sums: `pnpm-lock.yaml`, `go.sum`, `go.work.sum`.
 - Version numbers in `packages/*/package.json`. `scripts/sync-binaries` sets them at release.

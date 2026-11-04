@@ -11,14 +11,14 @@ import (
 // range. Both are durations before now, and zero means no bound. after is
 // nil when since is zero, and before is nil when until is zero. More than
 // one list command reads these flags, so they all refuse the same input with
-// the same message.
-func Window(since, until time.Duration, now time.Time) (after, before *time.Time, err error) {
+// the same message. noun names the listed items in the help, as "events".
+func Window(since, until time.Duration, now time.Time, noun string) (after, before *time.Time, err error) {
 	if since < 0 || until < 0 {
 		return nil, nil, badWindow(errors.New("--since and --until must not be negative"), "Use a duration such as 7d")
 	}
 	if since > 0 && until >= since {
 		return nil, nil, badWindow(errors.New("--until must be shorter than --since"),
-			"As in --since 7d --until 1d for the time from 7 days ago to 1 day ago")
+			"As in --since 7d --until 1d for the "+noun+" from 7 days ago to 1 day ago")
 	}
 	if since > 0 {
 		t := now.Add(-since)

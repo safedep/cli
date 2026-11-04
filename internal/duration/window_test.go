@@ -29,13 +29,16 @@ func TestWindow(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			after, before, err := Window(tt.since, tt.until, now)
+			after, before, err := Window(tt.since, tt.until, now, "events")
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
 				ue, ok := usefulerror.AsUsefulError(err)
 				require.True(t, ok)
 				assert.Equal(t, usefulerror.ErrBadRequest, ue.Code())
+				if tt.since > 0 && tt.until >= tt.since {
+					assert.Equal(t, "As in --since 7d --until 1d for the events from 7 days ago to 1 day ago", ue.Help())
+				}
 				return
 			}
 			require.NoError(t, err)

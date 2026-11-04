@@ -94,7 +94,7 @@ func invalidFilter(cause error, help string) error {
 func newListRequest(in listInput, now time.Time) (*auditv1.ListAuditEventsRequest, error) {
 	filters := &auditv1.ListAuditEventsRequest_Filters{}
 	set := false
-	after, before, err := duration.Window(in.Since, in.Until, now)
+	after, before, err := duration.Window(in.Since, in.Until, now, "events")
 	if err != nil {
 		return nil, err
 	}

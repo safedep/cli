@@ -27,15 +27,32 @@ safedep policy decision list [--since DURATION] [--until DURATION]
 | `--outcome <outcome>` | Only decisions that `blocked` an install, `failed` a check, or `allowed` a package because a trust entry waived a verdict. |
 | `--revision <n>` | Only decisions that applied this tenant policy revision. |
 | `--rule <rule-id>` | Only decisions that this package rule made. |
-| `--override <name\|id>` | Only decisions that this policy override made: a field that the override set, or a package rule that attaches to it. The command finds the name in the policy at `--revision`, or at head. |
+| `--override <name\|id>` | Only decisions that this policy override made: a field that the override set, or a package rule that attaches to it. The command finds the name or the id in the policy at `--revision`, or at head. An override id that the policy does not have, such as the id of a deleted override, goes to the server as is. |
 | `--path <path>` | Only decisions that this field made, by its contract path, as `package_admission.cooldown.min_age`. |
-| `--package <purl>` | Only decisions about this package, in all its versions. Give a PURL with no version, as `pkg:npm/lodash`. |
+| `--package <purl>` | Only decisions about this package, in all its versions. Give a PURL with no version, no qualifiers and no subpath, as `pkg:npm/lodash`. The name must match the stored name exactly, with the same case. See [Package names](#package-names). |
 | `--project <id>` | Only decisions at a pull request or a scan of a repository that is bound to this project. |
 | `--endpoint <id>` | Only decisions that pmg made on this endpoint. |
 | `--limit <n>` | Page size. The server default applies when 0. |
 | `--page-token <token>` | Continuation token from a prior response. |
 
 Inherits root flags `--output` and `--profile`.
+
+The command refuses a value that the server refuses for its length: `--rule`
+and `--override` take at most 64 characters, `--path` 256, `--project` 128,
+`--endpoint` 100 and the package name 255.
+
+## Package names
+
+The command keeps the name of the PURL as you write it, and writes it in the
+form that pmg and vet store:
+
+| Ecosystem | PURL | Name |
+|-----------|------|------|
+| npm | `pkg:npm/%40acme/ui` | `@acme/ui` |
+| Maven | `pkg:maven/org.apache.commons/commons-lang3` | `org.apache.commons:commons-lang3` |
+| Go | `pkg:golang/github.com/BurntSushi/toml` | `github.com/BurntSushi/toml` |
+| Composer | `pkg:composer/laravel/framework` | `laravel/framework` |
+| PyPI | `pkg:pypi/Requests` | `Requests` |
 
 ## Columns
 

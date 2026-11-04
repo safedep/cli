@@ -134,19 +134,14 @@ func decisionsResponse(next string, decisions ...*policyv1.PolicyDecision) *poli
 	return res
 }
 
-func TestNewDecisionFilters(t *testing.T) {
+func TestNewDecisionQuery(t *testing.T) {
 	day := 24 * time.Hour
 	tests := []struct {
-		name       string
-		in         decisionListInput
-		overrideID string
-		check      func(*testing.T, *policyv1.ListPolicyDecisionsRequest_Filters)
-		wantErr    string
+		name    string
+		in      decisionListInput
+		check   func(*testing.T, *policyv1.ListPolicyDecisionsRequest_Filters)
+		wantErr string
 	}{
-		{
-			name:  "no filters",
-			check: func(t *testing.T, f *policyv1.ListPolicyDecisionsRequest_Filters) { assert.Nil(t, f) },
-		},
 		{
 			name: "time range",
 			in:   decisionListInput{Since: 7 * day, Until: day},
@@ -191,11 +186,10 @@ func TestNewDecisionFilters(t *testing.T) {
 			},
 		},
 		{
-			name:       "override id from the resolved name",
-			in:         decisionListInput{Override: "payments"},
-			overrideID: "ov_pay",
+			name: "override waits for the policy read",
+			in:   decisionListInput{Override: "payments"},
 			check: func(t *testing.T, f *policyv1.ListPolicyDecisionsRequest_Filters) {
-				assert.Equal(t, "ov_pay", f.GetOverrideId())
+				assert.False(t, f.HasOverrideId())
 			},
 		},
 		{
@@ -230,13 +224,20 @@ func TestNewDecisionFilters(t *testing.T) {
 		{name: "unknown tool", in: decisionListInput{Tool: "npm"}, wantErr: "unknown --tool value"},
 		{name: "unknown outcome", in: decisionListInput{Outcome: "denied"}, wantErr: "unknown --outcome value"},
 		{name: "package with a version", in: decisionListInput{Package: "pkg:npm/lodash@4.17.21"}, wantErr: "has a version"},
-		{name: "package not a PURL", in: decisionListInput{Package: "lodash"}, wantErr: "is not a PURL"},
+		{name: "package not a PURL", in: decisionListInput{Package: "lodash"}, wantErr: "not a PURL"},
 		{name: "package of an unknown ecosystem", in: decisionListInput{Package: "pkg:nope/x"}, wantErr: "unknown ecosystem"},
+		{name: "rule too long", in: decisionListInput{Rule: strings.Repeat("r", 65)}, wantErr: "--rule is 65 characters long: the limit is 64"},
+		{name: "override too long", in: decisionListInput{Override: strings.Repeat("o", 65)}, wantErr: "--override is 65 characters long"},
+		{name: "path too long", in: decisionListInput{Path: strings.Repeat("p", 257)}, wantErr: "--path is 257 characters long: the limit is 256"},
+		{name: "project too long", in: decisionListInput{Project: strings.Repeat("j", 129)}, wantErr: "--project is 129 characters long: the limit is 128"},
+		{name: "endpoint too long", in: decisionListInput{Endpoint: strings.Repeat("e", 101)}, wantErr: "--endpoint is 101 characters long: the limit is 100"},
+		{name: "limits count characters, not bytes", in: decisionListInput{Rule: strings.Repeat("\u00e9", 64)},
+			check: func(t *testing.T, f *policyv1.ListPolicyDecisionsRequest_Filters) { assert.True(t, f.HasRuleId()) }},
 		{name: "until after since", in: decisionListInput{Since: time.Hour, Until: 2 * time.Hour}, wantErr: "--until must be shorter"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f, err := newDecisionFilters(tt.in, tt.overrideID, fixedNow)
+			q, err := newDecisionQuery(tt.in, fixedNow)
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
@@ -246,9 +247,93 @@ func TestNewDecisionFilters(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			tt.check(t, f)
+			tt.check(t, q.filters)
 		})
 	}
+}
+
+func TestNewDecisionQuery_UnsetFlagsSetNoFilter(t *testing.T) {
+	q, err := newDecisionQuery(decisionListInput{}, fixedNow)
+	require.NoError(t, err)
+	f := q.filters
+	for name, has := range map[string]bool{
+		"decided_after":  f.HasDecidedAfter(),
+		"decided_before": f.HasDecidedBefore(),
+		"tool":           f.HasTool(),
+		"outcome":        f.HasOutcome(),
+		"revision":       f.HasRevision(),
+		"rule_id":        f.HasRuleId(),
+		"override_id":    f.HasOverrideId(),
+		"path":           f.HasPath(),
+		"package":        f.HasPackage(),
+		"project_id":     f.HasProjectId(),
+		"endpoint_id":    f.HasEndpointId(),
+	} {
+		assert.False(t, has, name)
+	}
+
+	client := mocks.NewPolicyServiceClientMock(t)
+	client.EXPECT().ListPolicyDecisions(mock.Anything, mock.MatchedBy(func(r *policyv1.ListPolicyDecisionsRequest) bool {
+		return !r.HasFilters()
+	})).Return(decisionsResponse(""), nil)
+	_, err = runDecisionList(context.Background(), client, q)
+	require.NoError(t, err)
+}
+
+func TestParseDecisionPackage(t *testing.T) {
+	tests := []struct {
+		purl      string
+		ecosystem packagev1.Ecosystem
+		name      string
+		wantErr   string
+	}{
+		{purl: "pkg:npm/lodash", ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, name: "lodash"},
+		{purl: "pkg:npm/%40acme/ui", ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, name: "@acme/ui"},
+		{purl: "pkg:npm/@acme/ui", ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, name: "@acme/ui"},
+		{purl: "pkg:pypi/Requests", ecosystem: packagev1.Ecosystem_ECOSYSTEM_PYPI, name: "Requests"},
+		{purl: "pkg:pypi/typing_extensions", ecosystem: packagev1.Ecosystem_ECOSYSTEM_PYPI, name: "typing_extensions"},
+		{purl: "pkg:maven/org.apache.commons/commons-lang3", ecosystem: packagev1.Ecosystem_ECOSYSTEM_MAVEN, name: "org.apache.commons:commons-lang3"},
+		{purl: "pkg:golang/github.com/BurntSushi/toml", ecosystem: packagev1.Ecosystem_ECOSYSTEM_GO, name: "github.com/BurntSushi/toml"},
+		{purl: "pkg:composer/laravel/framework", ecosystem: packagev1.Ecosystem_ECOSYSTEM_PACKAGIST, name: "laravel/framework"},
+		{purl: "pkg:gem/Rails", ecosystem: packagev1.Ecosystem_ECOSYSTEM_RUBYGEMS, name: "Rails"},
+		{purl: "pkg:cargo/serde", ecosystem: packagev1.Ecosystem_ECOSYSTEM_CARGO, name: "serde"},
+		{purl: "pkg:nuget/Newtonsoft.Json", ecosystem: packagev1.Ecosystem_ECOSYSTEM_NUGET, name: "Newtonsoft.Json"},
+		{purl: "pkg:github/actions/checkout", ecosystem: packagev1.Ecosystem_ECOSYSTEM_GITHUB_ACTIONS, name: "actions/checkout"},
+		{purl: "pkg:npm/lodash@4.17.21", wantErr: "has a version"},
+		{purl: "pkg:npm/%40acme/ui@1.0.0", wantErr: "has a version"},
+		{purl: "pkg:npm/@acme/ui@1.0.0", wantErr: "has a version"},
+		{purl: "pkg:npm/lodash?repository_url=https://r.example.com", wantErr: "has qualifiers"},
+		{purl: "pkg:golang/github.com/acme/mod#sub/dir", wantErr: "has a subpath"},
+		{purl: "pkg:maven/commons-lang3", wantErr: "needs the group and the artifact"},
+		{purl: "pkg:npm/", wantErr: "has no name"},
+		{purl: "lodash", wantErr: "not a PURL"},
+		{purl: "pkg:nope/x", wantErr: "unknown ecosystem"},
+		{purl: "pkg:npm/" + strings.Repeat("a", 256), wantErr: "--package is 256 characters long: the limit is 255"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.purl, func(t *testing.T) {
+			pkg, err := parseDecisionPackage(tt.purl)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				ue, ok := usefulerror.AsUsefulError(err)
+				require.True(t, ok)
+				assert.Equal(t, usefulerror.ErrBadRequest, ue.Code())
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.ecosystem, pkg.GetEcosystem())
+			assert.Equal(t, tt.name, pkg.GetName())
+		})
+	}
+}
+
+// listQuery is the checked query of valid flags.
+func listQuery(t *testing.T, in decisionListInput) *decisionQuery {
+	t.Helper()
+	q, err := newDecisionQuery(in, fixedNow)
+	require.NoError(t, err)
+	return q
 }
 
 func TestRunDecisionList_RuleListsBothToolsWithThePlace(t *testing.T) {
@@ -257,7 +342,7 @@ func TestRunDecisionList_RuleListsBothToolsWithThePlace(t *testing.T) {
 		return r.GetFilters().GetRuleId() == "r_9c1x4kq7dm"
 	})).Return(decisionsResponse("", ruleDecisions()...), nil)
 
-	got, err := runDecisionList(context.Background(), client, decisionListInput{Rule: "r_9c1x4kq7dm"}, fixedNow)
+	got, err := runDecisionList(context.Background(), client, listQuery(t, decisionListInput{Rule: "r_9c1x4kq7dm"}))
 	require.NoError(t, err)
 
 	table := got.RenderTable()
@@ -283,8 +368,7 @@ func TestRunDecisionList_CooldownShowsThePathAndTheDefaultRevision(t *testing.T)
 		return r.GetFilters().GetPath() == "package_admission.cooldown.min_age"
 	})).Return(decisionsResponse("", cooldown), nil)
 
-	got, err := runDecisionList(context.Background(), client,
-		decisionListInput{Path: "package_admission.cooldown.min_age"}, fixedNow)
+	got, err := runDecisionList(context.Background(), client, listQuery(t, decisionListInput{Path: "package_admission.cooldown.min_age"}))
 	require.NoError(t, err)
 	table := got.RenderTable()
 	assert.Contains(t, table, "package_admission.cooldown.min_age · default policy")
@@ -354,7 +438,7 @@ func TestRunDecisionList_Override(t *testing.T) {
 					return r.GetFilters().GetOverrideId() == tt.wantID && r.GetFilters().GetRevision() == tt.in.Revision
 				})).Return(decisionsResponse("", overrideDecision), nil)
 			}
-			got, err := runDecisionList(context.Background(), client, tt.in, fixedNow)
+			got, err := runDecisionList(context.Background(), client, listQuery(t, tt.in))
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
@@ -367,6 +451,51 @@ func TestRunDecisionList_Override(t *testing.T) {
 	}
 }
 
+func TestRunDecisionList_TheIDOfADeletedOverrideIsSentAsIs(t *testing.T) {
+	const deleted = "ov_9c1x4kq7dm"
+	d := decision("d_old", policyv1.DecisionTool_DECISION_TOOL_PMG, policyv1.DecisionOutcome_DECISION_OUTCOME_BLOCKED,
+		"fresh", "0.0.1", citation(49, 12, "package_admission.cooldown.min_age", "", deleted, recordv1.Layer_LAYER_OVERRIDE),
+		atEndpoint(endpointPoint("dev-laptop", "alice")))
+	client := mocks.NewPolicyServiceClientMock(t)
+	client.EXPECT().GetPolicy(mock.Anything, mock.Anything).Return(headResponse(), nil).Once()
+	client.EXPECT().ListPolicyDecisions(mock.Anything, mock.MatchedBy(func(r *policyv1.ListPolicyDecisionsRequest) bool {
+		return r.GetFilters().GetOverrideId() == deleted
+	})).Return(decisionsResponse("", d), nil)
+
+	got, err := runDecisionList(context.Background(), client, listQuery(t, decisionListInput{Override: deleted}))
+	require.NoError(t, err)
+	assert.Contains(t, got.RenderTable(), "override "+deleted, "the table names the deleted override by its id")
+}
+
+func TestResolveOverrideID(t *testing.T) {
+	p := headPolicy()
+	tests := []struct {
+		ref     string
+		want    string
+		wantErr string
+	}{
+		{ref: "payments", want: "ov_pay"},
+		{ref: "ov_ci", want: "ov_ci"},
+		{ref: "ov_9c1x4kq7dm", want: "ov_9c1x4kq7dm"},
+		{ref: "ov_short", wantErr: `no policy override is named "ov_short"`},
+		// "l" is not in the alphabet of the ids.
+		{ref: "ov_9c1x4kq7dl", wantErr: "no policy override is named"},
+		{ref: "nope", wantErr: `no policy override is named "nope"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.ref, func(t *testing.T) {
+			got, err := resolveOverrideID(p, tt.ref)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestRunDecisionList_OverrideNameReadFailureKeepsTheID(t *testing.T) {
 	d := decision("d_ov", policyv1.DecisionTool_DECISION_TOOL_PMG, policyv1.DecisionOutcome_DECISION_OUTCOME_BLOCKED,
 		"evil", "1.0.0", citation(47, 12, "", "r_1", "ov_gone", recordv1.Layer_LAYER_UNSPECIFIED),
@@ -375,7 +504,7 @@ func TestRunDecisionList_OverrideNameReadFailureKeepsTheID(t *testing.T) {
 	client.EXPECT().ListPolicyDecisions(mock.Anything, mock.Anything).Return(decisionsResponse("", d), nil)
 	client.EXPECT().GetPolicy(mock.Anything, mock.Anything).Return(nil, status.Error(codes.Unavailable, "down"))
 
-	got, err := runDecisionList(context.Background(), client, decisionListInput{}, fixedNow)
+	got, err := runDecisionList(context.Background(), client, listQuery(t, decisionListInput{}))
 	require.NoError(t, err)
 	assert.Contains(t, got.RenderTable(), "rule r_1 · override ov_gone")
 }
@@ -436,7 +565,7 @@ func TestRunDecisionList_EscapesServerText(t *testing.T) {
 	client := mocks.NewPolicyServiceClientMock(t)
 	client.EXPECT().ListPolicyDecisions(mock.Anything, mock.Anything).Return(decisionsResponse("", d), nil)
 
-	got, err := runDecisionList(context.Background(), client, decisionListInput{}, fixedNow)
+	got, err := runDecisionList(context.Background(), client, listQuery(t, decisionListInput{}))
 	require.NoError(t, err)
 	for _, out := range []string{got.RenderTable(), got.RenderPlain()} {
 		assert.NotContains(t, out, "\x1b")
@@ -452,7 +581,7 @@ func TestRunDecisionList_Empty(t *testing.T) {
 	client := mocks.NewPolicyServiceClientMock(t)
 	client.EXPECT().ListPolicyDecisions(mock.Anything, mock.Anything).Return(decisionsResponse(""), nil)
 
-	got, err := runDecisionList(context.Background(), client, decisionListInput{}, fixedNow)
+	got, err := runDecisionList(context.Background(), client, listQuery(t, decisionListInput{}))
 	require.NoError(t, err)
 	assert.Contains(t, got.RenderTable(), "No policy decisions match")
 	assert.Len(t, strings.Split(got.RenderPlain(), "\n"), 1, "plain writes only the header")
@@ -467,7 +596,7 @@ func TestRunDecisionList_Paging(t *testing.T) {
 		return r.GetPagination().GetPageSize() == 2 && r.GetPagination().GetPageToken() == "tok_1" && !r.HasFilters()
 	})).Return(decisionsResponse("tok_2", ruleDecisions()...), nil)
 
-	got, err := runDecisionList(context.Background(), client, decisionListInput{PageSize: 2, PageToken: "tok_1"}, fixedNow)
+	got, err := runDecisionList(context.Background(), client, listQuery(t, decisionListInput{PageSize: 2, PageToken: "tok_1"}))
 	require.NoError(t, err)
 	assert.Contains(t, got.RenderTable(), "2 decisions. More available: --page-token tok_2")
 	b, err := got.RenderJSON()
@@ -479,7 +608,7 @@ func TestRunDecisionList_JSONHasTheRawMessages(t *testing.T) {
 	client := mocks.NewPolicyServiceClientMock(t)
 	client.EXPECT().ListPolicyDecisions(mock.Anything, mock.Anything).Return(decisionsResponse("", ruleDecisions()...), nil)
 
-	got, err := runDecisionList(context.Background(), client, decisionListInput{}, fixedNow)
+	got, err := runDecisionList(context.Background(), client, listQuery(t, decisionListInput{}))
 	require.NoError(t, err)
 	b, err := got.RenderJSON()
 	require.NoError(t, err)
@@ -547,7 +676,7 @@ func TestMapDecisionListError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			client := mocks.NewPolicyServiceClientMock(t)
 			client.EXPECT().ListPolicyDecisions(mock.Anything, mock.Anything).Return(nil, tt.err)
-			_, err := runDecisionList(context.Background(), client, decisionListInput{}, fixedNow)
+			_, err := runDecisionList(context.Background(), client, listQuery(t, decisionListInput{}))
 			ue, ok := usefulerror.AsUsefulError(err)
 			require.True(t, ok)
 			assert.Equal(t, tt.wantCode, ue.Code())

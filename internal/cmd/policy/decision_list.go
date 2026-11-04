@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	policyv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/policy/v1/policyv1grpc"
-	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	policyv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/policy/v1"
-	drypb "github.com/safedep/dry/api/pb"
 	"github.com/safedep/dry/log"
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/safedep/cli/internal/app"
@@ -24,6 +24,14 @@ import (
 const (
 	decisionToolPrefix    = "DECISION_TOOL_"
 	decisionOutcomePrefix = "DECISION_OUTCOME_"
+
+	// The longest values that the server accepts in the filters of
+	// ListPolicyDecisionsRequest, in characters.
+	maxRuleIDLen     = 64
+	maxOverrideIDLen = 64
+	maxPathLen       = 256
+	maxProjectIDLen  = 128
+	maxEndpointIDLen = 100
 )
 
 type decisionListInput struct {
@@ -42,8 +50,21 @@ type decisionListInput struct {
 	PageToken string
 }
 
+// decisionQuery is the checked input of one list. The filters hold every
+// flag except --override, which needs the policy to resolve a name.
+type decisionQuery struct {
+	filters   *policyv1.ListPolicyDecisionsRequest_Filters
+	override  string
+	revision  uint64
+	pageSize  uint32
+	pageToken string
+}
+
 func decisionListCmd(a *app.App) *cobra.Command {
-	var in decisionListInput
+	var (
+		in    decisionListInput
+		query *decisionQuery
+	)
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List the decisions that the policy made, newest first",
@@ -57,7 +78,8 @@ func decisionListCmd(a *app.App) *cobra.Command {
 			if err := cobra.NoArgs(cmd, args); err != nil {
 				return err
 			}
-			_, err := newDecisionFilters(in, "", time.Now())
+			var err error
+			query, err = newDecisionQuery(in, time.Now())
 			return err
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -65,7 +87,7 @@ func decisionListCmd(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			res, err := runDecisionList(cmd.Context(), cloudpolicy.NewPolicyClient(client.Connection()), in, time.Now())
+			res, err := runDecisionList(cmd.Context(), cloudpolicy.NewPolicyClient(client.Connection()), query)
 			if err != nil {
 				return err
 			}
@@ -107,50 +129,28 @@ func parseDecisionEnum(flag, token string, names map[int32]string, prefix string
 	return n, nil
 }
 
-// parseDecisionPackage reads a PURL with no version. The filter matches every
-// version of the package, so a version in the PURL would mislead.
-func parseDecisionPackage(purl string) (*packagev1.Package, error) {
-	help := "Give a PURL with no version, as in --package pkg:npm/lodash"
-	if !strings.HasPrefix(purl, "pkg:") {
-		return nil, invalidInputError(fmt.Errorf("--package %q is not a PURL", purl), help)
+// checkLength refuses locally a value that the server refuses for its length.
+func checkLength(flag, value string, limit int) error {
+	if n := utf8.RuneCountInString(value); n > limit {
+		return invalidInputError(fmt.Errorf("--%s is %d characters long: the limit is %d", flag, n, limit),
+			fmt.Sprintf("Give a --%s value of at most %d characters", flag, limit))
 	}
-	parsed, err := drypb.NewPurlPackageVersion(purl)
-	if err != nil {
-		return nil, invalidInputError(fmt.Errorf("--package %q: %w", purl, err), help)
-	}
-	pv := parsed.PackageVersion()
-	switch {
-	case pv.GetPackage().GetEcosystem() == packagev1.Ecosystem_ECOSYSTEM_UNSPECIFIED:
-		return nil, invalidInputError(fmt.Errorf("--package %q: unknown ecosystem", purl), help)
-	case pv.GetVersion() != "":
-		return nil, invalidInputError(
-			fmt.Errorf("--package %q has a version: the filter matches every version of the package", purl), help)
-	case pv.GetPackage().GetName() == "":
-		return nil, invalidInputError(fmt.Errorf("--package %q has no name", purl), help)
-	}
-	return pv.GetPackage(), nil
+	return nil
 }
 
-// newDecisionFilters builds the request filters from the flags. overrideID is
-// the id that --override resolved to. It returns nil when no filter is set.
-func newDecisionFilters(
-	in decisionListInput,
-	overrideID string,
-	now time.Time,
-) (*policyv1.ListPolicyDecisionsRequest_Filters, error) {
+// newDecisionQuery checks the flags and builds the filters. It makes no
+// RPC, so the command refuses a bad flag before it reads credentials.
+func newDecisionQuery(in decisionListInput, now time.Time) (*decisionQuery, error) {
 	filters := &policyv1.ListPolicyDecisionsRequest_Filters{}
-	set := false
-	after, before, err := duration.Window(in.Since, in.Until, now)
+	after, before, err := duration.Window(in.Since, in.Until, now, "decisions")
 	if err != nil {
 		return nil, err
 	}
 	if after != nil {
 		filters.SetDecidedAfter(timestamppb.New(*after))
-		set = true
 	}
 	if before != nil {
 		filters.SetDecidedBefore(timestamppb.New(*before))
-		set = true
 	}
 	if in.Tool != "" {
 		n, err := parseDecisionEnum("tool", in.Tool, policyv1.DecisionTool_name, decisionToolPrefix, decisionToolTokens())
@@ -158,7 +158,6 @@ func newDecisionFilters(
 			return nil, err
 		}
 		filters.SetTool(policyv1.DecisionTool(n))
-		set = true
 	}
 	if in.Outcome != "" {
 		n, err := parseDecisionEnum("outcome", in.Outcome, policyv1.DecisionOutcome_name, decisionOutcomePrefix,
@@ -167,11 +166,9 @@ func newDecisionFilters(
 			return nil, err
 		}
 		filters.SetOutcome(policyv1.DecisionOutcome(n))
-		set = true
 	}
 	if in.Revision > 0 {
 		filters.SetRevision(in.Revision)
-		set = true
 	}
 	if in.Package != "" {
 		pkg, err := parseDecisionPackage(in.Package)
@@ -179,27 +176,38 @@ func newDecisionFilters(
 			return nil, err
 		}
 		filters.SetPackage(pkg)
-		set = true
+	}
+	// An override name has at most 63 characters, so the limit of the id
+	// also holds for a name.
+	if err := checkLength("override", in.Override, maxOverrideIDLen); err != nil {
+		return nil, err
 	}
 	for _, text := range []struct {
+		flag  string
 		value string
+		limit int
 		apply func(string)
 	}{
-		{in.Rule, filters.SetRuleId},
-		{overrideID, filters.SetOverrideId},
-		{in.Path, filters.SetPath},
-		{in.Project, filters.SetProjectId},
-		{in.Endpoint, filters.SetEndpointId},
+		{"rule", in.Rule, maxRuleIDLen, filters.SetRuleId},
+		{"path", in.Path, maxPathLen, filters.SetPath},
+		{"project", in.Project, maxProjectIDLen, filters.SetProjectId},
+		{"endpoint", in.Endpoint, maxEndpointIDLen, filters.SetEndpointId},
 	} {
-		if text.value != "" {
-			text.apply(text.value)
-			set = true
+		if text.value == "" {
+			continue
 		}
+		if err := checkLength(text.flag, text.value, text.limit); err != nil {
+			return nil, err
+		}
+		text.apply(text.value)
 	}
-	if !set {
-		return nil, nil
-	}
-	return filters, nil
+	return &decisionQuery{
+		filters:   filters,
+		override:  in.Override,
+		revision:  in.Revision,
+		pageSize:  in.PageSize,
+		pageToken: in.PageToken,
+	}, nil
 }
 
 // runDecisionList reads one page of decisions. It reads the policy only to
@@ -209,34 +217,26 @@ func newDecisionFilters(
 func runDecisionList(
 	ctx context.Context,
 	client policyv1grpc.PolicyServiceClient,
-	in decisionListInput,
-	now time.Time,
+	q *decisionQuery,
 ) (*decisionListResult, error) {
-	if _, err := newDecisionFilters(in, "", now); err != nil {
-		return nil, err
-	}
 	var snapshot *policyv1.Policy
-	overrideID := ""
-	if in.Override != "" {
-		_, p, err := readPolicyAt(ctx, client, in.Revision)
+	if q.override != "" {
+		_, p, err := readPolicyAt(ctx, client, q.revision)
 		if err != nil {
 			return nil, err
 		}
 		snapshot = p
-		o, err := findOverrideByNameOrID(p, in.Override)
+		id, err := resolveOverrideID(p, q.override)
 		if err != nil {
 			return nil, err
 		}
-		overrideID = o.GetOverrideId()
-	}
-	filters, err := newDecisionFilters(in, overrideID, now)
-	if err != nil {
-		return nil, err
+		q.filters.SetOverrideId(id)
 	}
 	req := &policyv1.ListPolicyDecisionsRequest{}
-	req.SetPagination(paging.NewPaginationRequest(in.PageSize, in.PageToken))
-	if filters != nil {
-		req.SetFilters(filters)
+	req.SetPagination(paging.NewPaginationRequest(q.pageSize, q.pageToken))
+	// Every filter is optional, so a set filter always adds bytes.
+	if proto.Size(q.filters) > 0 {
+		req.SetFilters(q.filters)
 	}
 	res, err := client.ListPolicyDecisions(ctx, req)
 	if err != nil {
@@ -246,7 +246,7 @@ func runDecisionList(
 	names := map[string]string{}
 	if citesOverride(res.GetDecisions()) {
 		if snapshot == nil {
-			_, p, err := readPolicyAt(ctx, client, in.Revision)
+			_, p, err := readPolicyAt(ctx, client, q.revision)
 			if err != nil {
 				// The names only label the output. The ids stay, so the list is
 				// still correct without them.
@@ -268,17 +268,46 @@ func citesOverride(decisions []*policyv1.PolicyDecision) bool {
 	return false
 }
 
-// findOverrideByNameOrID accepts the id too, because the JSON output of a
-// decision gives the id of its override. A name wins over an id.
-func findOverrideByNameOrID(p *policyv1.Policy, ref string) (*policyv1.Override, error) {
+// resolveOverrideID finds the override by name, then by id, in the policy
+// that the command read. A stored decision keeps the id of an override that
+// a later revision deleted, so a value with the shape of an override id goes
+// to the server as is when the policy does not have it.
+func resolveOverrideID(p *policyv1.Policy, ref string) (string, error) {
 	o, err := findOverride(p, ref)
 	if err == nil {
-		return o, nil
+		return o.GetOverrideId(), nil
 	}
 	for _, o := range p.GetOverrides() {
 		if o.GetOverrideId() == ref {
-			return o, nil
+			return ref, nil
 		}
 	}
-	return nil, err
+	if isOverrideID(ref) {
+		return ref, nil
+	}
+	return "", err
+}
+
+const (
+	overrideIDPrefix = "ov_"
+	// overrideIDAlphabet is lowercase Crockford base32, the alphabet of the
+	// ids that the server makes.
+	overrideIDAlphabet = "0123456789abcdefghjkmnpqrstvwxyz"
+	minOverrideIDBody  = 8
+)
+
+// isOverrideID reports the shape of an id that the server gives an override:
+// "ov_" and 8 to 64 characters of overrideIDAlphabet. It repeats id.Valid of
+// dry, which the dry version of this CLI does not have yet.
+func isOverrideID(s string) bool {
+	body, ok := strings.CutPrefix(s, overrideIDPrefix)
+	if !ok || len(body) < minOverrideIDBody || len(s) > maxOverrideIDLen {
+		return false
+	}
+	for i := 0; i < len(body); i++ {
+		if strings.IndexByte(overrideIDAlphabet, body[i]) < 0 {
+			return false
+		}
+	}
+	return true
 }

@@ -3,8 +3,8 @@ module github.com/safedep/cli
 go 1.26.2
 
 require (
-	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20261031065119-dc85a10c2beb.1
-	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20261031065119-dc85a10c2beb.2
+	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20261104174030-9113dd6a8ea6.1
+	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20261104174030-9113dd6a8ea6.2
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/cli/browser v1.3.0

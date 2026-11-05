@@ -24,11 +24,11 @@ safedep policy revision list --limit 5
 ```
 Policy revisions
 REV  PUBLISHED  BY     SOURCE  DIRECTION  MESSAGE
-51   10m ago    alice  CLI     LOOSENS    delete r_80b
+51   10m ago    alice  CLI     TIGHTENS   delete r_80b
 50   12m ago    alice  CLI     LOOSENS    extend r_77e
 49   1d ago     alice  CLI     LOOSENS    trust pkg:pypi/foo@1.0.3
 48   1d ago     carol  CLI     TIGHTENS   block pkg:npm/evil (IR-2291)
-47   2d ago     alice  CLI     TIGHTENS   payments: fail on medium, 7d cooldown (CUST-412)
+47   2d ago     alice  CLI     LOOSENS    payments: fail on medium, 7d cooldown (CUST-412)
 ```
 
 ## Output

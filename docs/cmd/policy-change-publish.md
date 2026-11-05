@@ -27,11 +27,17 @@ safedep policy change publish 18 -m "payments: fail on medium, 7d cooldown (CUST
 ```
 
 ```
-Change 18 · TIGHTENS. An Admin can publish it
-✓ revision 47 published · TIGHTENS
+Change 18 · LOOSENS. Only an Admin can publish it, and Admins and Owners get a notice
+! It loosens package_admission.cooldown.min_age (- -> 7d) in override "payments"
+! It loosens selector (custom/team=pay -> custom/criticality=high) in override "payments"
+Change 18 loosens the policy. Publish it? [y/N]: y
+✓ revision 47 published · LOOSENS
   Projects resolve it at their next check. Endpoints apply it after their next policy fetch
   Endpoints that have not applied it yet: safedep endpoint list --applied-revision '<47'
 ```
+
+In a script, pass `--yes` to publish a change that loosens the policy. A change
+that only tightens publishes with no prompt.
 
 When a part that the change edits moved since its base revision, the publish stops:
 

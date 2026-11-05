@@ -2,8 +2,10 @@
 
 Show the intended policy of one project: each field, its value, and its source.
 The source is the SafeDep default policy, the policy base, or a policy override.
-The output also shows the applied policy revision and the exceptions that each
-tool or check reported.
+The output also has a table for the policy that each tool applied. In this
+release no tool reports it for a project: the pull request check
+(`pull-request-check`) resolves the policy at each check and sends no report, so
+the table is empty.
 
 ## Synopsis
 
@@ -36,8 +38,7 @@ package_admission.cooldown.min_age  7d      override "payments" (200)  -
 scan_gate.fail_on                   medium  override "payments" (200)  -
 
 Applied policy, as each tool reported it
-TOOL       VERSION  REVISION  STATE    FETCHED  REPORTED
-scm-check  -        47        applied  3h ago   3h ago
+No tool or check reported the policy that it applies for this project yet.
 ```
 
 ## Output

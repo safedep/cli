@@ -26,18 +26,25 @@ Updated  2m ago
 What changes
 WHERE                WHAT                                OLD -> NEW                                  DIRECTION
 override "payments"  scan_gate.fail_on                   high -> medium                              TIGHTENS
-override "payments"  package_admission.cooldown.min_age  - -> 7d                                     TIGHTENS
+override "payments"  package_admission.cooldown.min_age  - -> 7d                                     LOOSENS
 override "payments"  selector                            custom/team=pay -> custom/criticality=high  LOOSENS
 
 Impact · subjects matched: 3 projects, 0 endpoints
-FIELD                       ENFORCED  PARTIAL  DETECT ONLY  NOT SUPPORTED
-scan_gate.fail_on = medium  2         1        0            0
+FIELD                                      ENFORCED  PARTIAL  DETECT ONLY  NOT SUPPORTED
+package_admission.cooldown.min_age = 168h  0         0        0            3
+scan_gate.fail_on = medium                 3         0        0            0
 
 Warnings
 No warnings.
 
 Direction  LOOSENS. Only an Admin can publish it, and Admins and Owners get a notice
 ```
+
+The policy base and the SafeDep default policy set no cooldown, so the server
+counts the first cooldown of the override as a change that loosens: it does not
+know what each tool did before. A selector edit always loosens, because it can
+move subjects to another policy override. The impact counts only projects: the
+pull request check enforces `scan_gate.fail_on` and does not support the cooldown.
 
 A stale change shows `STALE: sync it before you publish` in the first line. A
 published or deleted change shows no preview.

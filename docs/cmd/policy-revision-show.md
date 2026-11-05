@@ -18,7 +18,7 @@ safedep policy revision show 47
 ```
 Revision   47 · published 2d ago by alice · "payments: fail on medium, 7d cooldown (CUST-412)"
 Source     CLI
-Direction  TIGHTENS
+Direction  LOOSENS
 Change     18 · safedep policy change show 18
 
 Policy settings

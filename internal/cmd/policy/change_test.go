@@ -49,6 +49,11 @@ func TestRunChangeList(t *testing.T) {
 	assert.ErrorContains(t, err, `unknown --state value "draft": allowed values are open, published, deleted`)
 }
 
+// previewResponse is the preview that control-tower gives for change 18. The
+// policy base and the default policy set no cooldown, so a cooldown that an
+// override sets for the first time loosens: the server cannot know what a
+// tool did before. A selector edit always loosens. The pull request check
+// enforces scan_gate.fail_on and does not support the cooldown.
 func previewResponse() *policyv1.PreviewPolicyChangeResponse {
 	field := &policyv1.PathChange{}
 	field.SetPath("scan_gate.fail_on")
@@ -63,7 +68,7 @@ func previewResponse() *policyv1.PreviewPolicyChangeResponse {
 	cooldown.SetLayer(recordv1.Layer_LAYER_OVERRIDE)
 	cooldown.SetOverrideName("payments")
 	cooldown.SetNewValue(`"604800s"`)
-	cooldown.SetDirection(policyv1.ChangeDirection_CHANGE_DIRECTION_TIGHTENS)
+	cooldown.SetDirection(policyv1.ChangeDirection_CHANGE_DIRECTION_LOOSENS)
 
 	selector := &policyv1.OverrideChange{}
 	selector.SetOverrideName("payments")
@@ -73,11 +78,14 @@ func previewResponse() *policyv1.PreviewPolicyChangeResponse {
 	selector.SetNewValue(`{"matchLabels":{"custom/criticality":"high"}}`)
 	selector.SetDirection(policyv1.ChangeDirection_CHANGE_DIRECTION_LOOSENS)
 
+	cooldownCoverage := &policyv1.CoverageSummary{}
+	cooldownCoverage.SetPath("package_admission.cooldown.min_age")
+	cooldownCoverage.SetValue(`"604800s"`)
+	cooldownCoverage.SetUnsupportedCount(3)
 	coverage := &policyv1.CoverageSummary{}
 	coverage.SetPath("scan_gate.fail_on")
 	coverage.SetValue(`"SEVERITY_MEDIUM"`)
-	coverage.SetEnforceCount(2)
-	coverage.SetPartialCount(1)
+	coverage.SetEnforceCount(3)
 
 	res := &policyv1.PreviewPolicyChangeResponse{}
 	res.SetHeadRevision(46)
@@ -85,7 +93,7 @@ func previewResponse() *policyv1.PreviewPolicyChangeResponse {
 	res.SetOverrideChanges([]*policyv1.OverrideChange{selector})
 	res.SetDirection(policyv1.ChangeDirection_CHANGE_DIRECTION_LOOSENS)
 	res.SetMatchedProjectCount(3)
-	res.SetCoverage([]*policyv1.CoverageSummary{coverage})
+	res.SetCoverage([]*policyv1.CoverageSummary{cooldownCoverage, coverage})
 	return res
 }
 
@@ -120,6 +128,7 @@ func TestRunChangeShow_PreviewsAnOpenChange(t *testing.T) {
 		"No warnings.",
 		"subjects matched: 3 projects, 0 endpoints",
 		"scan_gate.fail_on = medium",
+		"package_admission.cooldown.min_age = 168h",
 		"LOOSENS. Only an Admin can publish it",
 	} {
 		assert.Contains(t, table, want)

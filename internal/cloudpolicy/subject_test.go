@@ -60,7 +60,7 @@ func subjectPolicyResponse() *policyv1.GetSubjectPolicyResponse {
 	matched.SetPriority(200)
 	header := &specv1.ResolvedPolicyHeader{}
 	header.SetRevision(47)
-	header.SetDefaultPolicyRevision(12)
+	header.SetDefaultPolicyRevision(1)
 	header.SetMatchedOverrides([]*specv1.MatchedOverride{matched})
 
 	intended := &specv1.ResolvedPolicy{}
@@ -74,7 +74,9 @@ func subjectPolicyResponse() *policyv1.GetSubjectPolicyResponse {
 	exception := &recordv1.FieldException{}
 	exception.SetPath("package_admission.cooldown.min_age")
 	exception.SetReason(recordv1.FieldExceptionReason_FIELD_EXCEPTION_REASON_LOCKED)
-	exception.SetDetail("floor in /etc/safedep/cloud.yml")
+	// The detail that pmg sends when global_lockdown of its managed config
+	// file keeps a value.
+	exception.SetDetail("global_lockdown keeps the value of the managed config file")
 	report := &recordv1.ApplyReport{}
 	report.SetRevision(46)
 	report.SetState(recordv1.ApplyState_APPLY_STATE_APPLIED)
@@ -98,14 +100,15 @@ func subjectPolicyResponse() *policyv1.GetSubjectPolicyResponse {
 
 func TestGetSubjectPolicy(t *testing.T) {
 	client := &fakeSubjectPolicyClient{res: subjectPolicyResponse()}
-	subject := NewSubject(specv1.SubjectKind_SUBJECT_KIND_PROJECT, "p_1")
+	// Only an endpoint has policy apply reports: pmg sends them at check-in.
+	subject := NewSubject(specv1.SubjectKind_SUBJECT_KIND_ENDPOINT, "01KR0EKN6PMW0ZRFRN992H1PKX")
 
-	got, err := GetSubjectPolicy(context.Background(), client, subject, "acme/payments-api", nil)
+	got, err := GetSubjectPolicy(context.Background(), client, subject, "arjuns-mbp", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, specv1.SubjectKind_SUBJECT_KIND_PROJECT, client.req.GetSubject().GetKind())
-	assert.Equal(t, "p_1", client.req.GetSubject().GetId())
-	assert.Equal(t, "project", got.Kind)
+	assert.Equal(t, specv1.SubjectKind_SUBJECT_KIND_ENDPOINT, client.req.GetSubject().GetKind())
+	assert.Equal(t, "01KR0EKN6PMW0ZRFRN992H1PKX", client.req.GetSubject().GetId())
+	assert.Equal(t, "endpoint", got.Kind)
 	assert.Equal(t, uint64(47), got.Revision)
 	assert.Equal(t, 1, got.TrustRules)
 	assert.Equal(t, 2, got.BlockRules)
@@ -114,7 +117,7 @@ func TestGetSubjectPolicy(t *testing.T) {
 	require.Len(t, got.Fields, 2)
 	assert.Equal(t, SubjectField{
 		Path: "package_admission.cooldown.min_age", Value: "168h", Human: "7d", Source: "base",
-		Exceptions: []string{"pmg: locked (floor in /etc/safedep/cloud.yml)"},
+		Exceptions: []string{"pmg: locked (global_lockdown keeps the value of the managed config file)"},
 	}, got.Fields[0])
 	assert.Equal(t, `override "payments" (200)`, got.Fields[1].Source)
 	require.Len(t, got.Applied, 1)
@@ -128,7 +131,7 @@ func TestGetSubjectPolicy(t *testing.T) {
 	b, err := got.RenderJSON()
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(b, &decoded))
-	assert.Equal(t, "p_1", decoded["id"])
+	assert.Equal(t, "01KR0EKN6PMW0ZRFRN992H1PKX", decoded["id"])
 	assert.Contains(t, got.RenderPlain(), "scan_gate.fail_on\tmedium\toverride \"payments\" (200)")
 }
 

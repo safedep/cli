@@ -85,16 +85,16 @@ func ruleCreateCmd(a *app.App) *cobra.Command {
 	f := cmd.Flags()
 	f.BoolVar(&in.Block, "block", false, "create block entries")
 	f.BoolVar(&in.Trust, "trust", false, "create a trust entry")
-	f.StringVarP(&in.File, "file", "f", "", "with --block: a file of selectors, one on each line; - reads stdin")
+	f.StringVarP(&in.File, "file", "f", "", "with --block: a file of selectors, one on each line, or - for stdin")
 	f.StringVar(&in.Vers, "vers", "", "a version range, as in '>=1.2.0' or 'vers:npm/>=1.2.0|<2.0.0'")
 	f.StringSliceVar(&in.Scopes, "scope", nil,
-		"with --trust: the verdicts to waive ("+strings.Join(trustScopeTokens(), ", ")+", or all); repeatable")
-	f.StringVar(&in.Reason, "reason", "", "why the rule exists (required); tools show it in a block message")
+		"with --trust: a verdict to waive, one of "+strings.Join(trustScopeTokens(), ", ")+", or all (repeatable)")
+	f.StringVar(&in.Reason, "reason", "", "why the rule exists, which tools show in a block message (required)")
 	f.StringVar(&in.Ticket, "ticket", "", "a ticket or incident reference, as in IR-2291")
 	f.StringVar(&in.RequestedBy, "requested-by", "", "the team or person that asked for the rule")
 	f.StringVar(&in.Expires, "expires", "", "when the rule stops: a duration, as in 30d, or a date (required with --trust)")
-	f.StringVar(&in.Override, "override", "", "attach the rule to the policy override with this name; the policy base when empty")
-	f.StringVarP(&in.Message, "message", "m", "", "the publish message; the server writes one when it is empty")
+	f.StringVar(&in.Override, "override", "", "the policy override that the rule attaches to, or the policy base when empty")
+	f.StringVarP(&in.Message, "message", "m", "", "the publish message, or a message that the server writes when empty")
 	return cmd
 }
 

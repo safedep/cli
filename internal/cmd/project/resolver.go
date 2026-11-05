@@ -203,7 +203,7 @@ func ambiguousProjectNameError(op, name string, byID map[string]projectMatch) er
 		labels = append(labels, fmt.Sprintf("%s (%s)", item.id, details))
 	}
 	cause := fmt.Errorf(
-		"%s: project name %q is ambiguous: %s; use a project ID",
+		"%s: project name %q is ambiguous: %s. Use a project ID",
 		op,
 		name,
 		strings.Join(labels, ", "),

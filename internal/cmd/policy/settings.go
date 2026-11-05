@@ -224,7 +224,7 @@ func validateSettings(p *policyv1.Policy) error {
 
 func warnComments(saved, written []byte) {
 	if cloudpolicy.HasUserComments(saved, written) {
-		tui.Warning("The file holds comments. The policy keeps no comments, so they are lost. " +
+		tui.Warning("The file holds comments. The policy keeps no comments, so the save drops them. " +
 			"Write the reason in a description field")
 	}
 }

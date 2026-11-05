@@ -63,7 +63,7 @@ func labelSetCmd(a *app.App) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringArrayVar(&labels, "label", nil, "a label as custom/KEY=VALUE; repeatable")
+	cmd.Flags().StringArrayVar(&labels, "label", nil, "a label as custom/KEY=VALUE (repeatable)")
 	return cmd
 }
 
@@ -97,7 +97,7 @@ func labelDeleteCmd(a *app.App) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringArrayVar(&keys, "key", nil, "a label key as custom/KEY; repeatable")
+	cmd.Flags().StringArrayVar(&keys, "key", nil, "a label key as custom/KEY (repeatable)")
 	return cmd
 }
 

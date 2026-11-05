@@ -66,7 +66,8 @@ func changeCreateCmd(a *app.App) *cobra.Command {
 	f := cmd.Flags()
 	f.Uint64Var(&in.FromRevision, "from-revision", 0, "the policy revision to restore from (required)")
 	f.StringSliceVar(&in.Capabilities, "capability", nil,
-		"a capability to restore ("+strings.Join(cloudpolicy.Capabilities(), ", ")+"); repeatable; every capability when absent")
+		"a capability to restore, one of "+strings.Join(cloudpolicy.Capabilities(), ", ")+
+			" (repeatable, every capability when not set)")
 	f.StringVar(&in.PackageRules, "package-rules", packageRulesKeepHead,
 		"the package rules after the restore: head keeps them, revision restores the set of --from-revision")
 	f.StringVarP(&in.Title, "message", "m", "", "the title of the policy change")
@@ -131,7 +132,7 @@ func runChangeCreate(
 func reportRestoreDirection(ctx context.Context, client policyv1grpc.PolicyServiceClient, id string) {
 	preview, err := previewChange(ctx, client, id)
 	if err != nil {
-		tui.Warning("Could not preview change %s: %s", clitui.EscapeLine(id), clitui.EscapeLine(err.Error()))
+		tui.Warning("Cannot preview change %s: %s", clitui.EscapeLine(id), clitui.EscapeLine(err.Error()))
 		return
 	}
 	reportLoosening(preview)

@@ -31,8 +31,8 @@ func policyShowCmd(a *app.App) *cobra.Command {
 		Short: "Show the policy of an endpoint and the source of each value",
 		Long: "Show the intended policy of one endpoint: each field, its value, and its source, which is " +
 			"the SafeDep default policy, the policy base, or a policy override. The output also shows the " +
-			"applied policy revision and the exceptions that each tool reported, such as a field that a " +
-			"managed file locks. Use --field to show some fields only.",
+			"applied policy revision that each tool reported, and the fields that a tool did not apply " +
+			"as the policy says. Use --field to show some fields only.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if err := cobra.ExactArgs(1)(cmd, args); err != nil {
 				return err
@@ -55,7 +55,7 @@ func policyShowCmd(a *app.App) *cobra.Command {
 			return a.Output.Print(res)
 		},
 	}
-	cmd.Flags().StringSliceVar(&fields, "field", nil, "show only these contract paths, as in package_admission.cooldown.min_age; repeatable")
+	cmd.Flags().StringSliceVar(&fields, "field", nil, "show only this contract path and the paths below it, as in package_admission.cooldown.min_age (repeatable)")
 	return cmd
 }
 

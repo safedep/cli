@@ -53,10 +53,10 @@ func listCmd(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List endpoints with filters",
-		Long: "List endpoints reporting to SafeDep Cloud, with filters for capability, blocked installs, silent duration, identity search, " +
-			"labels, and the applied policy revision. --applied-revision '<48' keeps the endpoints where a tool applies a policy " +
-			"revision lower than 48, so you can see which endpoints have not applied a publish yet. The POLICY column shows the " +
-			"applied policy revision that each tool reported.",
+		Long: "List the endpoints that report to SafeDep Cloud, with filters for capability, blocked installs, silent duration, " +
+			"identity search, labels and the applied policy revision. --applied-revision '<48' keeps the endpoints where a tool " +
+			"applies a policy revision lower than 48. Use it to find the endpoints that have not applied a publish yet. The " +
+			"Policy column shows the applied policy revision that each tool reported.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			selector, applied, err := parsePolicyFilters(selectorFlag, appliedFlag)
 			if err != nil {

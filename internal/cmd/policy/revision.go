@@ -49,7 +49,7 @@ func revisionListCmd(a *app.App) *cobra.Command {
 			return a.Output.Print(res)
 		},
 	}
-	cmd.Flags().Uint32Var(&in.PageSize, "limit", 0, "page size; server default when 0")
+	cmd.Flags().Uint32Var(&in.PageSize, "limit", 0, "page size, or the server default when 0")
 	cmd.Flags().StringVar(&in.PageToken, "page-token", "", "continuation token from a prior response")
 	return cmd
 }

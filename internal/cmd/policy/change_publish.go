@@ -58,7 +58,7 @@ func changePublishCmd(a *app.App) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&message, "message", "m", "", "the publish message; the change title becomes the title when it is empty")
+	cmd.Flags().StringVarP(&message, "message", "m", "", "the publish message, or the title of the change when empty")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "publish a change that loosens the policy with no prompt")
 	return cmd
 }

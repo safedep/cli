@@ -45,7 +45,7 @@ func ruleDeleteCmd(a *app.App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&reason, "reason", "", "why the rule goes (required)")
-	cmd.Flags().StringVarP(&message, "message", "m", "", "the publish message; the server writes one when it is empty")
+	cmd.Flags().StringVarP(&message, "message", "m", "", "the publish message, or a message that the server writes when empty")
 	return cmd
 }
 

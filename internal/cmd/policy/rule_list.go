@@ -73,7 +73,7 @@ func ruleListCmd(a *app.App) *cobra.Command {
 	f.StringVar(&in.Override, "override", "", "filter: rules that attach to the policy override with this name")
 	f.BoolVar(&in.Base, "base", false, "filter: rules that attach to the policy base")
 	f.Uint64Var(&in.AtRevision, "at-revision", 0, "list the rules that were active at this policy revision")
-	f.Uint32Var(&in.PageSize, "limit", 0, "page size; server default when 0")
+	f.Uint32Var(&in.PageSize, "limit", 0, "page size, or the server default when 0")
 	f.StringVar(&in.PageToken, "page-token", "", "continuation token from a prior response")
 	return cmd
 }

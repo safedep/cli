@@ -64,8 +64,8 @@ func labelSetCmd(a *app.App) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringArrayVar(&in.Labels, "label", nil, "a label as custom/KEY=VALUE; repeatable")
-	cmd.Flags().StringArrayVar(&in.ProjectIDs, "project-id", nil, "a project ID instead of a name; repeatable")
+	cmd.Flags().StringArrayVar(&in.Labels, "label", nil, "a label as custom/KEY=VALUE (repeatable)")
+	cmd.Flags().StringArrayVar(&in.ProjectIDs, "project-id", nil, "a project ID instead of a name (repeatable)")
 	return cmd
 }
 
@@ -98,8 +98,8 @@ func labelDeleteCmd(a *app.App) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringArrayVar(&in.Keys, "key", nil, "a label key as custom/KEY; repeatable")
-	cmd.Flags().StringArrayVar(&in.ProjectIDs, "project-id", nil, "a project ID instead of a name; repeatable")
+	cmd.Flags().StringArrayVar(&in.Keys, "key", nil, "a label key as custom/KEY (repeatable)")
+	cmd.Flags().StringArrayVar(&in.ProjectIDs, "project-id", nil, "a project ID instead of a name (repeatable)")
 	return cmd
 }
 

@@ -34,7 +34,7 @@ func policyShowCmd(a *app.App) *cobra.Command {
 		Short: "Show the policy of a project and the source of each value",
 		Long: "Show the intended policy of one project: each field, its value, and its source, which is " +
 			"the SafeDep default policy, the policy base, or a policy override. The output also shows the " +
-			"exceptions and the applied policy revision that each tool or check reported. Use --field to " +
+			"applied policy revision that each tool reported. Use --field to " +
 			"show some fields only.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {
@@ -63,7 +63,7 @@ func policyShowCmd(a *app.App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&in.ProjectID, "project-id", "", "the project ID instead of a name")
-	cmd.Flags().StringSliceVar(&in.Fields, "field", nil, "show only these contract paths, as in scan_gate.fail_on; repeatable")
+	cmd.Flags().StringSliceVar(&in.Fields, "field", nil, "show only this contract path and the paths below it, as in scan_gate.fail_on (repeatable)")
 	return cmd
 }
 

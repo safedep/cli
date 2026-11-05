@@ -1,6 +1,6 @@
 # safedep endpoint list
 
-List endpoints reporting to SafeDep Cloud, with optional filters for capability, blocked installs, silent duration, identity search, labels, and the applied policy revision.
+List the endpoints that report to SafeDep Cloud, with filters for capability, blocked installs, silent duration, identity search, labels and the applied policy revision.
 
 ## Synopsis
 

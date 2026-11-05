@@ -74,11 +74,11 @@ func eventListCmd(a *app.App) *cobra.Command {
 	f := cmd.Flags()
 	f.Var(duration.NewValue(&in.Since, 0), "since", "only events in this time before now, as in 7d or 12h")
 	f.Var(duration.NewValue(&in.Until, 0), "until", "only events older than this time before now, as in 1d")
-	f.StringVar(&in.Action, "action", "", "only events whose action starts with this text; policy. lists the policy actions")
+	f.StringVar(&in.Action, "action", "", "only events whose action starts with this text, as in policy. for the policy actions")
 	f.StringVar(&in.Resource, "resource", "",
 		"only events about a resource: KIND (policy_change, package_rule, endpoint, project) or KIND/ID, as in policy_change/18")
 	f.StringVar(&in.Actor, "actor", "", "only events of this actor id or display name, as in alice@acme.io")
-	f.Uint32Var(&in.PageSize, "limit", 0, "page size; server default when 0")
+	f.Uint32Var(&in.PageSize, "limit", 0, "page size, or the server default when 0")
 	f.StringVar(&in.PageToken, "page-token", "", "continuation token from a prior response")
 	return cmd
 }

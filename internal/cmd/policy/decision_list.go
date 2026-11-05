@@ -106,7 +106,7 @@ func decisionListCmd(a *app.App) *cobra.Command {
 	f.StringVar(&in.Package, "package", "", "filter: decisions about this package in all its versions, as in pkg:npm/lodash")
 	f.StringVar(&in.Project, "project", "", "filter: decisions at a repository that is bound to this project id")
 	f.StringVar(&in.Endpoint, "endpoint", "", "filter: decisions that pmg made on this endpoint id")
-	f.Uint32Var(&in.PageSize, "limit", 0, "page size; server default when 0")
+	f.Uint32Var(&in.PageSize, "limit", 0, "page size, or the server default when 0")
 	f.StringVar(&in.PageToken, "page-token", "", "continuation token from a prior response")
 	return cmd
 }

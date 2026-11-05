@@ -20,7 +20,7 @@ func requireOpen(change *policyv1.PolicyChange) error {
 	}
 	view := newChangeView(change)
 	return invalidInputError(
-		fmt.Errorf("change %s is %s: only an open change can change", view.ID, view.State),
+		fmt.Errorf("change %s is %s: you can change only an open change", view.ID, view.State),
 		"List the open changes: safedep policy change list --state open")
 }
 
@@ -29,7 +29,7 @@ func changeSyncCmd(a *app.App) *cobra.Command {
 		Use:   "sync CHANGE",
 		Short: "Move the base of a policy change to the head revision",
 		Long: "Move the base of an open policy change to the head revision. The change keeps its settings " +
-			"as you wrote them. The server never merges, so review the change again before you publish: " +
+			"as you wrote them. The server does not merge. Review the change again before you publish it: " +
 			"the preview shows every difference against head.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -42,7 +42,7 @@ func changeSyncCmd(a *app.App) *cobra.Command {
 				return err
 			}
 			id := clitui.EscapeLine(change.GetChangeId())
-			tui.Success("change %s rebased on revision %d%sreview it: safedep policy change show %s",
+			tui.Success("change %s now has base revision %d%sreview it: safedep policy change show %s",
 				id, change.GetBaseRevision(), sep, id)
 			return nil
 		},

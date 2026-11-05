@@ -90,7 +90,7 @@ func editLoop(
 		err = save(saved)
 		if err == nil {
 			if rmErr := os.Remove(path); rmErr != nil {
-				tui.Warning("could not remove the temporary file %s: %v", path, rmErr)
+				tui.Warning("cannot remove the temporary file %s: %v", path, rmErr)
 			}
 			return nil
 		}
@@ -130,9 +130,9 @@ func stripErrorLines(text []byte) []byte {
 // error, such as the one for a role that cannot change the policy, and adds
 // the path of the kept file.
 func keptEditError(path string, cause error) error {
-	code, human, help := usefulerror.ErrBadRequest, "The policy edit was not saved: "+cause.Error(), ""
+	code, human, help := usefulerror.ErrBadRequest, "The command did not save the policy edit: "+cause.Error(), ""
 	if ue, ok := usefulerror.AsUsefulError(cause); ok {
-		code, human = ue.Code(), "The policy edit was not saved: "+ue.HumanError()
+		code, human = ue.Code(), "The command did not save the policy edit: "+ue.HumanError()
 		if ue.Help() != "" {
 			help = ue.Help() + ". "
 		}

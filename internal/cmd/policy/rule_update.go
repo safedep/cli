@@ -65,7 +65,7 @@ func ruleUpdateCmd(a *app.App) *cobra.Command {
 	f.StringVar(&in.Expires, "expires", "", "the new expiry: a duration from now, as in 90d, or a date")
 	f.StringVar(&in.Ticket, "ticket", "", "the new ticket or incident reference")
 	f.StringVar(&in.RequestedBy, "requested-by", "", "the new team or person that asked for the rule")
-	f.StringVarP(&in.Message, "message", "m", "", "the publish message; the server writes one when it is empty")
+	f.StringVarP(&in.Message, "message", "m", "", "the publish message, or a message that the server writes when empty")
 	return cmd
 }
 

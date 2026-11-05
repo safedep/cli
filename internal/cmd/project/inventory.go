@@ -69,10 +69,10 @@ func projectListCmd(a *app.App) *cobra.Command {
 	f := cmd.Flags()
 	f.StringVar(&in.Selector, "selector", "", "filter: a label selector, as in custom/criticality=high,scm/forge=github")
 	f.StringArrayVar(&in.Sources, "source", nil,
-		"filter: project source ("+strings.Join(projectSourceTokens(), ", ")+"); repeatable")
+		"filter: project source, one of "+strings.Join(projectSourceTokens(), ", ")+" (repeatable)")
 	f.StringArrayVar(&in.Names, "name", nil,
-		fmt.Sprintf("filter: exact project name; repeat for up to %d names", maxScanFilterValues))
-	f.Uint32Var(&in.PageSize, "limit", 0, "page size; server default when 0")
+		fmt.Sprintf("filter: exact project name (repeat for up to %d names)", maxScanFilterValues))
+	f.Uint32Var(&in.PageSize, "limit", 0, "page size, or the server default when 0")
 	f.StringVar(&in.PageToken, "page-token", "", "continuation token from a prior response")
 	return cmd
 }

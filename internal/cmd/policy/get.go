@@ -49,7 +49,7 @@ func getCmd(a *app.App) *cobra.Command {
 			return a.Output.Print(res)
 		},
 	}
-	cmd.Flags().Uint64Var(&in.Revision, "revision", 0, "the policy revision to write; the head revision when 0")
+	cmd.Flags().Uint64Var(&in.Revision, "revision", 0, "the policy revision to write, or the head revision when 0")
 	return cmd
 }
 

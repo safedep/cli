@@ -10,8 +10,8 @@ func Register(root *cobra.Command, a *app.App) {
 	parent := &cobra.Command{
 		Use:   "project",
 		Short: "Work with SafeDep projects",
-		Long: "Work with SafeDep projects, including syncing them from linked source code hosts, " +
-			"their labels and policy, and scans performed by SafeDep Cloud-hosted scanners.",
+		Long: "Work with SafeDep projects: sync them from linked source code hosts, manage their labels " +
+			"and policy, and run scans with the scanners of SafeDep Cloud.",
 	}
 	scan := &cobra.Command{
 		Use:   "scan",

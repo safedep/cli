@@ -239,7 +239,7 @@ func TestRunChangePublish_OnlyAnOpenChange(t *testing.T) {
 	client.EXPECT().GetPolicyChange(mock.Anything, mock.Anything).Return(changeResponse(c), nil)
 
 	_, err := runChangePublish(context.Background(), client, "17", "", refuseConfirm(t))
-	assert.ErrorContains(t, err, "change 17 is deleted: only an open change can change")
+	assert.ErrorContains(t, err, "change 17 is deleted: you can change only an open change")
 }
 
 func TestRunChangeGet_NotFound(t *testing.T) {

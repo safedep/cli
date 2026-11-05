@@ -97,7 +97,7 @@ func runShow(
 	if err != nil {
 		// The project data is still useful when the policy service does not
 		// answer, so the command warns and shows the rest.
-		tui.Warning("Could not read the policy of project %s: %s", clitui.EscapeLine(name), clitui.EscapeLine(err.Error()))
+		tui.Warning("Cannot read the policy of project %s: %s", clitui.EscapeLine(name), clitui.EscapeLine(err.Error()))
 		return out, nil
 	}
 	out.Policy = policy

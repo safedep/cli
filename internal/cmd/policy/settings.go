@@ -46,16 +46,30 @@ func defaultLayer(head *policyv1.GetPolicyResponse) cloudpolicy.DefaultLayer {
 	}
 }
 
+// errNoSettings is the error for a file with no field, of a policy with
+// settings. It tells how to clear the policy on purpose.
+var errNoSettings = errors.New("the file sets no field. To remove every setting, write {} on one line")
+
 // decodeDocument reads a saved document. The template of a policy with no
 // settings has only comments, so a save of it as it is reads as that empty
-// policy. A file with only comments for a policy with settings stays an
-// error, so a person never clears the policy by accident.
+// policy. A file with only comments for a policy with settings is an error,
+// so a person never clears the policy by accident.
 func decodeDocument(saved []byte, start *policyv1.Policy) (*policyv1.Policy, error) {
 	edited, err := cloudpolicy.UnmarshalPolicy(saved)
-	if errors.Is(err, cloudpolicy.ErrEmptyDocument) && proto.Size(start) == 0 {
-		return &policyv1.Policy{}, nil
+	if errors.Is(err, cloudpolicy.ErrEmptyDocument) {
+		if proto.Size(start) == 0 {
+			return &policyv1.Policy{}, nil
+		}
+		return nil, errNoSettings
 	}
 	return edited, err
+}
+
+// sameSettings compares two documents with their empty messages pruned. A
+// parent key that a person uncomments with no field below it is no change.
+// A field that a person removes still is a change.
+func sameSettings(a, b proto.Message) bool {
+	return proto.Equal(cloudpolicy.PruneEmpty(a), cloudpolicy.PruneEmpty(b))
 }
 
 func editWholeDocument(
@@ -72,7 +86,7 @@ func editWholeDocument(
 	}
 	unchanged := func(saved []byte) bool {
 		edited, err := decodeDocument(saved, start)
-		return err == nil && proto.Equal(edited, start)
+		return err == nil && sameSettings(edited, start)
 	}
 	return editLoop(ctx, open, text, unchanged, func(saved []byte) error {
 		edited, err := decodeDocument(saved, start)
@@ -106,7 +120,7 @@ func editOneOverride(
 	}
 	unchanged := func(saved []byte) bool {
 		edited, err := cloudpolicy.UnmarshalOverride(saved)
-		return err == nil && proto.Equal(edited, current)
+		return err == nil && sameSettings(edited, current)
 	}
 	return editLoop(ctx, open, text, unchanged, func(saved []byte) error {
 		edited, err := cloudpolicy.UnmarshalOverride(saved)

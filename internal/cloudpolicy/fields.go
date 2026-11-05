@@ -134,11 +134,7 @@ func isLeaf(fd protoreflect.FieldDescriptor) bool {
 	if fd.Kind() != protoreflect.MessageKind || fd.IsList() || fd.IsMap() {
 		return true
 	}
-	switch fd.Message().FullName() {
-	case durationFullName, timestampFullName:
-		return true
-	}
-	return false
+	return isFormattedMessage(fd.Message())
 }
 
 func formatFieldValue(fd protoreflect.FieldDescriptor, v protoreflect.Value) (string, string) {

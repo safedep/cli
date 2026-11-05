@@ -373,45 +373,17 @@ func TestRunEdit_NewTenantDocument(t *testing.T) {
 	_, err := runEdit(context.Background(), client, ed.open, "acme.safedep.io", editInput{})
 	require.ErrorIs(t, err, errNoChange, "a save of the template as it is changes nothing")
 
-	// docs/cmd/policy-edit.md shows this document.
-	want := `# Policy of acme.safedep.io · head revision 0
-# Saving creates a draft change. Nothing applies until you publish it.
-#
-# Layers, from low to high, for each subject:
-#   1. SafeDep default policy (read-only, revision 1):
-#        scan_gate.fail_on: high · scan_gate.fail_on_attacks: fail
-#   2. base      - applies to every endpoint and project of this tenant
-#   3. overrides - apply to the subjects that their selector matches.
-#                  For each field, the highest priority that sets it wins.
-#
-# Keep the id of each override. A new override has no id.
-# Package rules are not in this file: 0 rules (safedep policy rule list)
-# The policy keeps no comments. Write the reason for a value in a description field.
-# To set a field, remove the "# " at the start of its line and of the lines of its parents.
-# Fields and values: https://docs.safedep.io/reference/cloud-policy-settings
-
-# base:
-  # package_admission:
-    # cooldown:
-      # min_age: 7d  # a duration, as 7d or 12h, from 0s to 365d. Now: not set
-  # scan_gate:
-    # fail_on: high  # critical, high, medium, low, info. Now: high (default policy, revision 1)
-    # fail_on_attacks: fail  # report, fail. Now: fail (default policy, revision 1)
-
-# An example policy override. It applies to the subjects that its selector matches.
-# Remove the "# " at the start of each line to use it, then change the values.
-# overrides:
-#   - name: payments
-#     priority: 100
-#     selector:
-#       matchLabels: {custom/team: payments}
-#     spec:
-#       package_admission:
-#         cooldown:
-#           min_age: 168h
-`
+	// The template test in internal/cloudpolicy owns the body of the document.
 	require.Len(t, ed.seen, 1)
-	assert.Equal(t, want, ed.seen[0])
+	doc := ed.seen[0]
+	for _, want := range []string{
+		"# Policy of acme.safedep.io · head revision 0\n",
+		"#   1. SafeDep default policy (read-only, revision 1):\n",
+		"# To set a field, remove the \"# \" at the start of its line and of the lines of its parents.\n",
+		"# Fields and values: https://docs.safedep.io/reference/cloud-policy-settings\n\n# base:\n",
+	} {
+		assert.Contains(t, doc, want)
+	}
 }
 
 func TestRunEdit_TemplateEdits(t *testing.T) {
@@ -497,4 +469,95 @@ func TestRunEdit_TemplateOfATenantWithValuesIsNoChange(t *testing.T) {
 	require.ErrorIs(t, err, errNoChange)
 	assert.Contains(t, ed.seen[0], "    # fail_on_attacks: fail  # report, fail. Now: fail (default policy, revision 1)\n")
 	assert.NotContains(t, ed.seen[0], "An example policy override", "the policy has overrides")
+}
+
+func TestRunEdit_TemplateCases(t *testing.T) {
+	uncommentExample := func(s string) string {
+		i := strings.Index(s, "# overrides:")
+		return s[:i] + strings.ReplaceAll(s[i:], "\n# ", "\n")[len("# "):]
+	}
+	tests := []struct {
+		name  string
+		head  *policyv1.GetPolicyResponse
+		edits []func(string) string
+		check func(t *testing.T, err error, got *policyv1.Policy, seen []string)
+	}{
+		{
+			name:  "a parent key alone is no change",
+			head:  newTenantResponse(),
+			edits: []func(string) string{uncomment("# base:", "  # scan_gate:")},
+			check: func(t *testing.T, err error, got *policyv1.Policy, _ []string) {
+				assert.ErrorIs(t, err, errNoChange)
+				assert.Nil(t, got, "no change request")
+			},
+		},
+		{
+			name: "a tenant with values that saves only comments gets the way to clear the policy",
+			head: headResponse(),
+			edits: []func(string) string{
+				func(s string) string {
+					var kept []string
+					for _, line := range strings.Split(s, "\n") {
+						if strings.HasPrefix(strings.TrimSpace(line), "#") {
+							kept = append(kept, line)
+						}
+					}
+					return strings.Join(kept, "\n")
+				},
+				keep,
+			},
+			check: func(t *testing.T, err error, got *policyv1.Policy, seen []string) {
+				require.Error(t, err)
+				assert.Nil(t, got, "no change request")
+				require.Len(t, seen, 2)
+				assert.Contains(t, seen[1], "the file sets no field. To remove every setting, write {} on one line")
+			},
+		},
+		{
+			name:  "a tenant with values removes a set field",
+			head:  headResponse(),
+			edits: []func(string) string{replace("\n  scan_gate:\n    fail_on: high\n", "\n  scan_gate:\n")},
+			check: func(t *testing.T, err error, got *policyv1.Policy, _ []string) {
+				require.NoError(t, err)
+				require.NotNil(t, got)
+				assert.False(t, got.GetBase().GetScanGate().HasFailOn(), "the change clears the field")
+				assert.Len(t, got.GetOverrides(), 2, "the overrides stay")
+			},
+		},
+		{
+			name:  "the example override, uncommented",
+			head:  newTenantResponse(),
+			edits: []func(string) string{uncommentExample},
+			check: func(t *testing.T, err error, got *policyv1.Policy, _ []string) {
+				require.NoError(t, err)
+				require.Len(t, got.GetOverrides(), 1)
+				o := got.GetOverrides()[0]
+				assert.Equal(t, "payments", o.GetName())
+				assert.Equal(t, uint32(100), o.GetPriority())
+				assert.NotEmpty(t, o.GetDescription())
+				assert.Equal(t, map[string]string{"custom/team": "payments"}, o.GetSelector().GetMatchLabels())
+				assert.Equal(t, 7*24*time.Hour, o.GetSpec().GetPackageAdmission().GetCooldown().GetMinAge().AsDuration())
+				assert.Empty(t, o.GetOverrideId(), "the example is a new override")
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			captureStderr(t)
+			client := mocks.NewPolicyServiceClientMock(t)
+			client.EXPECT().GetPolicy(mock.Anything, mock.Anything).Return(tt.head, nil)
+			var got *policyv1.Policy
+			client.EXPECT().CreatePolicyChange(mock.Anything, mock.Anything).
+				RunAndReturn(func(_ context.Context, r *policyv1.CreatePolicyChangeRequest, _ ...grpc.CallOption) (*policyv1.CreatePolicyChangeResponse, error) {
+					got = r.GetSettings()
+					res := &policyv1.CreatePolicyChangeResponse{}
+					res.SetChange(openChange("18"))
+					return res, nil
+				}).Maybe()
+			ed := &scriptedEditor{edits: tt.edits}
+
+			_, err := runEdit(context.Background(), client, ed.open, "", editInput{})
+			tt.check(t, err, got, ed.seen)
+		})
+	}
 }

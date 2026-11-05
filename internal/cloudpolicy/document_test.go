@@ -5,9 +5,7 @@ import (
 	"testing"
 	"time"
 
-	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	scangatev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/scangate/v1"
-	policyv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/policy/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -136,39 +134,6 @@ func TestUnmarshalPolicy_Errors(t *testing.T) {
 			assert.Contains(t, err.Error(), tt.want)
 		})
 	}
-}
-
-func TestSelectorExpressions_RoundTrip(t *testing.T) {
-	sel, err := ParseSelector("scm/forge=github, custom/tier in (a,b), !custom/legacy, custom/owner")
-	require.NoError(t, err)
-	o := &policyv1.Override{}
-	o.SetName("mixed")
-	o.SetPriority(10)
-	o.SetSelector(sel)
-	o.SetExpiresAt(timestamppb.New(time.Date(2027, 1, 26, 0, 0, 0, 0, time.UTC)))
-
-	b, err := MarshalOverride(o, "")
-	require.NoError(t, err)
-	assert.Contains(t, string(b), "operator: In")
-	assert.Contains(t, string(b), "expires_at: 2027-01-26T00:00:00Z")
-
-	got, err := UnmarshalOverride(b)
-	require.NoError(t, err)
-	assert.True(t, proto.Equal(o, got), "got %v", got)
-}
-
-func TestEmptySelectorKeepsItsPresence(t *testing.T) {
-	o := &policyv1.Override{}
-	o.SetName("all")
-	o.SetPriority(1)
-	o.SetSelector(&messagescontroltowerv1.LabelSelector{})
-	b, err := MarshalOverride(o, "")
-	require.NoError(t, err)
-	assert.Contains(t, string(b), "selector: {}")
-
-	got, err := UnmarshalOverride(b)
-	require.NoError(t, err)
-	assert.True(t, got.HasSelector(), "selector: {} selects every subject and must stay set")
 }
 
 func TestUnmarshalPolicy_KeepsTheIDThatTheUserLeaves(t *testing.T) {

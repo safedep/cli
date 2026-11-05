@@ -70,11 +70,11 @@ func (c *yamlCodec) fieldByKey(md protoreflect.MessageDescriptor, key string) pr
 }
 
 func (c *yamlCodec) encodeMessage(m protoreflect.Message) *yaml.Node {
-	switch m.Descriptor().FullName() {
-	case durationFullName, timestampFullName:
+	if isFormattedMessage(m.Descriptor()) {
+		if m.Descriptor().FullName() == labelSelectorFullName {
+			return encodeSelector(m)
+		}
 		return scalarNode(c.formatWellKnown(m))
-	case labelSelectorFullName:
-		return encodeSelector(m)
 	}
 
 	out := &yaml.Node{Kind: yaml.MappingNode}
@@ -282,13 +282,8 @@ func (c *yamlCodec) decodeMessage(n *yaml.Node, m protoreflect.Message, path str
 	if isNull(n) {
 		return nil
 	}
-	switch m.Descriptor().FullName() {
-	case durationFullName:
-		return decodeDuration(n, m, path)
-	case timestampFullName:
-		return decodeTimestamp(n, m, path)
-	case labelSelectorFullName:
-		return decodeSelector(n, m, path)
+	if isFormattedMessage(m.Descriptor()) {
+		return decodeFormatted(n, m, path)
 	}
 	if n.Kind != yaml.MappingNode {
 		return errAt(n, path, "expected a mapping of fields")
@@ -461,6 +456,19 @@ func decodeScalar(n *yaml.Node, fd protoreflect.FieldDescriptor, path string) (p
 		return protoreflect.ValueOfBytes(b), nil
 	default:
 		return protoreflect.Value{}, errAt(n, path, "this field kind is not supported in the YAML form")
+	}
+}
+
+// decodeFormatted reads a message type that the codec writes in a form for
+// people.
+func decodeFormatted(n *yaml.Node, m protoreflect.Message, path string) error {
+	switch m.Descriptor().FullName() {
+	case durationFullName:
+		return decodeDuration(n, m, path)
+	case timestampFullName:
+		return decodeTimestamp(n, m, path)
+	default:
+		return decodeSelector(n, m, path)
 	}
 }
 

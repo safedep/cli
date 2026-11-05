@@ -3,6 +3,7 @@ package cloudpolicy
 import (
 	"strings"
 	"testing"
+	"time"
 
 	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	scangatev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/scangate/v1"
@@ -11,6 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // defaultPolicy is the SafeDep default policy of control-tower at revision 1.
@@ -24,25 +27,29 @@ func TestMarshalPolicyTemplate_NewTenant(t *testing.T) {
 	b, err := MarshalPolicyTemplate(&policyv1.Policy{}, "", defaultPolicy())
 	require.NoError(t, err)
 
+	// docs/cmd/policy-edit.md shows this document after the header.
 	want := `# base:
   # package_admission:
     # cooldown:
-      # min_age: 7d  # a duration, as 7d or 12h, from 0s to 365d. Now: not set
+      # a duration, as 7d or 12h, from 0s to 365d. Now: not set, each tool uses its local value
+      # min_age: 7d
   # scan_gate:
     # fail_on: high  # critical, high, medium, low, info. Now: high (default policy, revision 1)
     # fail_on_attacks: fail  # report, fail. Now: fail (default policy, revision 1)
+# base_description: Why the base has these values  # text
 
 # An example policy override. It applies to the subjects that its selector matches.
 # Remove the "# " at the start of each line to use it, then change the values.
 # overrides:
 #   - name: payments
+#     description: A longer cooldown for the payments team
 #     priority: 100
 #     selector:
 #       matchLabels: {custom/team: payments}
 #     spec:
 #       package_admission:
 #         cooldown:
-#           min_age: 168h
+#           min_age: 7d
 `
 	assert.Equal(t, want, string(b))
 }
@@ -68,11 +75,13 @@ func TestMarshalPolicyTemplate_SetAndUnsetFields(t *testing.T) {
 		"base:\n",
 		"\n  scan_gate:\n    fail_on: medium\n",
 		"    # fail_on_attacks: fail  # report, fail. Now: fail (default policy, revision 1)\n",
-		"  # package_admission:\n    # cooldown:\n      # min_age: 7d  #",
+		"  # package_admission:\n    # cooldown:\n      # a duration, as 7d or 12h, from 0s to 365d. Now: not set, each tool uses its local value\n      # min_age: 7d\n",
+		"# base_description: Why the base has these values  # text\n",
 		"overrides:\n  - id: ov_1\n    name: payments\n    priority: 200\n",
 		"      matchLabels: {custom/team: pay}\n",
 		"        fail_on: low\n",
-		"        # fail_on_attacks: fail  # report, fail. Now: fail (default policy, revision 1)\n",
+		"          # min_age: 7d  # a duration, as 7d or 12h, from 0s to 365d. Below this override: not set\n",
+		"        # report, fail. Below this override: fail (default policy, revision 1)\n        # fail_on_attacks: fail\n",
 	} {
 		assert.Contains(t, text, want)
 	}
@@ -93,7 +102,7 @@ func TestMarshalPolicyTemplate_TheOverrideNoteReadsTheBase(t *testing.T) {
 
 	b, err := MarshalPolicyTemplate(p, "", defaultPolicy())
 	require.NoError(t, err)
-	assert.Contains(t, string(b), "      # fail_on: medium  # critical, high, medium, low, info. Now: medium (base)\n")
+	assert.Contains(t, string(b), "        # fail_on: medium  # critical, high, medium, low, info. Below this override: medium (base)\n")
 	assert.Contains(t, string(b), "    # spec:\n", "an override with no spec gets a commented spec")
 }
 
@@ -165,7 +174,7 @@ func TestMarshalOverrideTemplate(t *testing.T) {
 	b, err := MarshalOverrideTemplate(p.GetOverrides()[0], "", defaultPolicy(), p.GetBase())
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(string(b), "id: ov_2\nname: ci\n"))
-	assert.Contains(t, string(b), "\n    # fail_on: high  # critical, high, medium, low, info. Now: high (base)\n")
+	assert.Contains(t, string(b), "\n    # fail_on: high  # critical, high, medium, low, info. Below this override: high (base)\n")
 
 	got, err := UnmarshalOverride(b)
 	require.NoError(t, err)
@@ -206,6 +215,83 @@ func TestValueForm(t *testing.T) {
 			fd := fieldByPath(tt.path)
 			require.NotNil(t, fd, md.FullName())
 			assert.Equal(t, tt.want, valueForm(fd))
+		})
+	}
+}
+
+func TestSelectorExpressions_RoundTrip(t *testing.T) {
+	sel, err := ParseSelector("scm/forge=github, custom/tier in (a,b), !custom/legacy, custom/owner")
+	require.NoError(t, err)
+	o := &policyv1.Override{}
+	o.SetName("mixed")
+	o.SetPriority(10)
+	o.SetSelector(sel)
+	o.SetExpiresAt(timestamppb.New(time.Date(2027, 1, 26, 0, 0, 0, 0, time.UTC)))
+
+	b, err := MarshalOverrideTemplate(o, "", DefaultLayer{}, nil)
+	require.NoError(t, err)
+	assert.Contains(t, string(b), "operator: In")
+	assert.Contains(t, string(b), "expires_at: 2027-01-26T00:00:00Z")
+
+	got, err := UnmarshalOverride(b)
+	require.NoError(t, err)
+	assert.True(t, proto.Equal(o, got), "got %v", got)
+}
+
+func TestEmptySelectorKeepsItsPresence(t *testing.T) {
+	o := &policyv1.Override{}
+	o.SetName("all")
+	o.SetPriority(1)
+	o.SetSelector(&messagescontroltowerv1.LabelSelector{})
+	b, err := MarshalOverrideTemplate(o, "", DefaultLayer{}, nil)
+	require.NoError(t, err)
+	assert.Contains(t, string(b), "selector: {}")
+
+	got, err := UnmarshalOverride(b)
+	require.NoError(t, err)
+	assert.True(t, got.HasSelector(), "selector: {} selects every subject and must stay set")
+}
+
+func TestPruneEmpty(t *testing.T) {
+	emptyBase := &policyv1.Policy{}
+	emptyBase.SetBase(&specv1.PolicySpec{})
+	emptyBase.GetBase().SetScanGate(&scangatev1.ScanGate{})
+
+	zeroCooldown := &policyv1.Policy{}
+	cooldownSpec := samplePolicy().GetBase()
+	cooldownSpec.GetPackageAdmission().GetCooldown().SetMinAge(durationpb.New(0))
+	zeroCooldown.SetBase(cooldownSpec)
+
+	everySubject := &policyv1.Policy{}
+	o := &policyv1.Override{}
+	o.SetName("all")
+	o.SetSelector(&messagescontroltowerv1.LabelSelector{})
+	o.SetSpec(&specv1.PolicySpec{})
+	everySubject.SetOverrides([]*policyv1.Override{o})
+
+	tests := []struct {
+		name  string
+		in    *policyv1.Policy
+		check func(t *testing.T, got *policyv1.Policy)
+	}{
+		{"empty messages go", emptyBase, func(t *testing.T, got *policyv1.Policy) {
+			assert.False(t, got.HasBase())
+		}},
+		{"a zero duration stays", zeroCooldown, func(t *testing.T, got *policyv1.Policy) {
+			assert.True(t, got.GetBase().GetPackageAdmission().GetCooldown().HasMinAge(), "0s turns the cooldown off")
+		}},
+		{"an empty selector stays", everySubject, func(t *testing.T, got *policyv1.Policy) {
+			assert.True(t, got.GetOverrides()[0].HasSelector(), "an empty selector selects every subject")
+			assert.False(t, got.GetOverrides()[0].HasSpec())
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			before := proto.Clone(tt.in)
+			got, ok := PruneEmpty(tt.in).(*policyv1.Policy)
+			require.True(t, ok)
+			tt.check(t, got)
+			assert.True(t, proto.Equal(before, tt.in), "PruneEmpty does not change its input")
 		})
 	}
 }

@@ -77,11 +77,6 @@ func UnmarshalPolicy(data []byte) (*policyv1.Policy, error) {
 	return p, nil
 }
 
-// MarshalOverride writes one policy override as YAML, after the header.
-func MarshalOverride(o *policyv1.Override, header string) ([]byte, error) {
-	return marshalNode(documentCodec.encodeMessage(o.ProtoReflect()), header)
-}
-
 // UnmarshalOverride reads one policy override.
 func UnmarshalOverride(data []byte) (*policyv1.Override, error) {
 	node, err := parseDocument(data)

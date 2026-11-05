@@ -21,6 +21,7 @@ func editSettings(
 	open openEditorFunc,
 	start *policyv1.Policy,
 	header string,
+	def cloudpolicy.DefaultLayer,
 	overrideName string,
 	commit func(*policyv1.Policy) error,
 ) error {
@@ -31,9 +32,30 @@ func editSettings(
 		return err
 	}
 	if overrideName == "" {
-		return editWholeDocument(ctx, open, start, header, commit)
+		return editWholeDocument(ctx, open, start, header, def, commit)
 	}
-	return editOneOverride(ctx, open, start, header, overrideName, commit)
+	return editOneOverride(ctx, open, start, header, def, overrideName, commit)
+}
+
+// defaultLayer is the SafeDep default policy of a GetPolicy reply, for the
+// notes of the edit template.
+func defaultLayer(head *policyv1.GetPolicyResponse) cloudpolicy.DefaultLayer {
+	return cloudpolicy.DefaultLayer{
+		Revision: head.GetDefaultPolicy().GetRevision(),
+		Spec:     head.GetDefaultPolicy().GetSpec(),
+	}
+}
+
+// decodeDocument reads a saved document. The template of a policy with no
+// settings has only comments, so a save of it as it is reads as that empty
+// policy. A file with only comments for a policy with settings stays an
+// error, so a person never clears the policy by accident.
+func decodeDocument(saved []byte, start *policyv1.Policy) (*policyv1.Policy, error) {
+	edited, err := cloudpolicy.UnmarshalPolicy(saved)
+	if errors.Is(err, cloudpolicy.ErrEmptyDocument) && proto.Size(start) == 0 {
+		return &policyv1.Policy{}, nil
+	}
+	return edited, err
 }
 
 func editWholeDocument(
@@ -41,25 +63,26 @@ func editWholeDocument(
 	open openEditorFunc,
 	start *policyv1.Policy,
 	header string,
+	def cloudpolicy.DefaultLayer,
 	commit func(*policyv1.Policy) error,
 ) error {
-	text, err := cloudpolicy.MarshalPolicy(start, header)
+	text, err := cloudpolicy.MarshalPolicyTemplate(start, header, def)
 	if err != nil {
 		return err
 	}
 	unchanged := func(saved []byte) bool {
-		edited, err := cloudpolicy.UnmarshalPolicy(saved)
+		edited, err := decodeDocument(saved, start)
 		return err == nil && proto.Equal(edited, start)
 	}
 	return editLoop(ctx, open, text, unchanged, func(saved []byte) error {
-		edited, err := cloudpolicy.UnmarshalPolicy(saved)
+		edited, err := decodeDocument(saved, start)
 		if err != nil {
 			return retryable(err)
 		}
 		if err := checkEditedSettings(start, edited); err != nil {
 			return retryable(err)
 		}
-		warnComments(saved, header)
+		warnComments(saved, text)
 		return commit(edited)
 	})
 }
@@ -69,6 +92,7 @@ func editOneOverride(
 	open openEditorFunc,
 	start *policyv1.Policy,
 	header string,
+	def cloudpolicy.DefaultLayer,
 	overrideName string,
 	commit func(*policyv1.Policy) error,
 ) error {
@@ -76,7 +100,7 @@ func editOneOverride(
 	if err != nil {
 		return err
 	}
-	text, err := cloudpolicy.MarshalOverride(current, header)
+	text, err := cloudpolicy.MarshalOverrideTemplate(current, header, def, start.GetBase())
 	if err != nil {
 		return err
 	}
@@ -103,7 +127,7 @@ func editOneOverride(
 		if err := checkEditedSettings(start, full); err != nil {
 			return retryable(err)
 		}
-		warnComments(saved, header)
+		warnComments(saved, text)
 		return commit(full)
 	})
 }
@@ -184,8 +208,8 @@ func validateSettings(p *policyv1.Policy) error {
 	return nil
 }
 
-func warnComments(saved []byte, header string) {
-	if cloudpolicy.HasUserComments(saved, header) {
+func warnComments(saved, written []byte) {
+	if cloudpolicy.HasUserComments(saved, written) {
 		tui.Warning("The file holds comments. The policy keeps no comments, so they are lost. " +
 			"Write the reason in a description field")
 	}

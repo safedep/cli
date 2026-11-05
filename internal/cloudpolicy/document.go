@@ -108,30 +108,6 @@ func PolicyMap(p *policyv1.Policy) (any, error) {
 	return out, nil
 }
 
-// HasUserComments reports whether the saved file holds a comment other than
-// the header that the CLI wrote. The policy keeps no comments, so a person
-// loses them on save.
-func HasUserComments(data []byte, header string) bool {
-	body := bytes.TrimPrefix(data, []byte(header))
-	var root yaml.Node
-	if err := yaml.Unmarshal(body, &root); err != nil {
-		return false
-	}
-	return hasComment(&root)
-}
-
-func hasComment(n *yaml.Node) bool {
-	if n.HeadComment != "" || n.LineComment != "" || n.FootComment != "" {
-		return true
-	}
-	for _, child := range n.Content {
-		if hasComment(child) {
-			return true
-		}
-	}
-	return false
-}
-
 func marshalNode(node *yaml.Node, header string) ([]byte, error) {
 	var buf bytes.Buffer
 	buf.WriteString(header)

@@ -25,10 +25,18 @@ command needs a terminal.
 safedep policy edit -m "payments: medium + cooldown"
 ```
 
-The file starts with a header that shows the layers:
+The document has every policy settings field of the contract. A field that the
+policy sets is a YAML line. A field that it does not set is a commented line at
+its nesting, with a note: the values that the field accepts, and the value that
+the subjects get now and the layer that sets it. To set a field, remove the `# `
+at the start of its line and of the lines of its parents. A save of the document
+as it is changes nothing. When the policy has no override, the document ends
+with a commented example of one.
+
+The document of a tenant that has not published a policy yet:
 
 ```yaml
-# Policy of platform-eng.acme.safedep.io · head revision 46
+# Policy of acme.safedep.io · head revision 0
 # Saving creates a draft change. Nothing applies until you publish it.
 #
 # Layers, from low to high, for each subject:
@@ -39,8 +47,58 @@ The file starts with a header that shows the layers:
 #                  For each field, the highest priority that sets it wins.
 #
 # Keep the id of each override. A new override has no id.
-# Package rules are not in this file: 211 rules (safedep policy rule list)
+# Package rules are not in this file: 0 rules (safedep policy rule list)
 # The policy keeps no comments. Write the reason for a value in a description field.
+# To set a field, remove the "# " at the start of its line and of the lines of its parents.
+# Fields and values: https://docs.safedep.io/reference/cloud-policy-settings
+
+# base:
+  # package_admission:
+    # cooldown:
+      # min_age: 7d  # a duration, as 7d or 12h, from 0s to 365d. Now: not set
+  # scan_gate:
+    # fail_on: high  # critical, high, medium, low, info. Now: high (default policy, revision 1)
+    # fail_on_attacks: fail  # report, fail. Now: fail (default policy, revision 1)
+
+# An example policy override. It applies to the subjects that its selector matches.
+# Remove the "# " at the start of each line to use it, then change the values.
+# overrides:
+#   - name: payments
+#     priority: 100
+#     selector:
+#       matchLabels: {custom/team: payments}
+#     spec:
+#       package_admission:
+#         cooldown:
+#           min_age: 168h
+```
+
+To set a cooldown of 7 days for the whole tenant, remove the `# ` from the
+`base:`, `package_admission:`, `cooldown:` and `min_age:` lines, then save.
+
+The start of the document of a tenant with values, after the header:
+
+```yaml
+base:
+  # package_admission:
+    # cooldown:
+      # min_age: 7d  # a duration, as 7d or 12h, from 0s to 365d. Now: not set
+  scan_gate:
+    fail_on: high
+    # fail_on_attacks: fail  # report, fail. Now: fail (default policy, revision 1)
+overrides:
+  - id: ov_pay
+    name: payments
+    priority: 200
+    selector:
+      matchLabels: {custom/criticality: high}
+    spec:
+      # package_admission:
+        # cooldown:
+          # min_age: 7d  # a duration, as 7d or 12h, from 0s to 365d. Now: not set
+      scan_gate:
+        fail_on: high
+        # fail_on_attacks: fail  # report, fail. Now: fail (default policy, revision 1)
 ```
 
 ```
@@ -66,7 +124,7 @@ safedep policy edit --override payments
 - When you close the editor with no change, the command saves nothing.
 - When the file does not parse, or the server rejects it as invalid, the editor
   opens again with the error at the top. Close it with no change to stop.
-- The command warns when the file holds a comment other than its header. The
+- The command warns when the file holds a comment that it did not write. The
   policy keeps no comments.
 - When the save fails for another reason, the command keeps the file and prints
   its path.

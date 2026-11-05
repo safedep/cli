@@ -3,6 +3,7 @@ module github.com/safedep/cli
 go 1.26.2
 
 require (
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260709200747-435963d16310.1
 	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20261104174030-9113dd6a8ea6.1
 	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20261104174030-9113dd6a8ea6.2
 	github.com/charmbracelet/huh v1.0.0
@@ -28,7 +29,6 @@ require (
 )
 
 require (
-	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260709200747-435963d16310.1 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/brunoga/deep v1.3.1 // indirect

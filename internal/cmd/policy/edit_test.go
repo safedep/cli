@@ -6,8 +6,11 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
+	packageadmissionv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/packageadmission/v1"
 	scangatev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/scangate/v1"
+	specv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/spec/v1"
 	policyv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/policy/v1"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/stretchr/testify/assert"
@@ -17,6 +20,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/safedep/cli/internal/cloudpolicy/mocks"
 )
@@ -128,8 +133,8 @@ func TestRunEdit_CreatesAChangeFromTheHead(t *testing.T) {
 		})
 
 	ed := &scriptedEditor{edits: []func(string) string{
-		replace("custom/criticality: high}\n    spec:\n      scan_gate:\n        fail_on: high",
-			"custom/criticality: high}\n    spec:\n      scan_gate:\n        fail_on: medium"),
+		// The first field at this depth is the one of override "payments".
+		replace("\n        fail_on: high\n", "\n        fail_on: medium\n"),
 	}}
 	change, err := runEdit(context.Background(), client, ed.open, "platform-eng.acme.safedep.io",
 		editInput{Title: "payments: medium"})
@@ -325,9 +330,171 @@ func TestRunChangeEdit_RestoreChange(t *testing.T) {
 		return r.HasSettings() && r.GetSettings().GetBase().GetScanGate().GetFailOn() == scangatev1.Severity_SEVERITY_LOW
 	})).Return(res, nil)
 
-	ed := &scriptedEditor{edits: []func(string) string{replace("base:\n  scan_gate:\n    fail_on: high", "base:\n  scan_gate:\n    fail_on: low")}}
+	ed := &scriptedEditor{edits: []func(string) string{replace("\n  scan_gate:\n    fail_on: high", "\n  scan_gate:\n    fail_on: low")}}
 	_, err := runChangeEdit(context.Background(), client, ed.open, "", "20", editInput{})
 	require.NoError(t, err)
 	assert.Contains(t, stderr.String(), "Change 20 restores from revision 46. Saving replaces the settings that the restore made")
 	assert.Contains(t, ed.seen[0], "fail_on: high", "a change with no settings starts from head")
+}
+
+// newTenantResponse is GetPolicy for a tenant that never published: no
+// revision and no settings, only the SafeDep default policy.
+func newTenantResponse() *policyv1.GetPolicyResponse {
+	res := &policyv1.GetPolicyResponse{}
+	res.SetDefaultPolicy(headResponse().GetDefaultPolicy())
+	return res
+}
+
+// uncomment removes the "# " of the first line that starts with line.
+func uncomment(lines ...string) func(string) string {
+	return func(s string) string {
+		for _, line := range lines {
+			s = strings.Replace(s, "\n"+line, "\n"+strings.Replace(line, "# ", "", 1), 1)
+		}
+		return s
+	}
+}
+
+func createdSettings(client *mocks.PolicyServiceClientMock, out **policyv1.Policy) {
+	client.EXPECT().CreatePolicyChange(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, r *policyv1.CreatePolicyChangeRequest, _ ...grpc.CallOption) (*policyv1.CreatePolicyChangeResponse, error) {
+			*out = r.GetSettings()
+			res := &policyv1.CreatePolicyChangeResponse{}
+			res.SetChange(openChange("18"))
+			return res, nil
+		})
+}
+
+func TestRunEdit_NewTenantDocument(t *testing.T) {
+	client := mocks.NewPolicyServiceClientMock(t)
+	client.EXPECT().GetPolicy(mock.Anything, mock.Anything).Return(newTenantResponse(), nil)
+	ed := &scriptedEditor{edits: []func(string) string{keep}}
+
+	_, err := runEdit(context.Background(), client, ed.open, "acme.safedep.io", editInput{})
+	require.ErrorIs(t, err, errNoChange, "a save of the template as it is changes nothing")
+
+	// docs/cmd/policy-edit.md shows this document.
+	want := `# Policy of acme.safedep.io · head revision 0
+# Saving creates a draft change. Nothing applies until you publish it.
+#
+# Layers, from low to high, for each subject:
+#   1. SafeDep default policy (read-only, revision 1):
+#        scan_gate.fail_on: high · scan_gate.fail_on_attacks: fail
+#   2. base      - applies to every endpoint and project of this tenant
+#   3. overrides - apply to the subjects that their selector matches.
+#                  For each field, the highest priority that sets it wins.
+#
+# Keep the id of each override. A new override has no id.
+# Package rules are not in this file: 0 rules (safedep policy rule list)
+# The policy keeps no comments. Write the reason for a value in a description field.
+# To set a field, remove the "# " at the start of its line and of the lines of its parents.
+# Fields and values: https://docs.safedep.io/reference/cloud-policy-settings
+
+# base:
+  # package_admission:
+    # cooldown:
+      # min_age: 7d  # a duration, as 7d or 12h, from 0s to 365d. Now: not set
+  # scan_gate:
+    # fail_on: high  # critical, high, medium, low, info. Now: high (default policy, revision 1)
+    # fail_on_attacks: fail  # report, fail. Now: fail (default policy, revision 1)
+
+# An example policy override. It applies to the subjects that its selector matches.
+# Remove the "# " at the start of each line to use it, then change the values.
+# overrides:
+#   - name: payments
+#     priority: 100
+#     selector:
+#       matchLabels: {custom/team: payments}
+#     spec:
+#       package_admission:
+#         cooldown:
+#           min_age: 168h
+`
+	require.Len(t, ed.seen, 1)
+	assert.Equal(t, want, ed.seen[0])
+}
+
+func TestRunEdit_TemplateEdits(t *testing.T) {
+	cooldown := func() *policyv1.Policy {
+		p := &policyv1.Policy{}
+		p.SetBase(&specv1.PolicySpec{})
+		c := &packageadmissionv1.Cooldown{}
+		c.SetMinAge(durationpb.New(7 * 24 * time.Hour))
+		pa := &packageadmissionv1.PackageAdmission{}
+		pa.SetCooldown(c)
+		p.GetBase().SetPackageAdmission(pa)
+		return p
+	}
+	attacksAtHead := func() *policyv1.Policy {
+		p := headPolicy()
+		p.GetBase().GetScanGate().SetFailOnAttacks(scangatev1.AttackGate_ATTACK_GATE_REPORT)
+		return p
+	}
+	tests := []struct {
+		name string
+		head *policyv1.GetPolicyResponse
+		edit func(string) string
+		want *policyv1.Policy
+	}{
+		{
+			name: "a new tenant sets one field",
+			head: newTenantResponse(),
+			edit: uncomment("# base:", "  # package_admission:", "    # cooldown:", "      # min_age: 7d"),
+			want: cooldown(),
+		},
+		{
+			name: "a tenant with values sets one more field",
+			head: headResponse(),
+			edit: func(s string) string {
+				return strings.Replace(s, "\n    # fail_on_attacks: fail", "\n    fail_on_attacks: report", 1)
+			},
+			want: attacksAtHead(),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stderr := captureStderr(t)
+			client := mocks.NewPolicyServiceClientMock(t)
+			client.EXPECT().GetPolicy(mock.Anything, mock.Anything).Return(tt.head, nil)
+			var got *policyv1.Policy
+			createdSettings(client, &got)
+
+			_, err := runEdit(context.Background(), client, (&scriptedEditor{edits: []func(string) string{tt.edit}}).open,
+				"", editInput{})
+			require.NoError(t, err)
+			assert.True(t, proto.Equal(tt.want, got), "got %v", got)
+			assert.NotContains(t, stderr.String(), "The file holds comments", "the notes are the comments of the CLI")
+		})
+	}
+}
+
+func TestRunEdit_TemplateWithAWrongValueReopens(t *testing.T) {
+	client := mocks.NewPolicyServiceClientMock(t)
+	client.EXPECT().GetPolicy(mock.Anything, mock.Anything).Return(newTenantResponse(), nil)
+	var got *policyv1.Policy
+	createdSettings(client, &got)
+
+	ed := &scriptedEditor{edits: []func(string) string{
+		func(s string) string {
+			s = uncomment("# base:", "  # scan_gate:")(s)
+			return strings.Replace(s, "\n    # fail_on: high", "\n    fail_on: severe", 1)
+		},
+		replace("fail_on: severe", "fail_on: medium"),
+	}}
+	_, err := runEdit(context.Background(), client, ed.open, "", editInput{})
+	require.NoError(t, err)
+	require.Len(t, ed.seen, 2)
+	assert.Contains(t, ed.seen[1], "# ! The last save failed:")
+	assert.Contains(t, ed.seen[1], `unknown value "severe". Use one of: critical, high, medium, low, info`)
+	assert.Equal(t, scangatev1.Severity_SEVERITY_MEDIUM, got.GetBase().GetScanGate().GetFailOn())
+}
+
+func TestRunEdit_TemplateOfATenantWithValuesIsNoChange(t *testing.T) {
+	client := mocks.NewPolicyServiceClientMock(t)
+	client.EXPECT().GetPolicy(mock.Anything, mock.Anything).Return(headResponse(), nil)
+	ed := &scriptedEditor{edits: []func(string) string{keep}}
+	_, err := runEdit(context.Background(), client, ed.open, "", editInput{})
+	require.ErrorIs(t, err, errNoChange)
+	assert.Contains(t, ed.seen[0], "    # fail_on_attacks: fail  # report, fail. Now: fail (default policy, revision 1)\n")
+	assert.NotContains(t, ed.seen[0], "An example policy override", "the policy has overrides")
 }

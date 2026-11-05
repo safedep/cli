@@ -18,6 +18,10 @@ import (
 	clitui "github.com/safedep/cli/internal/tui"
 )
 
+// settingsReferenceURL is the page that describes each policy settings field
+// and its values.
+const settingsReferenceURL = "https://docs.safedep.io/reference/cloud-policy-settings"
+
 type editInput struct {
 	Title    string
 	Override string
@@ -92,7 +96,7 @@ func runEdit(
 	header := editHeader(intro, head)
 
 	var change *policyv1.PolicyChange
-	err = editSettings(ctx, open, head.GetPolicy(), header, in.Override, func(p *policyv1.Policy) error {
+	err = editSettings(ctx, open, head.GetPolicy(), header, defaultLayer(head), in.Override, func(p *policyv1.Policy) error {
 		req := &policyv1.CreatePolicyChangeRequest{}
 		req.SetTitle(in.Title)
 		req.SetSettings(p)
@@ -145,6 +149,8 @@ func editHeader(intro []string, head *policyv1.GetPolicyResponse) string {
 		fmt.Sprintf("Package rules are not in this file: %d %s (safedep policy rule list)",
 			rules, cloudpolicy.Plural(int(rules), "rule", "rules")),
 		"The policy keeps no comments. Write the reason for a value in a description field.",
+		"To set a field, remove the \"# \" at the start of its line and of the lines of its parents.",
+		"Fields and values: "+settingsReferenceURL,
 	)
 	return cloudpolicy.CommentBlock(lines)
 }

@@ -310,6 +310,13 @@ func (c *yamlCodec) decodeMessage(n *yaml.Node, m protoreflect.Message, path str
 		}
 		seen[fd.Name()] = struct{}{}
 		if isNull(value) {
+			// "key:" with only commented lines below sets a message with no
+			// fields, so the edit template of a set but empty spec round
+			// trips. A label selector stays unset, because an empty selector
+			// selects every subject.
+			if !fd.IsList() && !fd.IsMap() && isMessageKind(fd) && !isFormattedMessage(fd.Message()) {
+				m.Mutable(fd)
+			}
 			continue
 		}
 		if err := c.decodeField(value, m, fd, fieldPath); err != nil {

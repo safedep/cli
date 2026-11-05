@@ -86,7 +86,7 @@ func runChangeEdit(
 	}
 
 	var updated *policyv1.PolicyChange
-	err = editSettings(ctx, open, start, editHeader(intro, head), in.Override, func(p *policyv1.Policy) error {
+	err = editSettings(ctx, open, start, editHeader(intro, head), defaultLayer(head), in.Override, func(p *policyv1.Policy) error {
 		req := &policyv1.UpdatePolicyChangeRequest{}
 		req.SetChangeId(id)
 		req.SetEtag(change.GetEtag())

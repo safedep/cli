@@ -18,8 +18,9 @@ safedep policy change edit CHANGE [-m TITLE] [--override NAME]
 
 A change that does not edit the settings yet starts from the head settings. For a
 change that restores a revision, saving replaces the settings that the restore
-made, and the command warns first. The editor behaves as in
-[`safedep policy edit`](./policy-edit.md).
+made, and the command warns first. The document has the same form, with every
+settings field and a note for each field that the change does not set, and the
+editor behaves as in [`safedep policy edit`](./policy-edit.md).
 
 ## Examples
 

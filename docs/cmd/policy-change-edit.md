@@ -33,6 +33,16 @@ safedep policy change edit 18
   Review it: safedep policy change show 18
 ```
 
+To change only the title, pass `-m` and close the editor with no change:
+
+```bash
+safedep policy change edit 18 -m "payments: medium only"
+```
+
+```
+✓ change 18: the title is now "payments: medium only". The settings did not change
+```
+
 When another admin updated the change after the command read it, the update
 stops. Run `safedep policy change show 18` and edit again.
 

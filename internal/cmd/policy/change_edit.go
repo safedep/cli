@@ -32,7 +32,7 @@ func changeEditCmd(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			change, err := runChangeEdit(cmd.Context(), cloudpolicy.NewPolicyClient(client.Connection()),
+			res, err := runChangeEdit(cmd.Context(), cloudpolicy.NewPolicyClient(client.Connection()),
 				openEditor, a.Tenant(), args[0], in)
 			if errors.Is(err, errNoChange) {
 				tui.Info("No change. Nothing is saved")
@@ -41,8 +41,13 @@ func changeEditCmd(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			id := clitui.EscapeLine(change.GetChangeId())
-			tui.Success("change %s updated", id)
+			id := clitui.EscapeLine(res.change.GetChangeId())
+			if res.titleOnly {
+				tui.Success("change %s: the title is now %q. The settings did not change", id,
+					clitui.EscapeLine(res.change.GetTitle()))
+			} else {
+				tui.Success("change %s updated", id)
+			}
 			tui.Info("  Review it: safedep policy change show %s", id)
 			return nil
 		},
@@ -52,13 +57,20 @@ func changeEditCmd(a *app.App) *cobra.Command {
 	return cmd
 }
 
+// changeEditResult is the change after an edit. titleOnly reports an edit
+// that changed only the title, because the document had no change.
+type changeEditResult struct {
+	change    *policyv1.PolicyChange
+	titleOnly bool
+}
+
 func runChangeEdit(
 	ctx context.Context,
 	client policyv1grpc.PolicyServiceClient,
 	open openEditorFunc,
 	tenant, id string,
 	in editInput,
-) (*policyv1.PolicyChange, error) {
+) (*changeEditResult, error) {
 	if err := checkMaxLength("-m", in.Title, &policyv1.UpdatePolicyChangeRequest{}, "title"); err != nil {
 		return nil, err
 	}
@@ -104,8 +116,32 @@ func runChangeEdit(
 		updated = res.GetChange()
 		return nil
 	})
+	// The editor stops with no save when the document has no change. A new
+	// -m title must still reach the server, or the edit loses it.
+	if errors.Is(err, errNoChange) && in.Title != "" && in.Title != change.GetTitle() {
+		return updateTitle(ctx, client, change, in.Title)
+	}
 	if err != nil {
 		return nil, err
 	}
-	return updated, nil
+	return &changeEditResult{change: updated}, nil
+}
+
+// updateTitle changes only the title of a change. The request has no
+// settings, so the server keeps the settings of the change.
+func updateTitle(
+	ctx context.Context,
+	client policyv1grpc.PolicyServiceClient,
+	change *policyv1.PolicyChange,
+	title string,
+) (*changeEditResult, error) {
+	req := &policyv1.UpdatePolicyChangeRequest{}
+	req.SetChangeId(change.GetChangeId())
+	req.SetEtag(change.GetEtag())
+	req.SetTitle(title)
+	res, err := client.UpdatePolicyChange(ctx, req)
+	if err != nil {
+		return nil, mapChangeError("update", change.GetChangeId(), err)
+	}
+	return &changeEditResult{change: res.GetChange(), titleOnly: true}, nil
 }

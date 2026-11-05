@@ -290,9 +290,50 @@ func TestRunChangeEdit_UpdatesWithTheEtag(t *testing.T) {
 	})).Return(res, nil)
 
 	ed := &scriptedEditor{edits: []func(string) string{replace("    name: payments\n", "    name: payments\n    description: why\n")}}
-	_, err := runChangeEdit(context.Background(), client, ed.open, "", "18", editInput{Title: "new title"})
+	got, err := runChangeEdit(context.Background(), client, ed.open, "", "18", editInput{Title: "new title"})
 	require.NoError(t, err)
+	assert.False(t, got.titleOnly)
 	assert.Contains(t, ed.seen[0], "# Change 18 of this tenant · base revision 46 · head revision 46")
+}
+
+func TestRunChangeEdit_TitleWithNoDocumentChange(t *testing.T) {
+	tests := []struct {
+		name       string
+		title      string
+		wantUpdate bool
+	}{
+		{"a new title is saved", "new title", true},
+		{"the same title is no change", "payments: medium + cooldown", false},
+		{"no title is no change", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := mocks.NewPolicyServiceClientMock(t)
+			c := openChange("14")
+			c.SetSettings(headPolicy())
+			client.EXPECT().GetPolicyChange(mock.Anything, mock.Anything).Return(changeResponse(c), nil)
+			client.EXPECT().GetPolicy(mock.Anything, mock.Anything).Return(headResponse(), nil)
+			if tt.wantUpdate {
+				renamed := openChange("14")
+				renamed.SetTitle(tt.title)
+				res := &policyv1.UpdatePolicyChangeResponse{}
+				res.SetChange(renamed)
+				client.EXPECT().UpdatePolicyChange(mock.Anything, mock.MatchedBy(func(r *policyv1.UpdatePolicyChangeRequest) bool {
+					return r.GetChangeId() == "14" && r.GetEtag() == "etag-1" && r.GetTitle() == tt.title && !r.HasSettings()
+				})).Return(res, nil)
+			}
+
+			got, err := runChangeEdit(context.Background(), client, (&scriptedEditor{edits: []func(string) string{keep}}).open,
+				"", "14", editInput{Title: tt.title})
+			if !tt.wantUpdate {
+				assert.ErrorIs(t, err, errNoChange)
+				return
+			}
+			require.NoError(t, err)
+			assert.True(t, got.titleOnly)
+			assert.Equal(t, tt.title, got.change.GetTitle())
+		})
+	}
 }
 
 func TestChangeCreate(t *testing.T) {

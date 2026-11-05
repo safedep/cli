@@ -40,7 +40,7 @@ func headPolicy() *policyv1.Policy {
 	p.SetBase(failOnSpec(scangatev1.Severity_SEVERITY_HIGH))
 	p.SetOverrides([]*policyv1.Override{
 		override("ov_pay", "payments", 200, "custom/criticality", "high", scangatev1.Severity_SEVERITY_HIGH),
-		override("ov_ci", "ci", 300, "managed/deployment-kind", "ci", scangatev1.Severity_SEVERITY_CRITICAL),
+		override("ov_ci", "ci", 300, "custom/environment", "ci", scangatev1.Severity_SEVERITY_CRITICAL),
 	})
 	return p
 }
@@ -65,9 +65,12 @@ func revision(n uint64, message string) *policyv1.PolicyRevision {
 }
 
 func headResponse() *policyv1.GetPolicyResponse {
+	// The SafeDep default policy of control-tower at revision 1.
+	defaultSpec := failOnSpec(scangatev1.Severity_SEVERITY_HIGH)
+	defaultSpec.GetScanGate().SetFailOnAttacks(scangatev1.AttackGate_ATTACK_GATE_FAIL)
 	def := &policyv1.DefaultPolicy{}
-	def.SetRevision(12)
-	def.SetSpec(failOnSpec(scangatev1.Severity_SEVERITY_HIGH))
+	def.SetRevision(1)
+	def.SetSpec(defaultSpec)
 	counts := &policyv1.PackageRuleCounts{}
 	counts.SetTrustCount(184)
 	counts.SetBlockCount(27)

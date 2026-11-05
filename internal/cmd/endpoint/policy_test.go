@@ -59,14 +59,14 @@ func TestServiceList_SendsThePolicyFilters(t *testing.T) {
 	res.SetEndpoints([]*controltowerv1.ListEndpointsResponse_EndpointWithAttributes{ep})
 	fake := &listEndpointsClient{res: res}
 
-	selector, applied, err := parsePolicyFilters("managed/deployment-kind=laptop", "<48")
+	selector, applied, err := parsePolicyFilters("reported/os=darwin", "<48")
 	require.NoError(t, err)
 	out, err := (&Service{client: fake}).List(context.Background(), ListInput{LabelSelector: selector, AppliedRevisionBelow: applied})
 	require.NoError(t, err)
 
 	f := fake.req.GetFilter()
 	assert.Equal(t, uint64(48), f.GetAppliedPolicyRevisionBelow())
-	assert.Equal(t, map[string]string{"managed/deployment-kind": "laptop"}, f.GetLabelSelector().GetMatchLabels())
+	assert.Equal(t, map[string]string{"reported/os": "darwin"}, f.GetLabelSelector().GetMatchLabels())
 	require.Len(t, out.Endpoints, 1)
 	assert.Equal(t, []ToolPolicy{
 		{Tool: "pmg", Version: "2.3.1", Revision: 47, State: "stale", ReportedAt: out.Endpoints[0].ToolPolicies[0].ReportedAt},

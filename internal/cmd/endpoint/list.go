@@ -94,7 +94,7 @@ func listCmd(a *app.App) *cobra.Command {
 	f.BoolVar(&onlyBlocked, "blocked", false, "only endpoints with at least one blocked install in the window")
 	f.DurationVar(&silentFor, "silent-for", 0, "only endpoints not seen for at least this duration (client-side; best-effort within --limit)")
 	f.StringVar(&searchFlag, "search", "", "case-insensitive substring match on hostname/name (client-side; best-effort within --limit)")
-	f.StringVar(&selectorFlag, "selector", "", "filter: a label selector, as in managed/deployment-kind=laptop,custom/team=release")
+	f.StringVar(&selectorFlag, "selector", "", "filter: a label selector, as in reported/os=darwin,custom/team=release")
 	f.StringVar(&appliedFlag, "applied-revision", "", "filter: '<N' keeps endpoints where a tool applies a policy revision lower than N, as in '<48'")
 	f.Uint32Var(&pageSize, "limit", 0, "page size; server default when 0")
 	f.StringVar(&pageTokenFlag, "page-token", "", "continuation token from a prior response")

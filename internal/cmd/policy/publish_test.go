@@ -72,7 +72,7 @@ func TestRunChangePublish_ShowsTheDirectionAndEveryWarning(t *testing.T) {
 	stderr := captureStderr(t)
 	client := mocks.NewPolicyServiceClientMock(t)
 	client.EXPECT().GetPolicyChange(mock.Anything, mock.Anything).Return(changeResponse(openChange("18")), nil)
-	client.EXPECT().PreviewPolicyChange(mock.Anything, mock.Anything).Return(previewResponse(), nil)
+	client.EXPECT().PreviewPolicyChange(mock.Anything, mock.Anything).Return(withEndpointLabelWarning(previewResponse()), nil)
 	client.EXPECT().PublishPolicyChange(mock.Anything, mock.Anything).
 		Return(publishResponse(policyv1.ChangeDirection_CHANGE_DIRECTION_LOOSENS), nil)
 
@@ -86,8 +86,8 @@ func TestRunChangePublish_ShowsTheDirectionAndEveryWarning(t *testing.T) {
 
 	out := stderr.String()
 	assert.Contains(t, out, "Change 18 · LOOSENS. Only an Admin can publish it")
-	assert.Contains(t, out, "It loosens selector (scm-property/criticality=high -> custom/criticality=high) in override \"payments\"")
-	assert.Contains(t, out, `LOW_ENFORCED_COVERAGE scan_gate.fail_on: 1 of 3 projects cannot enforce "medium" yet`)
+	assert.Contains(t, out, "It loosens selector (custom/team=pay -> reported/os=linux) in override \"payments\"")
+	assert.Contains(t, out, "ENDPOINT_LABEL_LOOSENS payments: a policy override that loosens selects on a label that an endpoint can send")
 }
 
 func TestRunChangePublish_LooseningThatTheUserRefuses(t *testing.T) {
@@ -140,7 +140,7 @@ func TestRunChangePublish_PreviewFails(t *testing.T) {
 
 func TestReportPreview_EscapesServerText(t *testing.T) {
 	stderr := captureStderr(t)
-	preview := newPreviewView(previewResponse())
+	preview := newPreviewView(withEndpointLabelWarning(previewResponse()))
 	preview.Warnings[0].Message = "evil\x1b]0;title\x07"
 	reportPreview("18", preview)
 	assert.NotContains(t, stderr.String(), "\x1b")

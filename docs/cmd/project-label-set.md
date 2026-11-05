@@ -17,9 +17,10 @@ safedep project label set [PROJECT_NAME...] [--project-id ID]... --label custom/
 | `--project-id <id>` | A project ID instead of a name. Repeatable. |
 
 Give up to 100 projects by exact name or ID. An admin writes only `custom/`
-labels. The CLI rejects any other prefix before the request: the forge sync
-writes `scm/` and `scm-property/` labels, and the server writes `safedep.io/`
-labels. A value has at most 63 characters.
+labels. The CLI rejects any other prefix before the request. The server sets the
+`safedep.io/` labels (`safedep.io/project-id`, `safedep.io/project-source`), and
+the `scm/` labels (`scm/forge`, `scm/owner`, `scm/repo`) from the repository of a
+project. A value has at most 63 characters.
 
 ## Examples
 

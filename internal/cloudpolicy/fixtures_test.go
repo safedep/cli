@@ -43,7 +43,7 @@ func samplePolicy() *policyv1.Policy {
 	o.SetSpec(specWith(scangatev1.Severity_SEVERITY_MEDIUM, 168*time.Hour))
 
 	ci := &messagescontroltowerv1.LabelSelector{}
-	ci.SetMatchLabels(map[string]string{"managed/deployment-kind": "ci"})
+	ci.SetMatchLabels(map[string]string{"custom/environment": "ci"})
 	o2 := &policyv1.Override{}
 	o2.SetOverrideId("ov_2")
 	o2.SetName("ci")

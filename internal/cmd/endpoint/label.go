@@ -19,9 +19,9 @@ func labelCmd(a *app.App) *cobra.Command {
 		Use:   "label",
 		Short: "Set or delete the custom labels of endpoints",
 		Long: "Set or delete the custom/ labels of endpoints. A policy override selects endpoints by their " +
-			"labels. An admin writes only custom/ labels. The shared managed file sets managed/ labels, and " +
-			"the tools report reported/ labels. A label change takes effect at the next policy fetch of " +
-			"each endpoint.",
+			"labels. An admin writes only custom/ labels. pmg reports the reported/os and reported/arch " +
+			"labels. No tool sends managed/ labels in this release. A label change takes effect at the next " +
+			"policy fetch of each endpoint.",
 	}
 	parent.AddCommand(labelSetCmd(a), labelDeleteCmd(a))
 	return parent

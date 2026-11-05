@@ -31,7 +31,7 @@ overrides:
     name: ci
     priority: 300
     selector:
-      matchLabels: {managed/deployment-kind: ci}
+      matchLabels: {custom/environment: ci}
     spec:
       package_admission:
         cooldown:

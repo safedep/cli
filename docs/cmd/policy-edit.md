@@ -32,8 +32,8 @@ The file starts with a header that shows the layers:
 # Saving creates a draft change. Nothing applies until you publish it.
 #
 # Layers, from low to high, for each subject:
-#   1. SafeDep default policy (read-only, revision 12):
-#        scan_gate.fail_on: high
+#   1. SafeDep default policy (read-only, revision 1):
+#        scan_gate.fail_on: high · scan_gate.fail_on_attacks: fail
 #   2. base      - applies to every endpoint and project of this tenant
 #   3. overrides - apply to the subjects that their selector matches.
 #                  For each field, the highest priority that sets it wins.

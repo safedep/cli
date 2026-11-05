@@ -22,7 +22,7 @@ func TestRunShow(t *testing.T) {
 
 	require.Len(t, res.Overrides, 2)
 	assert.Equal(t, "ci", res.Overrides[0].Name, "the highest priority comes first")
-	assert.Equal(t, "managed/deployment-kind=ci", res.Overrides[0].Selector)
+	assert.Equal(t, "custom/environment=ci", res.Overrides[0].Selector)
 
 	table := res.RenderTable()
 	for _, want := range []string{
@@ -30,7 +30,7 @@ func TestRunShow(t *testing.T) {
 		`46 · published 2d ago by alice · "cooldown 5d for laptops"`,
 		"Open changes    none",
 		"211 (184 trust, 27 block) · 23 expire in 7d",
-		"revision 12 · scan_gate.fail_on: high",
+		"revision 1 · scan_gate.fail_on: high · scan_gate.fail_on_attacks: fail",
 		"Overrides (priority, highest first)",
 		"payments",
 	} {
@@ -42,12 +42,12 @@ func TestRunShow(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(b, &out))
 	assert.InDelta(t, 46, out["head_revision"], 0)
-	assert.Equal(t, map[string]any{"scan_gate.fail_on": "high"}, out["default_policy"])
+	assert.Equal(t, map[string]any{"scan_gate.fail_on": "high", "scan_gate.fail_on_attacks": "fail"}, out["default_policy"])
 	policy, ok := out["policy"].(map[string]any)
 	require.True(t, ok)
 	assert.Contains(t, policy, "overrides")
 
-	assert.Contains(t, res.RenderPlain(), "override\t300\tci\tmanaged/deployment-kind=ci")
+	assert.Contains(t, res.RenderPlain(), "override\t300\tci\tcustom/environment=ci")
 }
 
 func TestRunShow_NeverPublished(t *testing.T) {

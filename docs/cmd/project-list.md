@@ -35,16 +35,20 @@ A selector has terms separated by commas. The terms AND together:
 Find the projects that a policy override will select:
 
 ```bash
-safedep project list --selector scm-property/criticality=high
+safedep project list --selector custom/criticality=high
 ```
 
 ```
 Projects
-PROJECT            SOURCE  LABELS                                          VULNS  VIOLATIONS  CREATED
-acme/payments-api  github  custom/team=pay, scm-property/criticality=high  3      -           3d ago
-acme/ledger        github  scm-property/criticality=high                   0      -           1mo ago
+PROJECT            SOURCE  LABELS                                                                                                                                                                                 VULNS  VIOLATIONS  CREATED
+acme/payments-api  github  custom/criticality=high, custom/team=pay, safedep.io/project-id=01K88WX3G9RGAK8T3N5YJMFQN1, safedep.io/project-source=github, scm/forge=github, scm/owner=acme, scm/repo=payments-api  3      -           3d ago
+acme/ledger        github  custom/criticality=high, safedep.io/project-id=01K88WX7ZQ4T2M6B9C1D3E5F7G, safedep.io/project-source=github, scm/forge=github, scm/owner=acme, scm/repo=ledger                         0      -           1mo ago
 2 projects
 ```
+
+The labels are every label of a project: the `custom/` labels that an admin
+sets, the `safedep.io/` labels of the server, and the `scm/` labels of a project
+that has a repository binding.
 
 ## Output
 

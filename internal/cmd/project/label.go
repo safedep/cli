@@ -26,8 +26,9 @@ func labelCmd(a *app.App) *cobra.Command {
 		Use:   "label",
 		Short: "Set or delete the custom labels of projects",
 		Long: "Set or delete the custom/ labels of projects. A policy override selects projects by their " +
-			"labels. An admin writes only custom/ labels. The forge sync writes scm/ labels, and the server " +
-			"writes safedep.io/ labels. A label change takes effect at the next check of each project.",
+			"labels. An admin writes only custom/ labels. The server sets the safedep.io/ labels, and the " +
+			"scm/ labels from the repository of a project. A label change takes effect at the next check of " +
+			"each project.",
 	}
 	parent.AddCommand(labelSetCmd(a), labelDeleteCmd(a))
 	return parent

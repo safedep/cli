@@ -17,8 +17,8 @@ safedep endpoint label set ENDPOINT... --label custom/KEY=VALUE...
 
 An endpoint is a ULID, a unique ULID prefix, or a hostname that
 `safedep endpoint list` cached. Give up to 100 endpoints. An admin writes only
-`custom/` labels: the shared managed file sets `managed/` labels, and the tools
-report `reported/` labels.
+`custom/` labels. pmg reports the `reported/os` and `reported/arch` labels, as
+`reported/os=darwin`. No tool sends `managed/` labels in this release.
 
 Until endpoint enrollment ships, an endpoint label is not an access boundary.
 Select on `custom/` labels for a policy override that loosens the policy.

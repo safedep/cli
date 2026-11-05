@@ -17,7 +17,7 @@ safedep endpoint list [flags] [--output table|plain|json] [--profile <name>]
 | `--blocked` | Only endpoints with at least one blocked package-guard install in the window. |
 | `--silent-for <duration>` | Only endpoints whose last sync is older than this duration (client-side filter; best-effort within `--limit`). |
 | `--search <substring>` | Case-insensitive substring match on hostname or name (client-side filter; best-effort within `--limit`). |
-| `--selector <selector>` | Only endpoints whose labels match this label selector, as `managed/deployment-kind=laptop,custom/team=release`. The syntax is the one of [`safedep project list`](./project-list.md). |
+| `--selector <selector>` | Only endpoints whose labels match this label selector, as `reported/os=darwin,custom/team=release`. The syntax is the one of [`safedep project list`](./project-list.md). |
 | `--applied-revision '<N'` | Only endpoints where a tool applies a policy revision lower than `N`, as `'<48'`. Quote the value, because the shell reads `<`. |
 | `--limit <n>` | Page size. Server default applies when `0` (the default). |
 | `--page-token <token>` | Continuation token from a prior response, to fetch the following page. |

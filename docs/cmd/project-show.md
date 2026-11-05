@@ -17,11 +17,13 @@ safedep project show PAY/settlement
 
 ```
 Project          PAY/settlement
-ID               3f1c...
+ID               01K88WX3G9RGAK8T3N5YJMFQN1
 Source           bitbucket · https://bitbucket.org/acme/settlement
-Labels           safedep.io/project-source=bitbucket
+Labels           safedep.io/project-id=01K88WX3G9RGAK8T3N5YJMFQN1
+                 safedep.io/project-source=bitbucket
                  scm/forge=bitbucket
                  scm/owner=acme
+                 scm/repo=settlement
 Policy           revision 46 · no override matches · base only
 Vulnerabilities  0
 Violations       -

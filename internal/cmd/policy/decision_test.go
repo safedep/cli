@@ -116,11 +116,11 @@ func decision(
 func ruleDecisions() []*policyv1.PolicyDecision {
 	return []*policyv1.PolicyDecision{
 		decision("d_pmg", policyv1.DecisionTool_DECISION_TOOL_PMG, policyv1.DecisionOutcome_DECISION_OUTCOME_BLOCKED,
-			"evil", "1.0.0", citation(47, 12, "", "r_9c1x4kq7dm", "", recordv1.Layer_LAYER_UNSPECIFIED),
+			"evil", "1.0.0", citation(47, 1, "", "r_9c1x4kq7dm", "", recordv1.Layer_LAYER_UNSPECIFIED),
 			atEndpoint(endpointPoint("dev-laptop", "alice"))),
 		decision("d_pr", policyv1.DecisionTool_DECISION_TOOL_PULL_REQUEST_CHECK,
 			policyv1.DecisionOutcome_DECISION_OUTCOME_FAILED, "evil", "1.0.1",
-			citation(47, 12, "", "r_9c1x4kq7dm", "", recordv1.Layer_LAYER_UNSPECIFIED),
+			citation(47, 1, "", "r_9c1x4kq7dm", "", recordv1.Layer_LAYER_UNSPECIFIED),
 			atPullRequest("acme/payments-api", 42, "https://github.com/acme/payments-api/runs/7")),
 	}
 }
@@ -355,31 +355,50 @@ func TestRunDecisionList_RuleListsBothToolsWithThePlace(t *testing.T) {
 	}
 	plain := strings.Split(got.RenderPlain(), "\n")
 	require.Len(t, plain, 3)
-	assert.Contains(t, plain[1], "\td_pmg\tpmg\tblocked\tnpm\tevil\t1.0.0\t47\t12\t\t\tr_9c1x4kq7dm\t\tendpoint\tdev-laptop (alice)\t")
+	assert.Contains(t, plain[1], "\td_pmg\tpmg\tblocked\tnpm\tevil\t1.0.0\t47\t1\t\t\tr_9c1x4kq7dm\t\tendpoint\tdev-laptop (alice)\t")
 	assert.Contains(t, plain[2], "\tpull-request\tacme/payments-api#42\thttps://github.com/acme/payments-api/runs/7")
 }
 
-func TestRunDecisionList_CooldownShowsThePathAndTheDefaultRevision(t *testing.T) {
-	cooldown := decision("d_cool", policyv1.DecisionTool_DECISION_TOOL_PMG, policyv1.DecisionOutcome_DECISION_OUTCOME_BLOCKED,
-		"fresh", "0.0.1", citation(47, 12, "package_admission.cooldown.min_age", "", "", recordv1.Layer_LAYER_DEFAULT_POLICY),
-		atEndpoint(endpointPoint("dev-laptop", "alice")))
+// The SafeDep default policy sets only the scan gate, so the pull request
+// check is the tool whose decisions cite it.
+func TestRunDecisionList_DefaultPolicyShowsThePathAndTheDefaultRevision(t *testing.T) {
+	failed := decision("d_gate", policyv1.DecisionTool_DECISION_TOOL_PULL_REQUEST_CHECK,
+		policyv1.DecisionOutcome_DECISION_OUTCOME_FAILED, "lodash", "4.17.20",
+		citation(47, 1, "scan_gate.fail_on", "", "", recordv1.Layer_LAYER_DEFAULT_POLICY),
+		atPullRequest("acme/payments-api", 42, "https://github.com/acme/payments-api/runs/7"))
 	client := mocks.NewPolicyServiceClientMock(t)
 	client.EXPECT().ListPolicyDecisions(mock.Anything, mock.MatchedBy(func(r *policyv1.ListPolicyDecisionsRequest) bool {
-		return r.GetFilters().GetPath() == "package_admission.cooldown.min_age"
-	})).Return(decisionsResponse("", cooldown), nil)
+		return r.GetFilters().GetPath() == "scan_gate.fail_on"
+	})).Return(decisionsResponse("", failed), nil)
 
-	got, err := runDecisionList(context.Background(), client, listQuery(t, decisionListInput{Path: "package_admission.cooldown.min_age"}))
+	got, err := runDecisionList(context.Background(), client, listQuery(t, decisionListInput{Path: "scan_gate.fail_on"}))
 	require.NoError(t, err)
 	table := got.RenderTable()
-	assert.Contains(t, table, "package_admission.cooldown.min_age · default policy")
-	assert.Contains(t, table, "47 · default 12")
+	assert.Contains(t, table, "scan_gate.fail_on · default policy")
+	assert.Contains(t, table, "47 · default 1")
+	assert.Contains(t, got.RenderPlain(), "\t47\t1\tdefault-policy\tscan_gate.fail_on\t")
+}
+
+func TestRunDecisionList_CooldownOfAnOverride(t *testing.T) {
+	cooldown := decision("d_cool", policyv1.DecisionTool_DECISION_TOOL_PMG, policyv1.DecisionOutcome_DECISION_OUTCOME_BLOCKED,
+		"fresh", "0.0.1", citation(47, 1, "package_admission.cooldown.min_age", "", "ov_pay", recordv1.Layer_LAYER_OVERRIDE),
+		atEndpoint(endpointPoint("dev-laptop", "alice")))
+	client := mocks.NewPolicyServiceClientMock(t)
+	client.EXPECT().ListPolicyDecisions(mock.Anything, mock.Anything).Return(decisionsResponse("", cooldown), nil)
+	client.EXPECT().GetPolicy(mock.Anything, mock.Anything).Return(headResponse(), nil)
+
+	got, err := runDecisionList(context.Background(), client,
+		listQuery(t, decisionListInput{Path: "package_admission.cooldown.min_age"}))
+	require.NoError(t, err)
+	table := got.RenderTable()
+	assert.Contains(t, table, "package_admission.cooldown.min_age · override payments")
+	assert.NotContains(t, table, "default 1", "the default policy did not decide")
 	assert.NotContains(t, table, "LINK", "no decision has a link")
-	assert.Contains(t, got.RenderPlain(), "\t47\t12\tdefault-policy\tpackage_admission.cooldown.min_age\t")
 }
 
 func TestRunDecisionList_Override(t *testing.T) {
 	overrideDecision := decision("d_ov", policyv1.DecisionTool_DECISION_TOOL_PMG, policyv1.DecisionOutcome_DECISION_OUTCOME_BLOCKED,
-		"fresh", "0.0.1", citation(47, 12, "package_admission.cooldown.min_age", "", "ov_pay", recordv1.Layer_LAYER_OVERRIDE),
+		"fresh", "0.0.1", citation(47, 1, "package_admission.cooldown.min_age", "", "ov_pay", recordv1.Layer_LAYER_OVERRIDE),
 		atEndpoint(endpointPoint("dev-laptop", "alice")))
 	tests := []struct {
 		name     string
@@ -454,7 +473,7 @@ func TestRunDecisionList_Override(t *testing.T) {
 func TestRunDecisionList_TheIDOfADeletedOverrideIsSentAsIs(t *testing.T) {
 	const deleted = "ov_9c1x4kq7dm"
 	d := decision("d_old", policyv1.DecisionTool_DECISION_TOOL_PMG, policyv1.DecisionOutcome_DECISION_OUTCOME_BLOCKED,
-		"fresh", "0.0.1", citation(49, 12, "package_admission.cooldown.min_age", "", deleted, recordv1.Layer_LAYER_OVERRIDE),
+		"fresh", "0.0.1", citation(49, 1, "package_admission.cooldown.min_age", "", deleted, recordv1.Layer_LAYER_OVERRIDE),
 		atEndpoint(endpointPoint("dev-laptop", "alice")))
 	client := mocks.NewPolicyServiceClientMock(t)
 	client.EXPECT().GetPolicy(mock.Anything, mock.Anything).Return(headResponse(), nil).Once()
@@ -498,7 +517,7 @@ func TestResolveOverrideID(t *testing.T) {
 
 func TestRunDecisionList_OverrideNameReadFailureKeepsTheID(t *testing.T) {
 	d := decision("d_ov", policyv1.DecisionTool_DECISION_TOOL_PMG, policyv1.DecisionOutcome_DECISION_OUTCOME_BLOCKED,
-		"evil", "1.0.0", citation(47, 12, "", "r_1", "ov_gone", recordv1.Layer_LAYER_UNSPECIFIED),
+		"evil", "1.0.0", citation(47, 1, "", "r_1", "ov_gone", recordv1.Layer_LAYER_UNSPECIFIED),
 		atEndpoint(endpointPoint("dev-laptop", "")))
 	client := mocks.NewPolicyServiceClientMock(t)
 	client.EXPECT().ListPolicyDecisions(mock.Anything, mock.Anything).Return(decisionsResponse("", d), nil)
@@ -560,7 +579,7 @@ func TestDescribePlace(t *testing.T) {
 
 func TestRunDecisionList_EscapesServerText(t *testing.T) {
 	d := decision("d_x", policyv1.DecisionTool_DECISION_TOOL_PMG, policyv1.DecisionOutcome_DECISION_OUTCOME_BLOCKED,
-		"evil\x1b]0;owned\x07", "1.0.0", citation(47, 12, "a\nb", "", "", recordv1.Layer_LAYER_BASE),
+		"evil\x1b]0;owned\x07", "1.0.0", citation(47, 1, "a\nb", "", "", recordv1.Layer_LAYER_BASE),
 		atEndpoint(endpointPoint("host\u202e", "mallory\tx")))
 	client := mocks.NewPolicyServiceClientMock(t)
 	client.EXPECT().ListPolicyDecisions(mock.Anything, mock.Anything).Return(decisionsResponse("", d), nil)

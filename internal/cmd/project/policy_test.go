@@ -75,11 +75,11 @@ func projectsResponse(projects ...*controltowerv1.ProjectWithAttributes) *contro
 
 func TestNewProjectListRequest(t *testing.T) {
 	req, err := newProjectListRequest(projectListInput{
-		Selector: "scm-property/criticality=high", Sources: []string{"github", "bitbucket"}, PageSize: 10,
+		Selector: "scm/owner=acme", Sources: []string{"github", "bitbucket"}, PageSize: 10,
 	})
 	require.NoError(t, err)
 	f := req.GetFilterV2()
-	assert.Equal(t, map[string]string{"scm-property/criticality": "high"}, f.GetLabelSelector().GetMatchLabels())
+	assert.Equal(t, map[string]string{"scm/owner": "acme"}, f.GetLabelSelector().GetMatchLabels())
 	assert.Equal(t, []messagescontroltowerv1.Project_Source{
 		messagescontroltowerv1.Project_SOURCE_GITHUB, messagescontroltowerv1.Project_SOURCE_BITBUCKET,
 	}, f.GetSources())
@@ -98,17 +98,17 @@ func TestNewProjectListRequest(t *testing.T) {
 func TestRunProjectList(t *testing.T) {
 	client := &fakeListProjectsClient{listFn: func(*controltowerv1.ListProjectsRequest) (*controltowerv1.ListProjectsResponse, error) {
 		return projectsResponse(labeledProject("p_1", "acme/payments-api", messagescontroltowerv1.Project_SOURCE_GITHUB,
-			map[string]string{"scm-property/criticality": "high", "custom/team": "pay"})), nil
+			map[string]string{"scm/owner": "acme", "custom/team": "pay"})), nil
 	}}
-	got, err := runProjectList(context.Background(), client, projectListInput{Selector: "scm-property/criticality=high"})
+	got, err := runProjectList(context.Background(), client, projectListInput{Selector: "scm/owner=acme"})
 	require.NoError(t, err)
 	require.Len(t, got.Projects, 1)
-	assert.Equal(t, []string{"custom/team=pay", "scm-property/criticality=high"}, got.Projects[0].Labels)
+	assert.Equal(t, []string{"custom/team=pay", "scm/owner=acme"}, got.Projects[0].Labels)
 
 	table := got.RenderTable()
 	assert.Contains(t, table, "acme/payments-api")
-	assert.Contains(t, table, "custom/team=pay, scm-property/criticality=high")
-	assert.Contains(t, got.RenderPlain(), "p_1\tacme/payments-api\tgithub\tcustom/team=pay,scm-property/criticality=high\t3\t-\t")
+	assert.Contains(t, table, "custom/team=pay, scm/owner=acme")
+	assert.Contains(t, got.RenderPlain(), "p_1\tacme/payments-api\tgithub\tcustom/team=pay,scm/owner=acme\t3\t-\t")
 }
 
 func TestRunShow_ProjectWithPolicy(t *testing.T) {
@@ -204,7 +204,7 @@ func TestRunLabelSet(t *testing.T) {
 
 func TestRunLabelSet_RejectsOtherPrefixesBeforeAnyRPC(t *testing.T) {
 	_, err := runLabelSet(context.Background(), nil, mocks.NewLabelServiceClientMock(t), labelInput{
-		ProjectIDs: []string{"p_1"}, Labels: []string{"scm-property/criticality=high"},
+		ProjectIDs: []string{"p_1"}, Labels: []string{"scm/owner=acme"},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `an admin writes only "custom/" labels`)

@@ -24,18 +24,17 @@ Author   alice
 Updated  2m ago
 
 What changes
-WHERE                WHAT                                OLD -> NEW                                                DIRECTION
-override "payments"  scan_gate.fail_on                   high -> medium                                            TIGHTENS
-override "payments"  package_admission.cooldown.min_age  - -> 7d                                                   TIGHTENS
-override "payments"  selector                            scm-property/criticality=high -> custom/criticality=high  LOOSENS
+WHERE                WHAT                                OLD -> NEW                                  DIRECTION
+override "payments"  scan_gate.fail_on                   high -> medium                              TIGHTENS
+override "payments"  package_admission.cooldown.min_age  - -> 7d                                     TIGHTENS
+override "payments"  selector                            custom/team=pay -> custom/criticality=high  LOOSENS
 
 Impact · subjects matched: 3 projects, 0 endpoints
 FIELD                       ENFORCED  PARTIAL  DETECT ONLY  NOT SUPPORTED
 scan_gate.fail_on = medium  2         1        0            0
 
 Warnings
-CODE                   SUBJECT            MESSAGE
-LOW_ENFORCED_COVERAGE  scan_gate.fail_on  1 of 3 projects cannot enforce "medium" yet
+No warnings.
 
 Direction  LOOSENS. Only an Admin can publish it, and Admins and Owners get a notice
 ```
@@ -48,7 +47,8 @@ published or deleted change shows no preview.
 `json` holds `change` and `preview` (head revision, stale, direction, changes,
 matched counts, coverage, warnings). `plain` writes `key<TAB>value` lines and one
 `change<TAB>where<TAB>what<TAB>old<TAB>new<TAB>direction` line for each change.
-Values in `plain` and `json` are exact, as `168h`. The table humanizes them, as `7d`.
+Values in `plain` and `json` are exact, as `168h`, and a selector is the protojson
+that the server sends. The table humanizes them, as `7d` and `custom/criticality=high`.
 
 ## Authentication
 

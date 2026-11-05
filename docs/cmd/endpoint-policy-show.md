@@ -25,7 +25,7 @@ safedep endpoint policy show arjuns-mbp --field package_admission.cooldown.min_a
 ```
 Endpoint        arjuns-mbp (01KR0EKN6PMW0ZRFRN992H1PKX)
 Policy          revision 52 · overrides laptops (100)
-Default policy  revision 12
+Default policy  revision 1
 Package rules   211 (184 trust, 27 block)
 
 FIELD                               VALUE  SOURCE                    EXCEPTIONS

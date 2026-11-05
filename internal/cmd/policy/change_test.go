@@ -68,8 +68,9 @@ func previewResponse() *policyv1.PreviewPolicyChangeResponse {
 	selector := &policyv1.OverrideChange{}
 	selector.SetOverrideName("payments")
 	selector.SetKind(policyv1.OverrideChangeKind_OVERRIDE_CHANGE_KIND_SELECTOR)
-	selector.SetOldValue("scm-property/criticality=high")
-	selector.SetNewValue("custom/criticality=high")
+	// The server writes a selector as protojson.
+	selector.SetOldValue(`{"matchLabels":{"custom/team":"pay"}}`)
+	selector.SetNewValue(`{"matchLabels":{"custom/criticality":"high"}}`)
 	selector.SetDirection(policyv1.ChangeDirection_CHANGE_DIRECTION_LOOSENS)
 
 	coverage := &policyv1.CoverageSummary{}
@@ -78,11 +79,6 @@ func previewResponse() *policyv1.PreviewPolicyChangeResponse {
 	coverage.SetEnforceCount(2)
 	coverage.SetPartialCount(1)
 
-	warning := &policyv1.PreviewWarning{}
-	warning.SetCode(policyv1.PreviewWarningCode_PREVIEW_WARNING_CODE_LOW_ENFORCED_COVERAGE)
-	warning.SetSubject("scan_gate.fail_on")
-	warning.SetMessage(`1 of 3 projects cannot enforce "medium" yet`)
-
 	res := &policyv1.PreviewPolicyChangeResponse{}
 	res.SetHeadRevision(46)
 	res.SetChanges([]*policyv1.PathChange{field, cooldown})
@@ -90,6 +86,17 @@ func previewResponse() *policyv1.PreviewPolicyChangeResponse {
 	res.SetDirection(policyv1.ChangeDirection_CHANGE_DIRECTION_LOOSENS)
 	res.SetMatchedProjectCount(3)
 	res.SetCoverage([]*policyv1.CoverageSummary{coverage})
+	return res
+}
+
+// withEndpointLabelWarning moves the selector of "payments" to a label that an
+// endpoint sends, and adds the warning that the server gives for it.
+func withEndpointLabelWarning(res *policyv1.PreviewPolicyChangeResponse) *policyv1.PreviewPolicyChangeResponse {
+	res.GetOverrideChanges()[0].SetNewValue(`{"matchLabels":{"reported/os":"linux"}}`)
+	warning := &policyv1.PreviewWarning{}
+	warning.SetCode(policyv1.PreviewWarningCode_PREVIEW_WARNING_CODE_ENDPOINT_LABEL_LOOSENS)
+	warning.SetSubject("payments")
+	warning.SetMessage("a policy override that loosens selects on a label that an endpoint can send")
 	res.SetWarnings([]*policyv1.PreviewWarning{warning})
 	return res
 }
@@ -109,8 +116,8 @@ func TestRunChangeShow_PreviewsAnOpenChange(t *testing.T) {
 		`override "payments"`,
 		"high -> medium",
 		"- -> 7d",
-		"scm-property/criticality=high -> custom/criticality=high",
-		"LOW_ENFORCED_COVERAGE",
+		"custom/team=pay -> custom/criticality=high",
+		"No warnings.",
 		"subjects matched: 3 projects, 0 endpoints",
 		"scan_gate.fail_on = medium",
 		"LOOSENS. Only an Admin can publish it",
@@ -123,7 +130,21 @@ func TestRunChangeShow_PreviewsAnOpenChange(t *testing.T) {
 	plain := got.RenderPlain()
 	assert.Contains(t, plain, "change_id\t18\ntitle\tpayments: medium + cooldown\nstate\topen\nbase_revision\t46")
 	assert.Contains(t, plain, "change\toverride \"payments\"\tscan_gate.fail_on\thigh\tmedium\tTIGHTENS")
-	assert.Contains(t, plain, "warning\tLOW_ENFORCED_COVERAGE\tscan_gate.fail_on\t1 of 3 projects cannot enforce \"medium\" yet")
+	assert.Contains(t, plain, "change\toverride \"payments\"\tselector\t{\"matchLabels\":{\"custom/team\":\"pay\"}}\t", "plain keeps the value of the server")
+}
+
+func TestRunChangeShow_Warnings(t *testing.T) {
+	client := mocks.NewPolicyServiceClientMock(t)
+	client.EXPECT().GetPolicyChange(mock.Anything, mock.Anything).Return(changeResponse(openChange("18")), nil)
+	client.EXPECT().PreviewPolicyChange(mock.Anything, mock.Anything).Return(withEndpointLabelWarning(previewResponse()), nil)
+
+	got, err := runChangeShow(context.Background(), client, "18")
+	require.NoError(t, err)
+	table := got.RenderTable()
+	assert.Contains(t, table, "custom/team=pay -> reported/os=linux")
+	assert.Contains(t, table, "ENDPOINT_LABEL_LOOSENS")
+	assert.Contains(t, got.RenderPlain(),
+		"warning\tENDPOINT_LABEL_LOOSENS\tpayments\ta policy override that loosens selects on a label that an endpoint can send")
 }
 
 func TestRunChangeShow_StaleChange(t *testing.T) {
@@ -290,4 +311,25 @@ func TestChangeCreate(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "restores scan_gate from revision 46 · package rules stay at head", restoreSummary(got.GetRestore()))
+}
+
+func TestOverrideChangeValue(t *testing.T) {
+	selector := policyv1.OverrideChangeKind_OVERRIDE_CHANGE_KIND_SELECTOR
+	tests := []struct {
+		name  string
+		kind  policyv1.OverrideChangeKind
+		value string
+		want  string
+	}{
+		{"match labels", selector, `{"matchLabels":{"custom/team":"pay","custom/criticality":"high"}}`, "custom/criticality=high, custom/team=pay"},
+		{"match expressions", selector, `{"matchExpressions":[{"key":"scm/owner","operator":"LABEL_SELECTOR_OPERATOR_IN","values":["acme"]}]}`, "scm/owner in (acme)"},
+		{"no value", selector, "", "-"},
+		{"not protojson", selector, "custom/team=pay", "custom/team=pay"},
+		{"another kind", policyv1.OverrideChangeKind_OVERRIDE_CHANGE_KIND_PRIORITY, "200", "200"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, overrideChangeValue(tt.kind, tt.value))
+		})
+	}
 }

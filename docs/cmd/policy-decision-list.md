@@ -63,7 +63,7 @@ form that pmg and vet store:
 | `PACKAGE` | The ecosystem, the name and the version. |
 | `OUTCOME` | `blocked`, `failed` or `allowed`. |
 | `DECIDED BY` | The package rule, or the field path, and the layer or the override that set it: `default policy`, `base` or `override NAME`. |
-| `REV` | The tenant policy revision. When the default policy decided, also its revision, as `47 · default 12`. |
+| `REV` | The tenant policy revision. When the default policy decided, also its revision, as `47 · default 1`. |
 | `WHERE` | For pmg, the hostname and the user, and one hint: the CI repository, else the Kubernetes namespace and workload, else the agent. For a check, the repository and the pull request number. For a scan, the repository and the branch or the commit. |
 | `LINK` | The check run, the pull request or the CI run. The table has this column only when a row has a link. |
 
@@ -83,7 +83,8 @@ WHEN    TOOL                PACKAGE         OUTCOME  DECIDED BY         REV  WHE
 2 decisions
 ```
 
-The installs that the cooldown blocked in the last day:
+The installs that a cooldown blocked in the last day. The SafeDep default policy
+sets no cooldown, so the policy base or a policy override decided each one:
 
 ```bash
 safedep policy decision list --path package_admission.cooldown.min_age --since 1d
@@ -91,8 +92,23 @@ safedep policy decision list --path package_admission.cooldown.min_age --since 1
 
 ```
 Policy decisions
-WHEN    TOOL  PACKAGE          OUTCOME  DECIDED BY                                           REV              WHERE
-5m ago  pmg   npm/fresh@0.0.1  blocked  package_admission.cooldown.min_age · default policy  47 · default 12  dev-laptop (alice)
+WHEN    TOOL  PACKAGE          OUTCOME  DECIDED BY                                             REV  WHERE
+5m ago  pmg   npm/fresh@0.0.1  blocked  package_admission.cooldown.min_age · override laptops  47   dev-laptop (alice)
+1 decision
+```
+
+The pull request checks that the SafeDep default policy failed. The default
+policy at revision 1 sets `scan_gate.fail_on: high` and
+`scan_gate.fail_on_attacks: fail`:
+
+```bash
+safedep policy decision list --path scan_gate.fail_on --tool pull-request-check
+```
+
+```
+Policy decisions
+WHEN    TOOL                PACKAGE             OUTCOME  DECIDED BY                          REV             WHERE                 LINK
+2h ago  pull-request-check  npm/lodash@4.17.20  failed   scan_gate.fail_on · default policy  47 · default 1  acme/payments-api#42  https://github.com/acme/payments-api/runs/7
 1 decision
 ```
 

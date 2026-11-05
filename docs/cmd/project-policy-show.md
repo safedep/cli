@@ -28,7 +28,7 @@ safedep project policy show acme/payments-api --field scan_gate.fail_on,package_
 ```
 Project         acme/payments-api
 Policy          revision 47 · overrides payments (200)
-Default policy  revision 12
+Default policy  revision 1
 Package rules   211 (184 trust, 27 block)
 
 FIELD                               VALUE   SOURCE                     EXCEPTIONS

@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"strings"
 
+	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	recordv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/record/v1"
 	policyv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/policy/v1"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/safedep/cli/internal/cloudpolicy"
 	"github.com/safedep/cli/internal/tui"
@@ -82,8 +84,8 @@ func newPreviewView(res *policyv1.PreviewPolicyChangeResponse) *previewView {
 			Old:       c.GetOldValue(),
 			New:       c.GetNewValue(),
 			Direction: directionToken(c.GetDirection()),
-			oldHuman:  cloudpolicy.EmptyDash(c.GetOldValue()),
-			newHuman:  cloudpolicy.EmptyDash(c.GetNewValue()),
+			oldHuman:  overrideChangeValue(c.GetKind(), c.GetOldValue()),
+			newHuman:  overrideChangeValue(c.GetKind(), c.GetNewValue()),
 		})
 	}
 	for _, op := range res.GetPackageRuleOperations() {
@@ -114,6 +116,22 @@ func newPreviewView(res *policyv1.PreviewPolicyChangeResponse) *previewView {
 		})
 	}
 	return v
+}
+
+// overrideChangeValue gives the human form of a value of an override change.
+// The server writes a selector as protojson. The table and the publish
+// warning show it in the selector syntax of the CLI, as in
+// custom/criticality=high. A value that does not parse stays as the server
+// wrote it.
+func overrideChangeValue(kind policyv1.OverrideChangeKind, value string) string {
+	if kind != policyv1.OverrideChangeKind_OVERRIDE_CHANGE_KIND_SELECTOR || value == "" {
+		return cloudpolicy.EmptyDash(value)
+	}
+	selector := &messagescontroltowerv1.LabelSelector{}
+	if err := protojson.Unmarshal([]byte(value), selector); err != nil {
+		return value
+	}
+	return cloudpolicy.FormatSelector(selector)
 }
 
 func ruleOperationItems(ops []*policyv1.PackageRuleOperation) []changeItem {

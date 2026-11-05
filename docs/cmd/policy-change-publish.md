@@ -28,7 +28,6 @@ safedep policy change publish 18 -m "payments: fail on medium, 7d cooldown (CUST
 
 ```
 Change 18 · TIGHTENS. An Admin can publish it
-! LOW_ENFORCED_COVERAGE scan_gate.fail_on: 1 of 3 projects cannot enforce "medium" yet
 ✓ revision 47 published · TIGHTENS
   Projects resolve it at their next check. Endpoints apply it after their next policy fetch
   Endpoints that have not applied it yet: safedep endpoint list --applied-revision '<47'

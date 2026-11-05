@@ -138,7 +138,7 @@ func TestRunEdit_CreatesAChangeFromTheHead(t *testing.T) {
 
 	header := ed.seen[0]
 	assert.Contains(t, header, "# Policy of platform-eng.acme.safedep.io · head revision 46")
-	assert.Contains(t, header, "#   1. SafeDep default policy (read-only, revision 12):")
+	assert.Contains(t, header, "#   1. SafeDep default policy (read-only, revision 1):")
 	assert.Contains(t, header, "scan_gate.fail_on: high")
 	assert.Contains(t, header, "# Package rules are not in this file: 211 rules")
 

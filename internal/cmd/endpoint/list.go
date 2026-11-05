@@ -12,6 +12,7 @@ import (
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/cloudpolicy"
+	"github.com/safedep/cli/internal/duration"
 	"github.com/safedep/cli/internal/tui"
 	"github.com/safedep/dry/tui/humanize"
 	"github.com/safedep/dry/tui/table"
@@ -89,10 +90,11 @@ func listCmd(a *app.App) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.DurationVar(&since, "since", 7*24*time.Hour, "trailing window length, e.g. 168h, 24h, 30m")
+	f.Var(duration.NewValue(&since, 7*24*time.Hour), "since", "trailing window length, as in 7d, 24h or 30m")
 	f.StringSliceVar(&capabilitiesRaw, "capability", nil, "filter by capability (guard|tracer|advisor|inventory); repeatable")
 	f.BoolVar(&onlyBlocked, "blocked", false, "only endpoints with at least one blocked install in the window")
-	f.DurationVar(&silentFor, "silent-for", 0, "only endpoints not seen for at least this duration (client-side; best-effort within --limit)")
+	f.Var(duration.NewValue(&silentFor, 0), "silent-for",
+		"only endpoints not seen for at least this duration, as in 7d (client-side, best-effort within --limit)")
 	f.StringVar(&searchFlag, "search", "", "case-insensitive substring match on hostname/name (client-side; best-effort within --limit)")
 	f.StringVar(&selectorFlag, "selector", "", "filter: a label selector, as in reported/os=darwin,custom/team=release")
 	f.StringVar(&appliedFlag, "applied-revision", "", "filter: '<N' keeps endpoints where a tool applies a policy revision lower than N, as in '<48'")

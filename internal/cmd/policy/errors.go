@@ -24,6 +24,27 @@ func invalidInputError(cause error, help string) error {
 	return newPolicyError(usefulerror.ErrBadRequest, cause.Error(), help, cause)
 }
 
+// failedPreconditionError shows the detail of a FAILED_PRECONDITION. The
+// server sends no reason with it, so the hint covers the cases of the RPC.
+func failedPreconditionError(st *status.Status, help string, cause error) error {
+	return newPolicyError(usefulerror.ErrConflict,
+		"The server refused the request: "+tui.EscapeLine(st.Message()), help, cause)
+}
+
+// violatesField reports whether a BadRequest detail of err names field.
+func violatesField(err error, field string) bool {
+	bad, ok := usefulerror.DetailAs[*errdetails.BadRequest](err)
+	if !ok {
+		return false
+	}
+	for _, v := range bad.GetFieldViolations() {
+		if v.GetField() == field {
+			return true
+		}
+	}
+	return false
+}
+
 // mapChangeError gives the recovery for the errors of a policy change RPC:
 // a stale base, an old etag, or a change that does not exist.
 func mapChangeError(op, changeID string, err error) error {
@@ -55,16 +76,33 @@ func mapChangeError(op, changeID string, err error) error {
 				"Your role cannot change the policy",
 				"Ask an Admin of the tenant to do it",
 				cause)
+		case codes.FailedPrecondition:
+			return failedPreconditionError(st, changePreconditionHelp(changeID), cause)
 		}
 	}
 	return cause
 }
 
+// changePreconditionHelp covers the refusals of a change: a change that is
+// not open, and a change that removes a policy override that package rules
+// still use.
+func changePreconditionHelp(changeID string) string {
+	review := "Review the change: safedep policy change show"
+	if changeID != "" {
+		review += " " + changeID
+	}
+	return review + ". If it removes a policy override, delete the package rules of that override first, " +
+		"or attach them to another one: safedep policy rule list --override NAME"
+}
+
 // mapRestoreError gives the recovery for the errors of a create that
-// restores an old revision. A missing revision is the usual cause of
-// NotFound.
+// restores an old revision. The server refuses a revision above head as an
+// invalid restore.from_revision.
 func mapRestoreError(fromRevision uint64, err error) error {
-	if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
+	st, ok := status.FromError(err)
+	missing := ok && (st.Code() == codes.NotFound ||
+		(st.Code() == codes.InvalidArgument && violatesField(err, "restore.from_revision")))
+	if missing {
 		return newPolicyError(usefulerror.ErrNotFound,
 			fmt.Sprintf("Policy revision %d does not exist", fromRevision),
 			"List the revisions: safedep policy revision list",
@@ -88,6 +126,8 @@ func mapRuleError(op, ruleID string, err error) error {
 				"Your role cannot change package rules",
 				"Ask an Admin of the tenant to do it",
 				cause)
+		case codes.FailedPrecondition:
+			return failedPreconditionError(st, "List the rules: safedep policy rule list", cause)
 		}
 	}
 	return cause

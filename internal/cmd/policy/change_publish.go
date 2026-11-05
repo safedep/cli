@@ -85,6 +85,9 @@ func runChangePublish(
 	id, message string,
 	confirm confirmFunc,
 ) (*policyv1.PolicyRevision, error) {
+	if err := checkMaxLength("-m", message, &policyv1.PublishPolicyChangeRequest{}, "message"); err != nil {
+		return nil, err
+	}
 	change, err := getChange(ctx, client, id)
 	if err != nil {
 		return nil, err
@@ -163,5 +166,15 @@ func reportLoosening(p *previewView) {
 func reportPublish(revision uint64, direction string) {
 	tui.Success("revision %d published%s%s", revision, sep, direction)
 	tui.Info("  Projects resolve it at their next check. Endpoints apply it after their next policy fetch")
+	reportLaggingEndpoints(revision)
+}
+
+// reportLaggingEndpoints tells how to find the endpoints that have not
+// applied revision yet. Before revision 1 no endpoint had a revision, so
+// endpoint list refuses '<1' and the hint starts at revision 2.
+func reportLaggingEndpoints(revision uint64) {
+	if revision < 2 {
+		return
+	}
 	tui.Info("  Endpoints that have not applied it yet: safedep endpoint list --applied-revision '<%d'", revision)
 }

@@ -155,6 +155,8 @@ func (v decisionView) decidedBy() string {
 		parts = append(parts, "rule "+v.RuleID)
 	case v.Path != "":
 		parts = append(parts, v.Path)
+	default:
+		parts = append(parts, fixedRuleText(v.Tool))
 	}
 	switch {
 	case v.override != "":
@@ -165,6 +167,17 @@ func (v decisionView) decidedBy() string {
 		parts = append(parts, "base")
 	}
 	return cloudpolicy.EmptyDash(strings.Join(parts, sep))
+}
+
+// fixedRuleText names a decision whose citation has no rule and no path.
+// The pull request check cites only the revisions for its verified malware
+// guard and for its fixed license rule, because they are outside the policy
+// contract. A stored decision does not tell the two apart.
+func fixedRuleText(tool string) string {
+	if tool == tui.EnumToken(policyv1.DecisionTool_DECISION_TOOL_PULL_REQUEST_CHECK.String(), decisionToolPrefix) {
+		return "a fixed rule of the check"
+	}
+	return "a fixed rule of the tool"
 }
 
 // revisionCell gives the tenant revision, and the default policy revision

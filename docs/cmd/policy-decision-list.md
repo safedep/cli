@@ -62,7 +62,7 @@ form that pmg and vet store:
 | `TOOL` | `pmg`, `pull-request-check` or `vet`. |
 | `PACKAGE` | The ecosystem, the name and the version. |
 | `OUTCOME` | `blocked`, `failed` or `allowed`. |
-| `DECIDED BY` | The package rule, or the field path, and the layer or the override that set it: `default policy`, `base` or `override NAME`. |
+| `DECIDED BY` | The package rule, or the field path, and the layer or the override that set it: `default policy`, `base` or `override NAME`. The pull request check cites no rule and no path for its verified malware guard and its license rule. These show as `a fixed rule of the check`. |
 | `REV` | The tenant policy revision. When the default policy decided, also its revision, as `47 · default 1`. |
 | `WHERE` | For pmg, the hostname and the user, and one hint: the CI repository, else the Kubernetes namespace and workload, else the agent. For a check, the repository and the pull request number. For a scan, the repository and the branch or the commit. |
 | `LINK` | The check run, the pull request or the CI run. The table has this column only when a row has a link. |

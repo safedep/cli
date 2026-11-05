@@ -48,6 +48,9 @@ func TestFormatJSONValue(t *testing.T) {
 		path, raw, value, human string
 	}{
 		{"scan_gate.fail_on", `"SEVERITY_MEDIUM"`, "medium", "medium"},
+		// The server writes an enum by its value name, with no quotes.
+		{"scan_gate.fail_on", "SEVERITY_MEDIUM", "medium", "medium"},
+		{"scan_gate.fail_on_attacks", "ATTACK_GATE_FAIL", "fail", "fail"},
 		{"package_admission.cooldown.min_age", `"604800s"`, "168h", "7d"},
 		{"package_admission.cooldown.min_age", `"0s"`, "0s", "0s"},
 		{"scan_gate.fail_on", "", "-", "-"},

@@ -8,10 +8,14 @@ import (
 	"os"
 	"strings"
 
+	validate "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	"github.com/safedep/dry/tui"
 	"github.com/safedep/dry/usefulerror"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 const (
@@ -36,13 +40,64 @@ func (e *retryableError) Unwrap() error { return e.err }
 
 func retryable(err error) error { return &retryableError{err: err} }
 
+// documentFields are the request fields that the edit document holds. An
+// INVALID_ARGUMENT about one of them is an error that an edit can fix.
+var documentFields = []string{"settings", "base", "base_description", "overrides"}
+
 func isRetryable(err error) bool {
 	var r *retryableError
 	if errors.As(err, &r) {
 		return true
 	}
 	st, ok := status.FromError(err)
-	return ok && st.Code() == codes.InvalidArgument
+	if !ok || st.Code() != codes.InvalidArgument {
+		return false
+	}
+	if bad, ok := usefulerror.DetailAs[*errdetails.BadRequest](err); ok && len(bad.GetFieldViolations()) > 0 {
+		for _, v := range bad.GetFieldViolations() {
+			if isDocumentField(v.GetField()) {
+				return true
+			}
+		}
+		return false
+	}
+	// With no field detail, the message starts with the field, as in
+	// "title: must be at most 200 characters".
+	field, _, found := strings.Cut(st.Message(), ":")
+	return !found || strings.ContainsAny(field, " ") || isDocumentField(field)
+}
+
+func isDocumentField(field string) bool {
+	for _, f := range documentFields {
+		if field == f || strings.HasPrefix(field, f+".") || strings.HasPrefix(field, f+"[") {
+			return true
+		}
+	}
+	return false
+}
+
+// checkMaxLength refuses a flag value that the server refuses for its
+// length, from the protovalidate rule of the request field, before the RPC.
+// An edit cannot fix such a value, so the editor must not open again for it.
+func checkMaxLength(flag, value string, request proto.Message, field protoreflect.Name) error {
+	fd := request.ProtoReflect().Descriptor().Fields().ByName(field)
+	if fd == nil {
+		return nil
+	}
+	rules, ok := proto.GetExtension(fd.Options(), validate.E_Field).(*validate.FieldRules)
+	if !ok || !rules.GetString().HasMaxLen() {
+		return nil
+	}
+	limit := rules.GetString().GetMaxLen()
+	var n uint64
+	for range value {
+		n++
+	}
+	if n > limit {
+		return invalidInputError(fmt.Errorf("%s is %d characters long: the limit is %d", flag, n, limit),
+			fmt.Sprintf("Give a %s of at most %d characters", flag, limit))
+	}
+	return nil
 }
 
 // editLoop writes text to a temporary file, opens the editor on it, and

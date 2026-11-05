@@ -59,8 +59,9 @@ func previewResponse() *policyv1.PreviewPolicyChangeResponse {
 	field.SetPath("scan_gate.fail_on")
 	field.SetLayer(recordv1.Layer_LAYER_OVERRIDE)
 	field.SetOverrideName("payments")
-	field.SetOldValue(`"SEVERITY_HIGH"`)
-	field.SetNewValue(`"SEVERITY_MEDIUM"`)
+	// The server writes an enum by its value name, with no quotes.
+	field.SetOldValue("SEVERITY_HIGH")
+	field.SetNewValue("SEVERITY_MEDIUM")
 	field.SetDirection(policyv1.ChangeDirection_CHANGE_DIRECTION_TIGHTENS)
 
 	cooldown := &policyv1.PathChange{}
@@ -84,7 +85,7 @@ func previewResponse() *policyv1.PreviewPolicyChangeResponse {
 	cooldownCoverage.SetUnsupportedCount(3)
 	coverage := &policyv1.CoverageSummary{}
 	coverage.SetPath("scan_gate.fail_on")
-	coverage.SetValue(`"SEVERITY_MEDIUM"`)
+	coverage.SetValue("SEVERITY_MEDIUM")
 	coverage.SetEnforceCount(3)
 
 	res := &policyv1.PreviewPolicyChangeResponse{}

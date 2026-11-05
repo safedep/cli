@@ -196,8 +196,10 @@ func humanDuration(d time.Duration) string {
 	return humanize.Duration(d)
 }
 
-// FormatJSONValue turns a value of a contract path in protojson form, as a
-// preview returns it, into the document form and the table form. An empty
+// FormatJSONValue turns a value of a contract path, as a preview returns it,
+// into the document form and the table form. The server writes a message in
+// protojson and an enum by its value name with no quotes, as SEVERITY_MEDIUM.
+// Both get the short form of the document, as "7d" and "medium". An empty
 // raw value means that the layer did not set the field, and shows as "-".
 func FormatJSONValue(path, raw string) (string, string) {
 	if raw == "" {
@@ -205,7 +207,7 @@ func FormatJSONValue(path, raw string) (string, string) {
 	}
 	var value any
 	if err := json.Unmarshal([]byte(raw), &value); err != nil {
-		return raw, raw
+		value = raw
 	}
 
 	fd := fieldByPath(path)

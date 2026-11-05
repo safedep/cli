@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
+	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	policyv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/policy/v1"
 	"github.com/safedep/dry/tui"
 	"github.com/safedep/dry/usefulerror"
@@ -187,6 +190,7 @@ func checkEditedSettings(start, edited *policyv1.Policy) error {
 		}
 		kept[id] = struct{}{}
 	}
+	warnSettableLabels(known, edited)
 	for _, o := range start.GetOverrides() {
 		if _, ok := kept[o.GetOverrideId()]; !ok {
 			tui.Warning("This removes policy override %q (id %s). The server refuses the removal while package rules attach to it",
@@ -194,6 +198,47 @@ func checkEditedSettings(start, edited *policyv1.Policy) error {
 		}
 	}
 	return nil
+}
+
+// settableLabelPrefixes are the label prefixes that a tool or a source
+// outside SafeDep sets. A person on an endpoint can change a reported/ or a
+// managed/ label, so an override that loosens the policy must not trust them
+// (parent spec 6.7). The server warns too, but only in a preview, which a
+// publish with --yes does not show.
+var settableLabelPrefixes = []string{"managed/", "reported/", "scm-property/"}
+
+// warnSettableLabels warns, with no block, for each added or changed policy
+// override whose selector names a label of settableLabelPrefixes.
+func warnSettableLabels(known map[string]*policyv1.Override, edited *policyv1.Policy) {
+	for _, o := range edited.GetOverrides() {
+		if before, ok := known[o.GetOverrideId()]; ok && o.GetOverrideId() != "" && proto.Equal(before, o) {
+			continue
+		}
+		for _, key := range settableSelectorKeys(o.GetSelector()) {
+			tui.Warning("Policy override %q selects on %s. A tool sets this label, so a person on the endpoint can "+
+				"change it. If the override loosens the policy, review it before you publish",
+				clitui.EscapeLine(o.GetName()), clitui.EscapeLine(key))
+		}
+	}
+}
+
+func settableSelectorKeys(selector *messagescontroltowerv1.LabelSelector) []string {
+	var keys []string
+	add := func(key string) {
+		for _, prefix := range settableLabelPrefixes {
+			if strings.HasPrefix(key, prefix) && !slices.Contains(keys, key) {
+				keys = append(keys, key)
+			}
+		}
+	}
+	for key := range selector.GetMatchLabels() {
+		add(key)
+	}
+	for _, expr := range selector.GetMatchExpressions() {
+		add(expr.GetKey())
+	}
+	slices.Sort(keys)
+	return keys
 }
 
 func validateSettings(p *policyv1.Policy) error {

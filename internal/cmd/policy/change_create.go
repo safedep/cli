@@ -24,9 +24,11 @@ const (
 
 type changeCreateInput struct {
 	FromRevision uint64
-	Capabilities []string
-	PackageRules string
-	Title        string
+	// FromRevisionSet tells a missing --from-revision from --from-revision 0.
+	FromRevisionSet bool
+	Capabilities    []string
+	PackageRules    string
+	Title           string
 }
 
 func changeCreateCmd(a *app.App) *cobra.Command {
@@ -43,6 +45,7 @@ func changeCreateCmd(a *app.App) *cobra.Command {
 			if err := cobra.NoArgs(cmd, args); err != nil {
 				return err
 			}
+			in.FromRevisionSet = cmd.Flags().Changed("from-revision")
 			return validateChangeCreate(in)
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -75,7 +78,11 @@ func changeCreateCmd(a *app.App) *cobra.Command {
 }
 
 func validateChangeCreate(in changeCreateInput) error {
-	if in.FromRevision == 0 {
+	switch {
+	case in.FromRevision == 0 && in.FromRevisionSet:
+		return invalidInputError(errors.New("revision 0 has no policy. Use 1 or more"),
+			"Find the revision in: safedep policy revision list")
+	case in.FromRevision == 0:
 		return invalidInputError(errors.New("--from-revision is required"),
 			"Find the revision in: safedep policy revision list")
 	}

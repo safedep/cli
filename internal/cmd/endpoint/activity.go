@@ -10,6 +10,7 @@ import (
 
 	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	"github.com/safedep/cli/internal/app"
+	"github.com/safedep/cli/internal/duration"
 	"github.com/safedep/dry/tui/humanize"
 	"github.com/safedep/dry/tui/section"
 	"github.com/safedep/dry/tui/table"
@@ -97,7 +98,7 @@ func activityListCmd(a *app.App) *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&typeFlag, "type", string(ActivityTypeGuard), "activity type: all|guard|inventory")
-	f.DurationVar(&since, "since", 7*24*time.Hour, "trailing window length, e.g. 24h, 168h, 30m")
+	f.Var(duration.NewValue(&since, 7*24*time.Hour), "since", "trailing window length, as in 7d, 24h or 30m")
 	f.StringSliceVar(&endpoints, "endpoint", nil, "filter by endpoint (ULID or cached hostname); repeatable")
 	f.StringSliceVar(&actionsRaw, "action", nil, "guard-only action filter: blocked|confirmed|trusted|cooldown-blocked. Setting this implies --type=guard unless --type is set explicitly.")
 	f.StringVar(&toolFlag, "tool", "", "client-side filter by tool_name")

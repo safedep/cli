@@ -176,5 +176,5 @@ func reportRuleCreate(in ruleCreateInput, res *ruleCreateResult, now time.Time) 
 		}
 	}
 	tui.Info("  Each endpoint applies it after its next policy fetch. Pull request checks apply it at once.")
-	tui.Info("  Endpoints that have not applied it yet: safedep endpoint list --applied-revision '<%d'", res.Revision)
+	reportLaggingEndpoints(res.Revision)
 }

@@ -59,6 +59,9 @@ func runChangeEdit(
 	tenant, id string,
 	in editInput,
 ) (*policyv1.PolicyChange, error) {
+	if err := checkMaxLength("-m", in.Title, &policyv1.UpdatePolicyChangeRequest{}, "title"); err != nil {
+		return nil, err
+	}
 	change, err := getChange(ctx, client, id)
 	if err != nil {
 		return nil, err

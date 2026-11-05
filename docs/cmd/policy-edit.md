@@ -138,6 +138,9 @@ safedep policy edit --override payments
 - The command warns when the file holds a comment that it did not write. The
   policy keeps no comments.
 - A parent key that you uncomment with no field below it makes no change.
+- The command warns when an added or changed policy override selects on a
+  `managed/`, `reported/` or `scm-property/` label. A tool sets such a label, so
+  a person on the endpoint can change it. The save continues.
 - When the policy has settings and the saved file sets no field, the editor
   opens again with the error. To remove every setting, write `{}` on one line.
 - When the save fails for another reason, the command keeps the file and prints

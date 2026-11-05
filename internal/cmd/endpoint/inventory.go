@@ -10,6 +10,7 @@ import (
 
 	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	"github.com/safedep/cli/internal/app"
+	"github.com/safedep/cli/internal/duration"
 	"github.com/safedep/dry/tui"
 	"github.com/safedep/dry/tui/humanize"
 	"github.com/safedep/dry/tui/table"
@@ -146,7 +147,7 @@ func inventoryListCmd(a *app.App) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.DurationVar(&since, "since", 7*24*time.Hour, "trailing window length, e.g. 168h, 24h, 30m")
+	f.Var(duration.NewValue(&since, 7*24*time.Hour), "since", "trailing window length, as in 7d, 24h or 30m")
 	f.StringSliceVar(&endpoints, "endpoint", nil, "filter by endpoint (ULID or cached hostname); repeatable")
 	f.StringSliceVar(&kindsRaw, "kind", nil, "filter by inventory kind (mcp-server|coding-agent|ai-extension|cli-tool|project-config|browser-extension|ide-extension|agent-plugin|agent-skill); repeatable")
 	f.StringVar(&scopeFlag, "scope", "", "filter by scope: system|project")

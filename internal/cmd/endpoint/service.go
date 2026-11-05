@@ -12,6 +12,8 @@ import (
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/safedep/cli/internal/tui"
 )
 
 // Five small interfaces, one per RPC, so unit tests can pass focused
@@ -101,8 +103,23 @@ type ListInput struct {
 	Window        TimeWindow
 	Capabilities  []controltowerv1.EndpointCapability
 	MinPMGBlocked uint64 // 0 = no filter
-	PageSize      uint32
-	PageToken     string
+	// LabelSelector keeps the endpoints whose labels match. Nil = no filter.
+	LabelSelector *messagescontroltowerv1.LabelSelector
+	// AppliedRevisionBelow keeps the endpoints where a tool applies a policy
+	// revision lower than this one. 0 = no filter.
+	AppliedRevisionBelow uint64
+	PageSize             uint32
+	PageToken            string
+}
+
+// ToolPolicy is the cloud policy that one tool on an endpoint reported last:
+// its applied policy revision and the state of the policy in the tool.
+type ToolPolicy struct {
+	Tool       string
+	Version    string
+	Revision   uint64
+	State      string
+	ReportedAt time.Time
 }
 type ListEndpoint struct {
 	ID               string
@@ -115,6 +132,7 @@ type ListEndpoint struct {
 	PMGBlockedEvents uint64
 	PMGTotalEvents   uint64
 	InventoryEvents  uint64
+	ToolPolicies     []ToolPolicy
 }
 type ListResult struct {
 	Endpoints []ListEndpoint
@@ -270,13 +288,19 @@ func (s *Service) List(ctx context.Context, in ListInput) (*ListResult, error) {
 	if in.PageSize > 0 {
 		req.SetPagination(newPagination(in.PageSize, in.PageToken))
 	}
-	if len(in.Capabilities) > 0 || in.MinPMGBlocked > 0 {
+	if len(in.Capabilities) > 0 || in.MinPMGBlocked > 0 || in.LabelSelector != nil || in.AppliedRevisionBelow > 0 {
 		f := &controltowerv1.ListEndpointsRequest_Filter{}
 		if len(in.Capabilities) > 0 {
 			f.SetCapabilities(in.Capabilities)
 		}
 		if in.MinPMGBlocked > 0 {
 			f.SetMinPackageGuardBlockedEventsCount(in.MinPMGBlocked)
+		}
+		if in.LabelSelector != nil {
+			f.SetLabelSelector(in.LabelSelector)
+		}
+		if in.AppliedRevisionBelow > 0 {
+			f.SetAppliedPolicyRevisionBelow(in.AppliedRevisionBelow)
 		}
 		req.SetFilter(f)
 	}
@@ -299,9 +323,27 @@ func (s *Service) List(ctx context.Context, in ListInput) (*ListResult, error) {
 			PMGBlockedEvents: ep.GetPackageGuardBlockedEventsCount(),
 			PMGTotalEvents:   ep.GetPackageGuardEventsCount(),
 			InventoryEvents:  ep.GetVetInventoryEventsCount(),
+			ToolPolicies:     toolPolicies(ep.GetToolPolicies()),
 		})
 	}
 	return out, nil
+}
+
+func toolPolicies(in []*controltowerv1.EndpointToolPolicy) []ToolPolicy {
+	out := make([]ToolPolicy, 0, len(in))
+	for _, p := range in {
+		tp := ToolPolicy{
+			Tool:     p.GetToolName(),
+			Version:  p.GetToolVersion(),
+			Revision: p.GetPolicy().GetRevision(),
+			State:    tui.EnumToken(p.GetPolicy().GetState().String(), "APPLY_STATE_"),
+		}
+		if ts := p.GetReportedAt(); ts != nil {
+			tp.ReportedAt = ts.AsTime().UTC()
+		}
+		out = append(out, tp)
+	}
+	return out
 }
 
 func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {

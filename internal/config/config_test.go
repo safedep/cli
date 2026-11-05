@@ -83,3 +83,11 @@ func TestDir(t *testing.T) {
 			"override is the safedep namespace; we must not double-prefix")
 	})
 }
+
+func TestEditor(t *testing.T) {
+	t.Setenv("VISUAL", "")
+	t.Setenv("EDITOR", "nano")
+	assert.Equal(t, "nano", Editor())
+	t.Setenv("VISUAL", "code --wait")
+	assert.Equal(t, "code --wait", Editor())
+}

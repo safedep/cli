@@ -24,7 +24,7 @@ By default, dedupe is performed over the fetched page only. For a complete snaps
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--since` | `168h` | Trailing time window length, e.g. `24h`, `168h`, `30m` |
+| `--since` | `168h` | Trailing time window length, as `7d`, `24h` or `30m` |
 | `--endpoint` | _(none)_ | Filter by endpoint ULID or cached hostname; repeatable |
 | `--kind` | _(none)_ | Filter by inventory kind (see Kind vocabulary below); repeatable |
 | `--scope` | _(none)_ | Filter by scope: `system` or `project` |

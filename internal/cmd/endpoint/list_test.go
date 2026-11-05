@@ -68,3 +68,10 @@ func newNopDirectory(t *testing.T) *Directory {
 	t.Helper()
 	return NewDirectory(newFakeStore(), time.Now)
 }
+
+func TestListCmd_DurationFlagsAcceptDays(t *testing.T) {
+	cmd := listCmd(nil)
+	require.NoError(t, cmd.ParseFlags([]string{"--since", "7d", "--silent-for", "2d"}))
+	assert.Equal(t, "168h", cmd.Flags().Lookup("since").Value.String())
+	assert.Equal(t, "48h", cmd.Flags().Lookup("silent-for").Value.String())
+}

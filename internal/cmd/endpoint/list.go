@@ -4,25 +4,32 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
+	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/safedep/cli/internal/app"
+	"github.com/safedep/cli/internal/cloudpolicy"
+	"github.com/safedep/cli/internal/duration"
+	"github.com/safedep/cli/internal/tui"
 	"github.com/safedep/dry/tui/humanize"
 	"github.com/safedep/dry/tui/table"
 	"github.com/spf13/cobra"
 )
 
 type listInput struct {
-	Window       TimeWindow
-	Capabilities []controltowerv1.EndpointCapability
-	OnlyBlocked  bool
-	SilentFor    time.Duration
-	Search       string
-	PageSize     uint32
-	PageToken    string
-	_now         func() time.Time // injectable for tests
+	Window               TimeWindow
+	Capabilities         []controltowerv1.EndpointCapability
+	OnlyBlocked          bool
+	SilentFor            time.Duration
+	Search               string
+	LabelSelector        *messagescontroltowerv1.LabelSelector
+	AppliedRevisionBelow uint64
+	PageSize             uint32
+	PageToken            string
+	_now                 func() time.Time // injectable for tests
 }
 
 type capabilityToken string
@@ -37,6 +44,7 @@ const (
 func listCmd(a *app.App) *cobra.Command {
 	var (
 		searchFlag, pageTokenFlag string
+		selectorFlag, appliedFlag string
 		since                     time.Duration
 		capabilitiesRaw           []string
 		onlyBlocked               bool
@@ -46,8 +54,15 @@ func listCmd(a *app.App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List endpoints with filters",
-		Long:  "List endpoints reporting to SafeDep Cloud, with filters for capability, blocked installs, silent duration, and identity search.",
+		Long: "List the endpoints that report to SafeDep Cloud, with filters for capability, blocked installs, silent duration, " +
+			"identity search, labels and the applied policy revision. --applied-revision '<48' keeps the endpoints where a tool " +
+			"applies a policy revision lower than 48. Use it to find the endpoints that have not applied a publish yet. The " +
+			"Policy column shows the applied policy revision that each tool reported.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			selector, applied, err := parsePolicyFilters(selectorFlag, appliedFlag)
+			if err != nil {
+				return err
+			}
 			client, err := a.ControlPlane()
 			if err != nil {
 				return err
@@ -64,6 +79,7 @@ func listCmd(a *app.App) *cobra.Command {
 			in := listInput{
 				Window: window, Capabilities: caps,
 				OnlyBlocked: onlyBlocked, SilentFor: silentFor, Search: searchFlag,
+				LabelSelector: selector, AppliedRevisionBelow: applied,
 				PageSize: pageSize, PageToken: pageTokenFlag,
 			}
 			res, err := runList(cmd.Context(), NewService(client.Connection()), dir, in)
@@ -74,12 +90,15 @@ func listCmd(a *app.App) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.DurationVar(&since, "since", 7*24*time.Hour, "trailing window length, e.g. 168h, 24h, 30m")
+	f.Var(duration.NewValue(&since, 7*24*time.Hour), "since", "trailing window length, as in 7d, 24h or 30m")
 	f.StringSliceVar(&capabilitiesRaw, "capability", nil, "filter by capability (guard|tracer|advisor|inventory); repeatable")
 	f.BoolVar(&onlyBlocked, "blocked", false, "only endpoints with at least one blocked install in the window")
-	f.DurationVar(&silentFor, "silent-for", 0, "only endpoints not seen for at least this duration (client-side; best-effort within --limit)")
+	f.Var(duration.NewValue(&silentFor, 0), "silent-for",
+		"only endpoints not seen for at least this duration, as in 7d (client-side, best-effort within --limit)")
 	f.StringVar(&searchFlag, "search", "", "case-insensitive substring match on hostname/name (client-side; best-effort within --limit)")
-	f.Uint32Var(&pageSize, "limit", 0, "page size; server default when 0")
+	f.StringVar(&selectorFlag, "selector", "", "filter: a label selector, as in reported/os=darwin,custom/team=release")
+	f.StringVar(&appliedFlag, "applied-revision", "", "filter: '<N' keeps endpoints where a tool applies a policy revision lower than N, as in '<48'")
+	f.Uint32Var(&pageSize, "limit", 0, "page size, or the server default when 0")
 	f.StringVar(&pageTokenFlag, "page-token", "", "continuation token from a prior response")
 	return cmd
 }
@@ -91,6 +110,7 @@ func runList(ctx context.Context, lister EndpointLister, dir *Directory, in list
 	}
 	res, err := lister.List(ctx, ListInput{
 		Window: in.Window, Capabilities: in.Capabilities, MinPMGBlocked: minBlocked,
+		LabelSelector: in.LabelSelector, AppliedRevisionBelow: in.AppliedRevisionBelow,
 		PageSize: in.PageSize, PageToken: in.PageToken,
 	})
 	if err != nil {
@@ -178,22 +198,33 @@ type listResult struct {
 }
 
 func (r *listResult) RenderJSON() ([]byte, error) {
+	type toolPolicy struct {
+		Tool     string `json:"tool"`
+		Version  string `json:"tool_version,omitempty"`
+		Revision uint64 `json:"applied_policy_revision"`
+		State    string `json:"state"`
+	}
 	type row struct {
 		ID, Identifier, Hostname, OS, Arch string
 		LastSync                           time.Time
 		Capabilities                       []string
 		Blocked                            uint64
 		Inventory                          uint64
+		ToolPolicies                       []toolPolicy `json:"tool_policies"`
 	}
 	out := struct {
 		Endpoints []row  `json:"endpoints"`
 		NextPage  string `json:"next_page_token,omitempty"`
 	}{NextPage: r.nextPage}
 	for _, e := range r.endpoints {
+		policies := make([]toolPolicy, 0, len(e.ToolPolicies))
+		for _, p := range e.ToolPolicies {
+			policies = append(policies, toolPolicy{Tool: p.Tool, Version: p.Version, Revision: p.Revision, State: p.State})
+		}
 		out.Endpoints = append(out.Endpoints, row{
 			ID: e.ID, Identifier: e.Identifier, Hostname: e.Hostname, OS: e.OS, Arch: e.Arch,
 			LastSync: e.LastSync, Capabilities: capabilityNames(e.Capabilities),
-			Blocked: e.PMGBlockedEvents, Inventory: e.InventoryEvents,
+			Blocked: e.PMGBlockedEvents, Inventory: e.InventoryEvents, ToolPolicies: policies,
 		})
 	}
 	return json.MarshalIndent(out, "", "  ")
@@ -204,12 +235,10 @@ func (r *listResult) RenderPlain() string {
 		return "no endpoints"
 	}
 	var b strings.Builder
-	b.WriteString("ID\tHOSTNAME\tOS\tCAPS\tLAST SYNC\tBLOCKED\tINVENTORY\n")
+	b.WriteString("ID\tHOSTNAME\tOS\tCAPS\tLAST SYNC\tBLOCKED\tINVENTORY\tPOLICY\n")
 	for _, e := range r.endpoints {
-		fmt.Fprintf(&b, "%s\t%s\t%s/%s\t%s\t%s\t%d\t%d\n",
-			e.ID, e.Hostname, e.OS, e.Arch, strings.Join(capabilityNames(e.Capabilities), ","),
-			formatTime(e.LastSync), e.PMGBlockedEvents, e.InventoryEvents,
-		)
+		b.WriteString(tui.PlainRow(e.ID, e.Hostname, e.OS+"/"+e.Arch, strings.Join(capabilityNames(e.Capabilities), ","),
+			formatTime(e.LastSync), fmt.Sprint(e.PMGBlockedEvents), fmt.Sprint(e.InventoryEvents), policyCell(e.ToolPolicies)) + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -224,12 +253,13 @@ func (r *listResult) RenderTable() string {
 			humanize.Time(e.LastSync, now),
 			fmt.Sprint(e.PMGBlockedEvents),
 			fmt.Sprint(e.InventoryEvents),
+			policyCell(e.ToolPolicies),
 		})
 	}
 	t := table.New().
 		Title("Endpoints").
-		Headers("ID", "Hostname", "OS/Arch", "Capabilities", "Last Sync", "Blocked", "Inventory").
-		Rows(rows...).
+		Headers("ID", "Hostname", "OS/Arch", "Capabilities", "Last Sync", "Blocked", "Inventory", "Policy").
+		Rows(tui.EscapeCells(rows)...).
 		EmptyMessage("No endpoints found. Endpoints appear after a SafeDep tool syncs. Try a wider --since window.")
 	if len(rows) > 0 {
 		footer := fmt.Sprintf("%d %s", len(rows), plural(len(rows), "endpoint", "endpoints"))
@@ -365,4 +395,49 @@ func capabilityNames(caps []controltowerv1.EndpointCapability) []string {
 		}
 	}
 	return out
+}
+
+// parsePolicyFilters reads --selector and --applied-revision. The contract
+// filters on a revision below a bound only, so '<N' is the one form.
+func parsePolicyFilters(selector, applied string) (*messagescontroltowerv1.LabelSelector, uint64, error) {
+	var sel *messagescontroltowerv1.LabelSelector
+	if selector != "" {
+		parsed, err := cloudpolicy.ParseSelector(selector)
+		if err != nil {
+			return nil, 0, err
+		}
+		sel = parsed
+	}
+	if applied == "" {
+		return sel, 0, nil
+	}
+	text, ok := strings.CutPrefix(strings.TrimSpace(applied), "<")
+	n, err := strconv.ParseUint(strings.TrimSpace(text), 10, 64)
+	if !ok || err != nil || n < 2 {
+		return nil, 0, fmt.Errorf("--applied-revision %q: write '<N' with N of 2 or more, as in '<48', "+
+			"for the endpoints where a tool applies a policy revision lower than N", applied)
+	}
+	return sel, n, nil
+}
+
+// policyCell shows the applied policy revision of each tool, as "rev 47" when
+// every tool applies the same revision, or "pmg 47, vet 46".
+func policyCell(policies []ToolPolicy) string {
+	if len(policies) == 0 {
+		return "-"
+	}
+	same := true
+	for _, p := range policies[1:] {
+		if p.Revision != policies[0].Revision {
+			same = false
+		}
+	}
+	if same {
+		return fmt.Sprintf("rev %d", policies[0].Revision)
+	}
+	parts := make([]string, 0, len(policies))
+	for _, p := range policies {
+		parts = append(parts, fmt.Sprintf("%s %d", p.Tool, p.Revision))
+	}
+	return strings.Join(parts, ", ")
 }

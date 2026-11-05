@@ -342,3 +342,63 @@ func TestOverrideChangeValue(t *testing.T) {
 		})
 	}
 }
+
+func TestOverrideChangeItem(t *testing.T) {
+	change := func(kind policyv1.OverrideChangeKind, old, new string) *policyv1.OverrideChange {
+		c := &policyv1.OverrideChange{}
+		c.SetOverrideName("payments")
+		c.SetKind(kind)
+		c.SetOldValue(old)
+		c.SetNewValue(new)
+		c.SetDirection(policyv1.ChangeDirection_CHANGE_DIRECTION_LOOSENS)
+		return c
+	}
+	tests := []struct {
+		name     string
+		change   *policyv1.OverrideChange
+		what     string
+		cell     string
+		sentence string
+	}{
+		{"added", change(policyv1.OverrideChangeKind_OVERRIDE_CHANGE_KIND_ADDED, "", "payments"),
+			"new policy override", "-", `It adds policy override "payments".`},
+		{"removed", change(policyv1.OverrideChangeKind_OVERRIDE_CHANGE_KIND_REMOVED, "payments", ""),
+			"removed policy override", "-", `It removes policy override "payments".`},
+		{"selector", change(policyv1.OverrideChangeKind_OVERRIDE_CHANGE_KIND_SELECTOR,
+			`{"matchLabels":{"custom/team":"pay"}}`, `{"matchLabels":{"custom/criticality":"high"}}`),
+			"selector", "custom/team=pay -> custom/criticality=high",
+			`It changes the selector of policy override "payments" from custom/team=pay to custom/criticality=high.`},
+		{"priority", change(policyv1.OverrideChangeKind_OVERRIDE_CHANGE_KIND_PRIORITY, "100", "200"),
+			"priority", "100 -> 200", `It changes the priority of policy override "payments" from 100 to 200.`},
+		{"expiry", change(policyv1.OverrideChangeKind_OVERRIDE_CHANGE_KIND_EXPIRY, "", `"2027-01-26T00:00:00Z"`),
+			"expiry", "none -> 2027-01-26T00:00:00Z",
+			`It changes the expiry of policy override "payments" from none to 2027-01-26T00:00:00Z.`},
+		{"name", change(policyv1.OverrideChangeKind_OVERRIDE_CHANGE_KIND_NAME, "pay", "payments"),
+			"name", "pay -> payments", `It renames policy override "pay" to "payments".`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			item := overrideChangeItem(tt.change)
+			assert.Equal(t, tt.what, item.whatCell())
+			assert.Equal(t, tt.cell, item.changeCell())
+			assert.Equal(t, tt.sentence, item.sentence)
+			assert.Equal(t, tt.change.GetOldValue(), item.Old, "plain and JSON keep the value of the server")
+		})
+	}
+}
+
+func TestReportLoosening_AnAddedOverride(t *testing.T) {
+	stderr := captureStderr(t)
+	c := &policyv1.OverrideChange{}
+	c.SetOverrideName("policy-test")
+	c.SetKind(policyv1.OverrideChangeKind_OVERRIDE_CHANGE_KIND_ADDED)
+	c.SetNewValue("policy-test")
+	c.SetDirection(policyv1.ChangeDirection_CHANGE_DIRECTION_LOOSENS)
+	res := &policyv1.PreviewPolicyChangeResponse{}
+	res.SetOverrideChanges([]*policyv1.OverrideChange{c})
+	res.SetDirection(policyv1.ChangeDirection_CHANGE_DIRECTION_LOOSENS)
+
+	reportLoosening(newPreviewView(res))
+	assert.Contains(t, stderr.String(), `It adds policy override "policy-test".`)
+	assert.NotContains(t, stderr.String(), "It loosens added")
+}

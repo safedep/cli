@@ -87,7 +87,7 @@ func TestRunChangePublish_ShowsTheDirectionAndEveryWarning(t *testing.T) {
 	out := stderr.String()
 	assert.Contains(t, out, "Change 18 · LOOSENS. Only an Admin can publish it")
 	assert.Contains(t, out, "It loosens package_admission.cooldown.min_age (- -> 7d) in override \"payments\"")
-	assert.Contains(t, out, "It loosens selector (custom/team=pay -> reported/os=linux) in override \"payments\"")
+	assert.Contains(t, out, "It changes the selector of policy override \"payments\" from custom/team=pay to reported/os=linux.")
 	assert.Contains(t, out, "ENDPOINT_LABEL_LOOSENS payments: a policy override that loosens selects on a label that an endpoint can send")
 }
 

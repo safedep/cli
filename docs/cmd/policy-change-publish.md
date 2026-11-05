@@ -29,7 +29,7 @@ safedep policy change publish 18 -m "payments: fail on medium, 7d cooldown (CUST
 ```
 Change 18 · LOOSENS. Only an Admin can publish it, and Admins and Owners get a notice
 ! It loosens package_admission.cooldown.min_age (- -> 7d) in override "payments"
-! It loosens selector (custom/team=pay -> custom/criticality=high) in override "payments"
+! It changes the selector of policy override "payments" from custom/team=pay to custom/criticality=high.
 Change 18 loosens the policy. Publish it? [y/N]: y
 ✓ revision 47 published · LOOSENS
   Projects resolve it at their next check. Endpoints apply it after their next policy fetch

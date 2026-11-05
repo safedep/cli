@@ -147,7 +147,7 @@ func (r *changeShowResult) RenderTable() string {
 	}
 	rows := make([][]string, 0, len(items))
 	for _, it := range items {
-		rows = append(rows, []string{it.Where, it.What, it.oldHuman + " -> " + it.newHuman, cloudpolicy.EmptyDash(it.Direction)})
+		rows = append(rows, []string{it.Where, it.whatCell(), it.changeCell(), cloudpolicy.EmptyDash(it.Direction)})
 	}
 	sections = append(sections, table.New().
 		Title("What changes").

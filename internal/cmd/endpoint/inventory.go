@@ -151,7 +151,7 @@ func inventoryListCmd(a *app.App) *cobra.Command {
 	f.StringSliceVar(&kindsRaw, "kind", nil, "filter by inventory kind (mcp-server|coding-agent|ai-extension|cli-tool|project-config|browser-extension|ide-extension|agent-plugin|agent-skill); repeatable")
 	f.StringVar(&scopeFlag, "scope", "", "filter by scope: system|project")
 	f.BoolVar(&allPagesFlag, "all", false, "fetch all pages before dedupe for a complete snapshot")
-	f.Uint32Var(&pageSize, "limit", 0, "page size; server default when 0")
+	f.Uint32Var(&pageSize, "limit", 0, "page size, or the server default when 0")
 	f.StringVar(&pageTokenFlag, "page-token", "", "continuation token from a prior response")
 	return cmd
 }

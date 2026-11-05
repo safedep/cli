@@ -102,7 +102,7 @@ func activityListCmd(a *app.App) *cobra.Command {
 	f.StringSliceVar(&actionsRaw, "action", nil, "guard-only action filter: blocked|confirmed|trusted|cooldown-blocked. Setting this implies --type=guard unless --type is set explicitly.")
 	f.StringVar(&toolFlag, "tool", "", "client-side filter by tool_name")
 	f.StringVar(&invFlag, "invocation", "", "scope to a single tool run; pass an invocation_id from JSON output")
-	f.Uint32Var(&pageSize, "limit", 0, "page size; server default when 0")
+	f.Uint32Var(&pageSize, "limit", 0, "page size, or the server default when 0")
 	f.StringVar(&pageTokenFlag, "page-token", "", "continuation token from a prior response")
 	return cmd
 }

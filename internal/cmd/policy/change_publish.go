@@ -149,6 +149,10 @@ func reportLoosening(p *previewView) {
 		if item.Direction != directionLoosens {
 			continue
 		}
+		if item.sentence != "" {
+			tui.Warning("%s", clitui.EscapeLine(item.sentence))
+			continue
+		}
 		tui.Warning("It loosens %s (%s -> %s) in %s", clitui.EscapeLine(item.What),
 			clitui.EscapeLine(item.oldHuman), clitui.EscapeLine(item.newHuman), clitui.EscapeLine(item.Where))
 	}

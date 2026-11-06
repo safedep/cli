@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
+	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/safedep/dry/usefulerror"
 	"google.golang.org/grpc"
@@ -32,6 +34,7 @@ type projectMatch struct {
 	id        string
 	source    string
 	originURL string
+	createdAt time.Time
 }
 
 func newListProjectsClient(conn grpc.ClientConnInterface) listProjectsClient {
@@ -176,13 +179,23 @@ func collectProjectMatches(
 		if matches[name] == nil {
 			matches[name] = make(map[string]projectMatch)
 		}
-		matches[name][project.GetProjectId()] = projectMatch{
-			id:        project.GetProjectId(),
-			source:    tui.EnumToken(project.GetSource().String(), "SOURCE_"),
-			originURL: project.GetOriginUrl(),
-		}
+		matches[name][project.GetProjectId()] = newProjectMatch(project)
 	}
 	return nil
+}
+
+// newProjectMatch is one project of an ambiguous name. Each lookup by name
+// builds its matches here, so every command shows the same details.
+func newProjectMatch(project *messagescontroltowerv1.Project) projectMatch {
+	match := projectMatch{
+		id:        project.GetProjectId(),
+		source:    tui.EnumToken(project.GetSource().String(), projectSourcePrefix),
+		originURL: project.GetOriginUrl(),
+	}
+	if ts := project.GetCreatedAt(); ts != nil {
+		match.createdAt = ts.AsTime().UTC()
+	}
+	return match
 }
 
 func ambiguousProjectNameError(op, name string, byID map[string]projectMatch) error {
@@ -199,6 +212,11 @@ func ambiguousProjectNameError(op, name string, byID map[string]projectMatch) er
 		details := item.source
 		if item.originURL != "" {
 			details += ", " + item.originURL
+		}
+		// Two projects of one name can have the same source and URL. The
+		// creation time tells them apart.
+		if !item.createdAt.IsZero() {
+			details += ", created " + item.createdAt.Format(time.RFC3339)
 		}
 		labels = append(labels, fmt.Sprintf("%s (%s)", item.id, details))
 	}

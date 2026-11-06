@@ -421,8 +421,15 @@ func parsePolicyFilters(selector, applied string) (*messagescontroltowerv1.Label
 }
 
 // policyCell shows the applied policy revision of each tool, as "rev 47" when
-// every tool applies the same revision, or "pmg 47, vet 46".
-func policyCell(policies []ToolPolicy) string {
+// every tool applies the same revision, or "pmg 47, vet 46". A tool that
+// applies no cloud policy is not in the cell.
+func policyCell(all []ToolPolicy) string {
+	policies := make([]ToolPolicy, 0, len(all))
+	for _, p := range all {
+		if !p.noRevision {
+			policies = append(policies, p)
+		}
+	}
 	if len(policies) == 0 {
 		return "-"
 	}

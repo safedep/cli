@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	corev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/core/v1"
 	policyv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/policy/v1"
 	"github.com/safedep/dry/tui/humanize"
 
@@ -78,5 +79,54 @@ func (v ruleView) expiresCell(now time.Time) string {
 	if v.expires == nil {
 		return "never"
 	}
-	return humanize.Time(*v.expires, now)
+	return expiryRelative(*v.expires, now)
+}
+
+// expiryText is a humanized expiry with its date, as "in 3d (2026-11-09)".
+// Beyond 30 days humanize.Time gives the date itself, so the date shows one
+// time only.
+func expiryText(expires, now time.Time) string {
+	rel := expiryRelative(expires, now)
+	date := expires.UTC().Format(time.DateOnly)
+	if rel == date {
+		return rel
+	}
+	return rel + " (" + date + ")"
+}
+
+// expiryRelative is humanize.Time with a time of a day or more rounded to
+// the nearest day. humanize.Time drops the part of a day, so a rule that
+// --expires 7d sets reads "in 6d" a few seconds after its create.
+func expiryRelative(expires, now time.Time) string {
+	rel := humanize.Time(expires, now)
+	d := expires.Sub(now)
+	if d.Abs() < 24*time.Hour || rel == expires.UTC().Format(time.DateOnly) {
+		return rel
+	}
+	if rounded := d.Round(24 * time.Hour); rounded.Abs() < 30*24*time.Hour {
+		return humanize.Time(now.Add(rounded), now)
+	}
+	return rel
+}
+
+// blockPlace names where a block applies: the tenant for the policy base,
+// or the subjects of the policy override that the rule attaches to.
+func blockPlace(override string) string {
+	if override == "" {
+		return "in the tenant"
+	}
+	return fmt.Sprintf("on the subjects that policy override %q selects", tui.EscapeLine(override))
+}
+
+func scopeEffect(scope corev1.TrustScope) string {
+	switch scope {
+	case corev1.TrustScope_TRUST_SCOPE_MALWARE:
+		return "a malware verdict that is not verified"
+	case corev1.TrustScope_TRUST_SCOPE_COOLDOWN:
+		return "the dependency cooldown"
+	case corev1.TrustScope_TRUST_SCOPE_VULNERABILITY:
+		return "the vulnerability findings of a scan gate"
+	default:
+		return "the verdicts of scope " + scope.String()
+	}
 }

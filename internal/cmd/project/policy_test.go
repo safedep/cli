@@ -10,6 +10,7 @@ import (
 	specv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/spec/v1"
 	policyv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/policy/v1"
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
+	"github.com/safedep/dry/usefulerror"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -175,6 +176,26 @@ func TestRunPolicyShow(t *testing.T) {
 	_, err = runPolicyShow(context.Background(), client, policies, policyShowInput{Name: "acme/payments-api"})
 	require.NoError(t, err)
 	assert.Equal(t, "p_1", policies.req.GetSubject().GetId())
+}
+
+func TestRunPolicyShow_AmbiguousNameShowsTheCreationTime(t *testing.T) {
+	created := func(id string, at time.Time) *controltowerv1.ProjectWithAttributes {
+		p := labeledProject(id, "acme/shared", messagescontroltowerv1.Project_SOURCE_GITHUB, nil)
+		p.GetProject().SetOriginUrl("https://github.com/acme/shared")
+		p.GetProject().SetCreatedAt(timestamppb.New(at))
+		return p
+	}
+	client := &fakeListProjectsClient{listFn: func(*controltowerv1.ListProjectsRequest) (*controltowerv1.ListProjectsResponse, error) {
+		return projectsResponse(
+			created("p_1", time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)),
+			created("p_2", time.Date(2026, 10, 2, 11, 30, 0, 0, time.UTC)),
+		), nil
+	}}
+	_, err := runPolicyShow(context.Background(), client, &fakeSubjectPolicyClient{}, policyShowInput{Name: "acme/shared"})
+	ue, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Contains(t, ue.Help(), "p_1 (github, https://github.com/acme/shared, created 2026-09-01T10:00:00Z)")
+	assert.Contains(t, ue.Help(), "p_2 (github, https://github.com/acme/shared, created 2026-10-02T11:30:00Z)")
 }
 
 func TestRunLabelSet(t *testing.T) {

@@ -134,10 +134,12 @@ func editOneOverride(
 		if !ok {
 			return errors.New("policy edit: clone the policy")
 		}
+		index := -1
 		overrides := full.GetOverrides()
 		for i, o := range overrides {
 			if o.GetOverrideId() == current.GetOverrideId() {
 				overrides[i] = edited
+				index = i
 			}
 		}
 		full.SetOverrides(overrides)
@@ -145,7 +147,10 @@ func editOneOverride(
 			return retryable(err)
 		}
 		warnComments(saved, text)
-		return commit(full)
+		if err := commit(full); err != nil {
+			return &overrideFieldError{err: err, index: index}
+		}
+		return nil
 	})
 }
 

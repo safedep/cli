@@ -65,15 +65,18 @@ func (r *ruleShowResult) RenderJSON() ([]byte, error) {
 }
 
 func (r *ruleShowResult) RenderTable() string {
+	return r.table(time.Now())
+}
+
+func (r *ruleShowResult) table(now time.Time) string {
 	v := r.Rule
-	now := time.Now()
 	removed := "active"
 	if v.RemovedRevision > 0 {
 		removed = fmt.Sprintf("removed in revision %d", v.RemovedRevision)
 	}
-	expires := v.expiresCell(now)
+	expires := "never"
 	if v.expires != nil {
-		expires += " (" + v.expires.Format(time.DateOnly) + ")"
+		expires = expiryText(*v.expires, now)
 	}
 	return cloudpolicy.KeyValues([][2]string{
 		{"Rule", v.ID},

@@ -63,11 +63,7 @@ func findProject(ctx context.Context, client listProjectsClient, op, name string
 			continue
 		}
 		found = append(found, p)
-		byID[p.GetProject().GetProjectId()] = projectMatch{
-			id:        p.GetProject().GetProjectId(),
-			source:    newProjectView(p).Source,
-			originURL: p.GetProject().GetOriginUrl(),
-		}
+		byID[p.GetProject().GetProjectId()] = newProjectMatch(p.GetProject())
 	}
 	switch len(found) {
 	case 0:

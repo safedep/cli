@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type fakeListProjectsClient struct {
@@ -270,6 +271,59 @@ func TestResolveProjectNames_RejectsAmbiguousName(t *testing.T) {
 		"Retry with one of these project IDs: id-github (github, https://github.com/acme/shared), "+
 			"id-gitlab (gitlab, https://gitlab.com/acme/shared).",
 	)
+}
+
+func TestResolveProjectNames_AmbiguousNameShowsTheCreationTime(t *testing.T) {
+	t.Parallel()
+
+	created := func(p *controltowerv1.ProjectWithAttributes, at time.Time) *controltowerv1.ProjectWithAttributes {
+		p.GetProject().SetCreatedAt(timestamppb.New(at))
+		return p
+	}
+	tests := []struct {
+		name     string
+		projects []*controltowerv1.ProjectWithAttributes
+		want     []string
+	}{
+		{
+			name: "two projects with the same URL",
+			projects: []*controltowerv1.ProjectWithAttributes{
+				created(project("id-1", "shared", messagescontroltowerv1.Project_SOURCE_GITHUB, "https://github.com/acme/shared"),
+					time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)),
+				created(project("id-2", "shared", messagescontroltowerv1.Project_SOURCE_GITHUB, "https://github.com/acme/shared"),
+					time.Date(2026, 10, 2, 11, 30, 0, 0, time.UTC)),
+			},
+			want: []string{
+				"id-1 (github, https://github.com/acme/shared, created 2026-09-01T10:00:00Z)",
+				"id-2 (github, https://github.com/acme/shared, created 2026-10-02T11:30:00Z)",
+			},
+		},
+		{
+			name: "a project with no creation time",
+			projects: []*controltowerv1.ProjectWithAttributes{
+				project("id-1", "shared", messagescontroltowerv1.Project_SOURCE_GITHUB, ""),
+				created(project("id-2", "shared", messagescontroltowerv1.Project_SOURCE_GITHUB, ""),
+					time.Date(2026, 10, 2, 11, 30, 0, 0, time.UTC)),
+			},
+			want: []string{"id-1 (github)", "id-2 (github, created 2026-10-02T11:30:00Z)"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			client := &fakeListProjectsClient{
+				listFn: func(*controltowerv1.ListProjectsRequest) (*controltowerv1.ListProjectsResponse, error) {
+					return listProjectsResponse(tt.projects...), nil
+				},
+			}
+			_, err := resolveProjectNames(context.Background(), client, []string{"shared"})
+			ue, ok := usefulerror.AsUsefulError(err)
+			require.True(t, ok)
+			for _, want := range tt.want {
+				assert.Contains(t, ue.Help(), want)
+			}
+		})
+	}
 }
 
 func TestResolveProjectNames_PreservesGRPCStatus(t *testing.T) {

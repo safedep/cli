@@ -679,6 +679,12 @@ func TestMapDecisionListError(t *testing.T) {
 			wantHuman: "The page token is not valid",
 		},
 		{
+			name:      "bad page token with an encoded field path",
+			err:       badRequest(encodedFieldPath("pagination", "page_token"), "the page token is not valid"),
+			wantCode:  usefulerror.ErrBadRequest,
+			wantHuman: "The page token is not valid",
+		},
+		{
 			name:      "bad filter",
 			err:       status.Error(codes.InvalidArgument, "decided_after must be before decided_before\x1b[2J"),
 			wantCode:  usefulerror.ErrBadRequest,

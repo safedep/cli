@@ -9,6 +9,7 @@ import (
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
 	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	recordv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/record/v1"
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -120,6 +121,10 @@ type ToolPolicy struct {
 	Revision   uint64
 	State      string
 	ReportedAt time.Time
+	// noRevision marks a tool that applies no cloud policy: it is disabled
+	// in the tool, or the tool has no policy cache yet. Its revision is 0
+	// and means nothing.
+	noRevision bool
 }
 type ListEndpoint struct {
 	ID               string
@@ -337,6 +342,10 @@ func toolPolicies(in []*controltowerv1.EndpointToolPolicy) []ToolPolicy {
 			Version:  p.GetToolVersion(),
 			Revision: p.GetPolicy().GetRevision(),
 			State:    tui.EnumToken(p.GetPolicy().GetState().String(), "APPLY_STATE_"),
+		}
+		switch p.GetPolicy().GetState() {
+		case recordv1.ApplyState_APPLY_STATE_DISABLED, recordv1.ApplyState_APPLY_STATE_NONE:
+			tp.noRevision = true
 		}
 		if ts := p.GetReportedAt(); ts != nil {
 			tp.ReportedAt = ts.AsTime().UTC()

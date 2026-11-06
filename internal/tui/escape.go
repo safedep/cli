@@ -94,14 +94,18 @@ func isSafe(s string, keepNewlines bool) bool {
 	return true
 }
 
-// unsafeRune reports a C1 control character or a bidirectional format
-// character. A bidirectional override can show text in another order than
-// the bytes, as in the "Trojan Source" attack.
+// unsafeRune reports a C1 control character, a bidirectional format
+// character, or a Unicode line or paragraph separator. A bidirectional
+// override can show text in another order than the bytes, as in the "Trojan
+// Source" attack. Some terminals and editors break a line at U+2028 and
+// U+2029, so a server value could add a line that looks like CLI output.
 func unsafeRune(r rune) bool {
 	switch {
 	case r >= 0x80 && r <= 0x9f:
 		return true
 	case r == 0x061c, r == 0x200e, r == 0x200f:
+		return true
+	case r == 0x2028, r == 0x2029:
 		return true
 	case r >= 0x202a && r <= 0x202e:
 		return true

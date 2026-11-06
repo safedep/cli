@@ -16,6 +16,7 @@ func TestEscape(t *testing.T) {
 		{name: "ansi sequence", in: "evil\x1b[2J\x1b]0;title\x07", line: `evil\x1b[2J\x1b]0;title\x07`, text: `evil\x1b[2J\x1b]0;title\x07`},
 		{name: "c1 control", in: "a\u009bb", line: `a\u009bb`, text: `a\u009bb`},
 		{name: "bidi override", in: "admin\u202e\u2066txt", line: `admin\u202e\u2066txt`, text: `admin\u202e\u2066txt`},
+		{name: "line and paragraph separators", in: "a\u2028b\u2029c", line: `a\u2028b\u2029c`, text: `a\u2028b\u2029c`},
 		{name: "delete", in: "a\x7fb", line: `a\x7fb`, text: `a\x7fb`},
 		{name: "invalid utf-8", in: "a\xffb", line: "a�b", text: "a�b"},
 	}

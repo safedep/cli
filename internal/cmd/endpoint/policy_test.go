@@ -106,8 +106,47 @@ func TestParsePolicyFilters(t *testing.T) {
 }
 
 func TestPolicyCell(t *testing.T) {
-	assert.Equal(t, "-", policyCell(nil))
-	assert.Equal(t, "rev 47", policyCell([]ToolPolicy{{Tool: "pmg", Revision: 47}, {Tool: "vet", Revision: 47}}))
+	tests := []struct {
+		name     string
+		policies []ToolPolicy
+		want     string
+	}{
+		{"no tool", nil, "-"},
+		{"one revision", []ToolPolicy{{Tool: "pmg", Revision: 47}, {Tool: "vet", Revision: 47}}, "rev 47"},
+		{"two revisions", []ToolPolicy{{Tool: "pmg", Revision: 47}, {Tool: "vet", Revision: 46}}, "pmg 47, vet 46"},
+		{"only a tool with no revision", []ToolPolicy{{Tool: "pmg", noRevision: true}}, "-"},
+		{
+			"a tool with no revision and an applied tool",
+			[]ToolPolicy{{Tool: "pmg", noRevision: true}, {Tool: "vet", Revision: 46, State: "applied"}},
+			"rev 46",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, policyCell(tt.policies))
+		})
+	}
+}
+
+func TestToolPolicies_StatesWithNoRevisionAreNotInThePolicyCell(t *testing.T) {
+	tests := []struct {
+		state recordv1.ApplyState
+		want  string
+	}{
+		{recordv1.ApplyState_APPLY_STATE_DISABLED, "-"},
+		{recordv1.ApplyState_APPLY_STATE_NONE, "-"},
+		{recordv1.ApplyState_APPLY_STATE_STALE, "rev 0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.state.String(), func(t *testing.T) {
+			report := &recordv1.ApplyReport{}
+			report.SetState(tt.state)
+			p := &controltowerv1.EndpointToolPolicy{}
+			p.SetToolName("pmg")
+			p.SetPolicy(report)
+			assert.Equal(t, tt.want, policyCell(toolPolicies([]*controltowerv1.EndpointToolPolicy{p})))
+		})
+	}
 }
 
 func TestRunList_ShowsTheAppliedRevision(t *testing.T) {

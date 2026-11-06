@@ -29,14 +29,31 @@ func TestRunCreate_SendsTheRefForEveryProject(t *testing.T) {
 
 	tests := []struct {
 		name string
-		ref  string
+		refs refFlags
 		want string
 	}{
-		{name: "plain name is a branch", ref: "main", want: "refs/heads/main"},
-		{name: "plain name with a slash is a branch", ref: "release/1.2", want: "refs/heads/release/1.2"},
-		{name: "plain name that looks like a tag is still a branch", ref: "v1.2.0", want: "refs/heads/v1.2.0"},
-		{name: "full branch name", ref: "refs/heads/develop", want: "refs/heads/develop"},
-		{name: "full tag name", ref: "refs/tags/v1.2.0", want: "refs/tags/v1.2.0"},
+		{
+			name: "branch",
+			refs: refFlags{Branch: "release/1.2", Set: []string{branchFlag}},
+			want: "refs/heads/release/1.2",
+		},
+		{name: "tag", refs: refFlags{Tag: "v1.2.0", Set: []string{tagFlag}}, want: "refs/tags/v1.2.0"},
+		{name: "plain ref is a branch", refs: refFlags{Ref: "main", Set: []string{refFlag}}, want: "refs/heads/main"},
+		{
+			name: "plain ref that looks like a tag is still a branch",
+			refs: refFlags{Ref: "v1.2.0", Set: []string{refFlag}},
+			want: "refs/heads/v1.2.0",
+		},
+		{
+			name: "full branch ref",
+			refs: refFlags{Ref: "refs/heads/develop", Set: []string{refFlag}},
+			want: "refs/heads/develop",
+		},
+		{
+			name: "full tag ref",
+			refs: refFlags{Ref: "refs/tags/v1.2.0", Set: []string{refFlag}},
+			want: "refs/tags/v1.2.0",
+		},
 	}
 
 	for _, tt := range tests {
@@ -46,8 +63,7 @@ func TestRunCreate_SendsTheRefForEveryProject(t *testing.T) {
 
 			_, err := runCreate(context.Background(), scanner, &fakeListProjectsClient{}, createInput{
 				ProjectIDs: []string{"project-1", "project-2"},
-				Ref:        tt.ref,
-				RefSet:     true,
+				Refs:       tt.refs,
 			})
 
 			require.NoError(t, err)
@@ -75,44 +91,101 @@ func TestRunCreate_WithoutRefScansTheDefaultBranch(t *testing.T) {
 	}
 }
 
-func TestCreateCmd_RejectsAnEmptyRefBeforeAnyRequest(t *testing.T) {
+func TestCreateCmd_RejectsABadRefSelectionBeforeAnyRequest(t *testing.T) {
 	t.Parallel()
 
-	cmd := createCmd(nil)
-	require.NoError(t, cmd.ParseFlags([]string{"--ref", "", "--project-id", "project-1"}))
+	tests := []struct {
+		name     string
+		flags    []string
+		wantHelp string
+	}{
+		{
+			name:     "empty ref",
+			flags:    []string{"--ref", ""},
+			wantHelp: "Pass a branch name, refs/heads/<branch> or refs/tags/<tag>, or omit --ref to scan the default branch.",
+		},
+		{
+			name:     "empty branch",
+			flags:    []string{"--branch", ""},
+			wantHelp: "Pass a branch name, or omit --branch to scan the default branch.",
+		},
+		{
+			name:     "empty tag",
+			flags:    []string{"--tag", ""},
+			wantHelp: "Pass a tag name, or omit --tag to scan the default branch.",
+		},
+		{
+			name:     "full ref given to branch",
+			flags:    []string{"--branch", "refs/heads/main"},
+			wantHelp: "Pass the name without refs/, or pass the full ref with --ref refs/heads/main.",
+		},
+		{
+			name:     "full ref given to tag",
+			flags:    []string{"--tag", "refs/tags/v1"},
+			wantHelp: "Pass the name without refs/, or pass the full ref with --ref refs/tags/v1.",
+		},
+		{
+			name:     "branch and tag",
+			flags:    []string{"--branch", "main", "--tag", "v1"},
+			wantHelp: "Pass only one of --branch, --tag or --ref.",
+		},
+		{
+			name:     "ref and branch",
+			flags:    []string{"--ref", "refs/heads/main", "--branch", "main"},
+			wantHelp: "Pass only one of --branch, --tag or --ref.",
+		},
+	}
 
-	err := cmd.Args(cmd, cmd.Flags().Args())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cmd := createCmd(nil)
+			require.NoError(t, cmd.ParseFlags(append(tt.flags, "--project-id", "project-1")))
 
-	requireUsefulError(
-		t,
-		err,
-		usefulerror.ErrBadRequest,
-		"Invalid ref",
-		"Pass a branch name, refs/heads/<branch> or refs/tags/<tag>, or omit --ref to scan the default branch.",
-	)
+			err := cmd.Args(cmd, cmd.Flags().Args())
+
+			requireUsefulError(t, err, usefulerror.ErrBadRequest, "Invalid ref", tt.wantHelp)
+		})
+	}
 }
 
 func TestRunCreate_ExplainsARefTheServerRejects(t *testing.T) {
 	t.Parallel()
 
-	serverMessage := "project project-2 cannot scan refs/heads/release/1.2: git ref not found"
-	scanner := &fakeCreateProjectScansClient{err: status.Error(codes.InvalidArgument, serverMessage)}
+	tests := []struct {
+		name     string
+		refs     refFlags
+		wantHelp string
+	}{
+		{
+			name: "a branch suggests --tag",
+			refs: refFlags{Branch: "v1.2.0", Set: []string{branchFlag}},
+			wantHelp: "project project-2 cannot scan refs/heads/v1.2.0: git ref not found. " +
+				"Check that refs/heads/v1.2.0 exists in every selected repository. If v1.2.0 is a tag, pass --tag v1.2.0.",
+		},
+		{
+			name: "a tag does not suggest --tag",
+			refs: refFlags{Tag: "v1.2.0", Set: []string{tagFlag}},
+			wantHelp: "project project-2 cannot scan refs/tags/v1.2.0: git ref not found. " +
+				"Check that refs/tags/v1.2.0 exists in every selected repository.",
+		},
+	}
 
-	_, err := runCreate(context.Background(), scanner, &fakeListProjectsClient{}, createInput{
-		ProjectIDs: []string{"project-1", "project-2"},
-		Ref:        "release/1.2",
-		RefSet:     true,
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			serverMessage, _, _ := strings.Cut(tt.wantHelp, ". Check")
+			scanner := &fakeCreateProjectScansClient{err: status.Error(codes.InvalidArgument, serverMessage)}
 
-	requireUsefulError(
-		t,
-		err,
-		usefulerror.ErrBadRequest,
-		"Ref cannot be scanned",
-		serverMessage+". Check that refs/heads/release/1.2 exists in every selected repository. "+
-			"A plain name is a branch: pass refs/tags/<tag> for a tag.",
-	)
-	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+			_, err := runCreate(context.Background(), scanner, &fakeListProjectsClient{}, createInput{
+				ProjectIDs: []string{"project-1", "project-2"},
+				Refs:       tt.refs,
+			})
+
+			requireUsefulError(t, err, usefulerror.ErrBadRequest, "Ref cannot be scanned", tt.wantHelp)
+			assert.Equal(t, codes.InvalidArgument, status.Code(err))
+		})
+	}
 }
 
 func TestRunCreate_DoesNotBlameARefThatWasNotRequested(t *testing.T) {
@@ -141,8 +214,7 @@ func TestRunCreate_KeepsOtherServerErrorsWhenARefIsSet(t *testing.T) {
 
 	_, err := runCreate(context.Background(), scanner, &fakeListProjectsClient{}, createInput{
 		ProjectIDs: []string{"project-1"},
-		Ref:        "main",
-		RefSet:     true,
+		Refs:       refFlags{Branch: "main", Set: []string{branchFlag}},
 	})
 
 	require.Error(t, err)
@@ -155,28 +227,40 @@ func TestRunCreate_KeepsOtherServerErrorsWhenARefIsSet(t *testing.T) {
 	assert.Equal(t, errorv1.ErrorReason_ERROR_REASON_PROJECT_NOT_SCANNABLE, reason)
 }
 
-// FuzzNewCreateRequest_Ref checks the rule that maps any --ref value to the
-// ref the API receives: a value under refs/ is sent as given, and any other
-// value names a branch.
-func FuzzNewCreateRequest_Ref(f *testing.F) {
+// FuzzRefFlags checks the rule that maps any value of each flag to the ref the
+// API receives. --branch and --tag add their namespace and refuse a value that
+// already has one. --ref sends a value under refs/ as given and treats any
+// other value as a branch.
+func FuzzRefFlags(f *testing.F) {
 	for _, seed := range []string{
 		"main", "release/1.2", "refs/heads/main", "refs/tags/v1.2.0", "refs/pull/1/head",
 		"refs/", "refs", "heads/main", "tags/v1", " refs/heads/main", "REFS/heads/main",
 	} {
 		f.Add(seed)
 	}
-	f.Fuzz(func(t *testing.T, ref string) {
-		if ref == "" {
+	f.Fuzz(func(t *testing.T, value string) {
+		if value == "" {
 			return
 		}
+		underRefs := strings.HasPrefix(value, "refs/")
 
-		req := newCreateRequest([]string{"project-1"}, ref)
-
-		got := req.GetTargets()[0].GetRef().GetRef()
-		if strings.HasPrefix(ref, "refs/") {
-			assert.Equal(t, ref, got)
+		ref, err := refFlags{Ref: value, Set: []string{refFlag}}.qualified()
+		require.NoError(t, err)
+		if underRefs {
+			assert.Equal(t, value, ref)
 		} else {
-			assert.Equal(t, "refs/heads/"+ref, got)
+			assert.Equal(t, "refs/heads/"+value, ref)
+		}
+
+		for flag, prefix := range map[string]string{branchFlag: "refs/heads/", tagFlag: "refs/tags/"} {
+			flags := refFlags{Branch: value, Tag: value, Set: []string{flag}}
+			ref, err := flags.qualified()
+			if underRefs {
+				require.Error(t, err, flag)
+				continue
+			}
+			require.NoError(t, err, flag)
+			assert.Equal(t, prefix+value, ref, flag)
 		}
 	})
 }

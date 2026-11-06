@@ -47,6 +47,10 @@ func runCreate(
 	if err := validateCreateInput(in); err != nil {
 		return nil, err
 	}
+	ref, err := in.Refs.qualified()
+	if err != nil {
+		return nil, err
+	}
 
 	resolvedIDs, err := resolveProjectNames(ctx, resolver, in.ProjectNames)
 	if err != nil {
@@ -70,7 +74,7 @@ func runCreate(
 		projectIDs = append(projectIDs, projectID)
 	}
 
-	return createProjectScans(ctx, scanner, projectIDs, in.Ref)
+	return createProjectScans(ctx, scanner, projectIDs, ref)
 }
 
 func resolveProjectNames(

@@ -5,7 +5,7 @@ Submit scans for one or more SafeDep projects to SafeDep Cloud-hosted scanners.
 ## Synopsis
 
 ```
-safedep project scan create [PROJECT_NAME...] [--project-id ID] [--ref REF] [--output table|plain|json]
+safedep project scan create [PROJECT_NAME...] [--project-id ID] [--branch NAME | --tag NAME | --ref REF] [--output table|plain|json]
 ```
 
 ## Arguments
@@ -27,31 +27,34 @@ does not scan the project locally or invoke `vet`.
 | Flag | Description |
 |------|-------------|
 | `--project-id <id>` | Project ID to scan instead of a name. Repeat the flag to select multiple projects by ID. |
-| `--ref <ref>` | Branch or tag to scan in every selected project. Without it, each project scans the default branch that its repository reports at admission. |
+| `--branch <name>` | Branch to scan in every selected project. |
+| `--tag <name>` | Tag to scan in every selected project. |
+| `--ref <ref>` | Full ref to scan in every selected project, such as `refs/tags/v1.2.0`. A plain name is a branch. |
 
 Inherits root flags `--output` and `--profile`.
 
 ## Choose a branch or tag
 
-`--ref` takes one of three forms:
+Pass at most one of these flags. Without any of them, each project scans the
+default branch that its repository reports at admission.
 
-| Value | Scans |
-|-------|-------|
-| `release/1.2` | The branch `release/1.2`. A plain name is always a branch. |
-| `refs/heads/release/1.2` | The branch `release/1.2`. |
-| `refs/tags/v1.2.0` | The tag `v1.2.0`. |
+| Flag | Example | Scans |
+|------|---------|-------|
+| `--branch <name>` | `--branch release/1.2` | The branch `release/1.2`. |
+| `--tag <name>` | `--tag v1.2.0` | The tag `v1.2.0`. |
+| `--ref <ref>` | `--ref refs/tags/v1.2.0` | Exactly that ref. Use it when you already have a full ref, such as `$GITHUB_REF` in CI. A plain name is a branch: `--ref main` scans `refs/heads/main`. |
 
-A tag needs the `refs/tags/` form because one name can be a branch and a tag at
-once. Control Tower rejects a name that is both, and does not guess.
+`--branch` and `--tag` take a short name. Pass a full ref with `--ref`.
 
 Control Tower resolves the ref to a commit at admission, and the scan reads that
 commit even if the branch moves later. Results are stored under the short name,
-for example `release/1.2`.
+for example `release/1.2`. A name that is both a branch and a tag is rejected,
+because the two would share that short name.
 
-One `--ref` applies to every selected project. If one repository does not have
-the ref, Control Tower rejects the whole batch and the error names the project.
+The ref applies to every selected project. If one repository does not have the
+ref, Control Tower rejects the whole batch and the error names the project.
 
-Only GitHub projects take `--ref` today. A batch with `--ref` that selects a
+Only GitHub projects take a ref today. A batch with a ref that selects a
 Bitbucket project fails as not scannable.
 
 ## Discover project IDs
@@ -90,13 +93,19 @@ safedep project scan create safedep/control-tower safedep/cli \
 Scan a release branch in two projects:
 
 ```bash
-safedep project scan create safedep/control-tower safedep/cli --ref release/1.2
+safedep project scan create safedep/control-tower safedep/cli --branch release/1.2
 ```
 
 Scan a tag:
 
 ```bash
-safedep project scan create safedep/cli --ref refs/tags/v1.2.0
+safedep project scan create safedep/cli --tag v1.2.0
+```
+
+Scan the ref a CI job runs on:
+
+```bash
+safedep project scan create safedep/cli --ref "$GITHUB_REF"
 ```
 
 Submit a batch and receive JSON:
@@ -138,7 +147,7 @@ header and one tab-separated row per admitted scan.
 
 ## All-or-nothing admission
 
-The CLI validates batch size, an empty `--ref`, and empty or duplicate
+The CLI validates batch size, the ref flags, and empty or duplicate
 selectors, then resolves every exact project name before admission. A missing or ambiguous name fails
 the command without submitting any scans. When multiple projects share a name,
 the error lists their IDs, sources, and origin URLs so the caller can retry

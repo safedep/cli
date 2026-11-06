@@ -159,15 +159,15 @@ func createProjectScans(
 	res, err := client.CreateProjectScans(ctx, newCreateRequest(projectIDs, ref))
 	if err != nil {
 		if ref != "" && status.Code(err) == codes.InvalidArgument {
-			return nil, refRejectedError(err, qualifiedRef(ref))
+			return nil, refRejectedError(err, ref)
 		}
 		return nil, fmt.Errorf("project scan create: %w", err)
 	}
 	return translateCreateResponse(res, len(projectIDs))
 }
 
-// newCreateRequest leaves the ref unset when ref is empty, so the server scans
-// the default branch that the forge reports at admission.
+// newCreateRequest takes a full ref. It leaves the ref unset when ref is empty,
+// so the server scans the default branch that the forge reports at admission.
 func newCreateRequest(projectIDs []string, ref string) *controltowerv1.CreateProjectScansRequest {
 	targets := make([]*controltowerv1.CreateProjectScansRequest_ProjectScanTarget, 0, len(projectIDs))
 	for _, projectID := range projectIDs {
@@ -175,7 +175,7 @@ func newCreateRequest(projectIDs []string, ref string) *controltowerv1.CreatePro
 		target.SetProjectId(projectID)
 		if ref != "" {
 			gitRef := &scmv1.GitRef{}
-			gitRef.SetRef(qualifiedRef(ref))
+			gitRef.SetRef(ref)
 			target.SetRef(gitRef)
 		}
 		targets = append(targets, target)

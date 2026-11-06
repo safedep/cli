@@ -7,6 +7,7 @@ import (
 	"time"
 
 	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
+	corev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/core/v1"
 	recordv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/record/v1"
 	policyv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/policy/v1"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -99,7 +100,7 @@ func newPreviewView(res *policyv1.PreviewPolicyChangeResponse) *previewView {
 		v.Items = append(v.Items, overrideChangeItem(c))
 	}
 	for _, op := range res.GetPackageRuleOperations() {
-		item := ruleOperationItem(op.GetOperation())
+		item := ruleOperationItem(op.GetOperation(), op.GetHeadRule())
 		item.Direction = directionToken(op.GetDirection())
 		if op.GetOperation().HasCreate() {
 			item.New = fmt.Sprintf("matches %d packages, seen on %d endpoints in 30d",
@@ -232,25 +233,48 @@ func overrideChangeItem(c *policyv1.OverrideChange) changeItem {
 func ruleOperationItems(ops []*policyv1.PackageRuleOperation) []changeItem {
 	out := make([]changeItem, 0, len(ops))
 	for _, op := range ops {
-		out = append(out, ruleOperationItem(op))
+		out = append(out, ruleOperationItem(op, nil))
 	}
 	return out
 }
 
-func ruleOperationItem(op *policyv1.PackageRuleOperation) changeItem {
-	item := changeItem{Where: "package rules", oldHuman: "-", newHuman: "-"}
+// ruleOperationItem turns one package rule operation into a row. head is
+// the rule at head for an update or a delete. Only a preview has it. With
+// head the row names what the rule selects, as the notice of the server
+// does. Without it the row names the rule id only.
+func ruleOperationItem(op *policyv1.PackageRuleOperation, head *policyv1.PackageRuleWithAttributes) changeItem {
+	item := changeItem{Where: ruleOperationPlace(op.GetCreate().GetOverrideId()), oldHuman: "-", newHuman: "-"}
 	switch {
 	case op.HasCreate():
-		rule := op.GetCreate().GetRule()
-		item.What = fmt.Sprintf("create %s %s",
-			tui.EnumToken(rule.GetEffect().String(), effectPrefix), selectorText(rule.GetSelector()))
-		if id := op.GetCreate().GetOverrideId(); id != "" {
-			item.Where = "package rules of override " + id
-		}
+		item.What = "create " + ruleText(op.GetCreate().GetRule())
 	case op.HasUpdate():
-		item.What = "update " + op.GetUpdate().GetRuleId()
+		item.What = "update " + headRuleText(op.GetUpdate().GetRuleId(), head)
 	case op.HasDelete():
-		item.What = "delete " + op.GetDelete().GetRuleId()
+		item.What = "delete " + headRuleText(op.GetDelete().GetRuleId(), head)
+	}
+	if head != nil {
+		item.Where = ruleOperationPlace(head.GetOverrideId())
 	}
 	return item
+}
+
+func ruleOperationPlace(overrideID string) string {
+	if overrideID == "" {
+		return "package rules"
+	}
+	return "package rules of override " + overrideID
+}
+
+// ruleText names a rule by its effect and selector, as "trust pkg:npm/evil".
+func ruleText(rule *corev1.PackageRule) string {
+	return tui.EnumToken(rule.GetEffect().String(), effectPrefix) + " " + selectorText(rule.GetSelector())
+}
+
+// headRuleText names the rule of an update or a delete, as
+// "trust pkg:npm/evil (r_0123456789)".
+func headRuleText(id string, head *policyv1.PackageRuleWithAttributes) string {
+	if head == nil {
+		return id
+	}
+	return ruleText(head.GetRule()) + " (" + id + ")"
 }

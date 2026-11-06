@@ -51,6 +51,9 @@ field, the empty side shows the value that the lower layers give the field, as
 `high (default) -> medium` for the policy base and `medium -> high (inherited)`
 for a policy override. A side shows `-` when no lower layer sets the field.
 
+An update or a delete of a package rule names the rule at head by its effect,
+selector and id, as `delete trust pkg:npm/lodash (r_68e23zskkh)`.
+
 A stale change shows `STALE: sync it before you publish` in the first line. A
 published or deleted change shows no preview.
 

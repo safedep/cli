@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	errorv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/error/v1"
+	corev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/core/v1"
 	recordv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/record/v1"
 	policyv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/policy/v1"
 	"github.com/safedep/dry/usefulerror"
@@ -185,6 +186,54 @@ func TestNewPreviewView_InheritedValue(t *testing.T) {
 			require.Len(t, got.Items, 1)
 			assert.Equal(t, tt.wantCell, got.Items[0].changeCell())
 			assert.Equal(t, tt.wantInherited, got.Items[0].Inherited)
+		})
+	}
+}
+
+func TestNewPreviewView_RuleOperationNamesTheHeadRule(t *testing.T) {
+	update := &policyv1.PackageRuleUpdate{}
+	update.SetRuleId("r_77e")
+	updateOp := &policyv1.PackageRuleOperation{}
+	updateOp.SetUpdate(update)
+	del := &policyv1.PackageRuleDelete{}
+	del.SetRuleId("r_80b")
+	deleteOp := &policyv1.PackageRuleOperation{}
+	deleteOp.SetDelete(del)
+
+	tests := []struct {
+		name      string
+		op        *policyv1.PackageRuleOperation
+		head      *policyv1.PackageRuleWithAttributes
+		wantWhere string
+		wantWhat  string
+	}{
+		{
+			name: "delete of a base rule", op: deleteOp,
+			head:      ruleWithAttributes("r_80b", corev1.Effect_EFFECT_TRUST, ""),
+			wantWhere: "package rules", wantWhat: "delete trust pkg:npm/leftpad (r_80b)",
+		},
+		{
+			name: "update of an override rule", op: updateOp,
+			head:      ruleWithAttributes("r_77e", corev1.Effect_EFFECT_BLOCK, "ov_pay"),
+			wantWhere: "package rules of override ov_pay", wantWhat: "update block pkg:npm/leftpad (r_77e)",
+		},
+		{
+			name: "rule that is not active at head", op: deleteOp,
+			wantWhere: "package rules", wantWhat: "delete r_80b",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			preview := &policyv1.PackageRuleOperationPreview{}
+			preview.SetOperation(tt.op)
+			preview.SetHeadRule(tt.head)
+			res := &policyv1.PreviewPolicyChangeResponse{}
+			res.SetPackageRuleOperations([]*policyv1.PackageRuleOperationPreview{preview})
+
+			got := newPreviewView(res)
+			require.Len(t, got.Items, 1)
+			assert.Equal(t, tt.wantWhere, got.Items[0].Where)
+			assert.Equal(t, tt.wantWhat, got.Items[0].What)
 		})
 	}
 }

@@ -156,7 +156,11 @@ func reportLoosening(p *previewView) {
 			tui.Warning("%s", clitui.EscapeLine(item.sentence))
 			continue
 		}
-		tui.Warning("It loosens %s (%s -> %s) in %s", clitui.EscapeLine(item.What),
+		if item.oldHuman == "-" && item.newHuman == "-" {
+			tui.Warning("It loosens %s in %s", clitui.EscapeLine(item.What), clitui.EscapeLine(item.Where))
+			continue
+		}
+		tui.Warning("It loosens %s from %s to %s in %s", clitui.EscapeLine(item.What),
 			clitui.EscapeLine(item.oldHuman), clitui.EscapeLine(item.newHuman), clitui.EscapeLine(item.Where))
 	}
 }

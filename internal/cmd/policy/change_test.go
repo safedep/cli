@@ -533,18 +533,59 @@ func TestOverrideChangeItem(t *testing.T) {
 	}
 }
 
-func TestReportLoosening_AnAddedOverride(t *testing.T) {
-	stderr := captureStderr(t)
-	c := &policyv1.OverrideChange{}
-	c.SetOverrideName("policy-test")
-	c.SetKind(policyv1.OverrideChangeKind_OVERRIDE_CHANGE_KIND_ADDED)
-	c.SetNewValue("policy-test")
-	c.SetDirection(policyv1.ChangeDirection_CHANGE_DIRECTION_LOOSENS)
-	res := &policyv1.PreviewPolicyChangeResponse{}
-	res.SetOverrideChanges([]*policyv1.OverrideChange{c})
-	res.SetDirection(policyv1.ChangeDirection_CHANGE_DIRECTION_LOOSENS)
+func TestReportLoosening(t *testing.T) {
+	added := &policyv1.OverrideChange{}
+	added.SetOverrideName("policy-test")
+	added.SetKind(policyv1.OverrideChangeKind_OVERRIDE_CHANGE_KIND_ADDED)
+	added.SetNewValue("policy-test")
+	added.SetDirection(policyv1.ChangeDirection_CHANGE_DIRECTION_LOOSENS)
 
-	reportLoosening(newPreviewView(res))
-	assert.Contains(t, stderr.String(), `It adds policy override "policy-test".`)
-	assert.NotContains(t, stderr.String(), "It loosens added")
+	field := &policyv1.PathChange{}
+	field.SetPath("scan_gate.fail_on")
+	field.SetLayer(recordv1.Layer_LAYER_BASE)
+	field.SetNewValue("SEVERITY_LOW")
+	field.SetInheritedValue("SEVERITY_HIGH")
+	field.SetDirection(policyv1.ChangeDirection_CHANGE_DIRECTION_LOOSENS)
+
+	del := &policyv1.PackageRuleDelete{}
+	del.SetRuleId("r_80b")
+	op := &policyv1.PackageRuleOperation{}
+	op.SetDelete(del)
+	ruleDelete := &policyv1.PackageRuleOperationPreview{}
+	ruleDelete.SetOperation(op)
+	ruleDelete.SetHeadRule(ruleWithAttributes("r_80b", corev1.Effect_EFFECT_TRUST, ""))
+	ruleDelete.SetDirection(policyv1.ChangeDirection_CHANGE_DIRECTION_LOOSENS)
+
+	tests := []struct {
+		name string
+		res  func(*policyv1.PreviewPolicyChangeResponse)
+		want string
+	}{
+		{
+			name: "an added override",
+			res:  func(r *policyv1.PreviewPolicyChangeResponse) { r.SetOverrideChanges([]*policyv1.OverrideChange{added}) },
+			want: "It adds policy override \"policy-test\".\n",
+		},
+		{
+			name: "a field with an inherited value",
+			res:  func(r *policyv1.PreviewPolicyChangeResponse) { r.SetChanges([]*policyv1.PathChange{field}) },
+			want: "It loosens scan_gate.fail_on from high (default) to low in base\n",
+		},
+		{
+			name: "a rule delete",
+			res: func(r *policyv1.PreviewPolicyChangeResponse) {
+				r.SetPackageRuleOperations([]*policyv1.PackageRuleOperationPreview{ruleDelete})
+			},
+			want: "It loosens delete trust pkg:npm/leftpad (r_80b) in package rules\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stderr := captureStderr(t)
+			res := &policyv1.PreviewPolicyChangeResponse{}
+			tt.res(res)
+			reportLoosening(newPreviewView(res))
+			assert.Contains(t, stderr.String(), tt.want)
+		})
+	}
 }

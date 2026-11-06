@@ -6,8 +6,11 @@ import (
 
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
 	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
+	scmv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/scm/v1"
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/safedep/cli/internal/paging"
 	"github.com/safedep/cli/internal/tui"
@@ -147,23 +150,34 @@ func createProjectScans(
 	ctx context.Context,
 	client createProjectScansClient,
 	projectIDs []string,
+	ref string,
 ) (*createResult, error) {
 	if err := validateProjectIDs(projectIDs); err != nil {
 		return nil, err
 	}
 
-	res, err := client.CreateProjectScans(ctx, newCreateRequest(projectIDs))
+	res, err := client.CreateProjectScans(ctx, newCreateRequest(projectIDs, ref))
 	if err != nil {
+		if ref != "" && status.Code(err) == codes.InvalidArgument {
+			return nil, refRejectedError(err, qualifiedRef(ref))
+		}
 		return nil, fmt.Errorf("project scan create: %w", err)
 	}
 	return translateCreateResponse(res, len(projectIDs))
 }
 
-func newCreateRequest(projectIDs []string) *controltowerv1.CreateProjectScansRequest {
+// newCreateRequest leaves the ref unset when ref is empty, so the server scans
+// the default branch that the forge reports at admission.
+func newCreateRequest(projectIDs []string, ref string) *controltowerv1.CreateProjectScansRequest {
 	targets := make([]*controltowerv1.CreateProjectScansRequest_ProjectScanTarget, 0, len(projectIDs))
 	for _, projectID := range projectIDs {
 		target := &controltowerv1.CreateProjectScansRequest_ProjectScanTarget{}
 		target.SetProjectId(projectID)
+		if ref != "" {
+			gitRef := &scmv1.GitRef{}
+			gitRef.SetRef(qualifiedRef(ref))
+			target.SetRef(gitRef)
+		}
 		targets = append(targets, target)
 	}
 	req := &controltowerv1.CreateProjectScansRequest{}

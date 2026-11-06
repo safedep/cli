@@ -70,7 +70,7 @@ func runCreate(
 		projectIDs = append(projectIDs, projectID)
 	}
 
-	return createProjectScans(ctx, scanner, projectIDs)
+	return createProjectScans(ctx, scanner, projectIDs, in.Ref)
 }
 
 func resolveProjectNames(

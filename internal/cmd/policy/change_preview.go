@@ -19,12 +19,14 @@ import (
 // `change show` and `change publish` print.
 
 // changeItem is one row of "What changes": a field, a policy override or a
-// package rule operation.
+// package rule operation. Inherited is the value that the lower layers give
+// a field on a side that this layer does not set.
 type changeItem struct {
 	Where     string `json:"where"`
 	What      string `json:"what"`
 	Old       string `json:"old,omitempty"`
 	New       string `json:"new,omitempty"`
+	Inherited string `json:"inherited,omitempty"`
 	Direction string `json:"direction"`
 	oldHuman  string
 	newHuman  string
@@ -91,16 +93,7 @@ func newPreviewView(res *policyv1.PreviewPolicyChangeResponse) *previewView {
 		Warnings:         []warningView{},
 	}
 	for _, c := range res.GetChanges() {
-		where := "base"
-		if c.GetLayer() == recordv1.Layer_LAYER_OVERRIDE {
-			where = fmt.Sprintf("override %q", c.GetOverrideName())
-		}
-		oldValue, oldHuman := cloudpolicy.FormatJSONValue(c.GetPath(), c.GetOldValue())
-		newValue, newHuman := cloudpolicy.FormatJSONValue(c.GetPath(), c.GetNewValue())
-		v.Items = append(v.Items, changeItem{
-			Where: where, What: c.GetPath(), Old: oldValue, New: newValue,
-			Direction: directionToken(c.GetDirection()), oldHuman: oldHuman, newHuman: newHuman,
-		})
+		v.Items = append(v.Items, pathChangeItem(c))
 	}
 	for _, c := range res.GetOverrideChanges() {
 		v.Items = append(v.Items, overrideChangeItem(c))
@@ -133,6 +126,32 @@ func newPreviewView(res *policyv1.PreviewPolicyChangeResponse) *previewView {
 		})
 	}
 	return v
+}
+
+// pathChangeItem turns one change to a field into a row. A side that the
+// layer does not set shows the value that the lower layers give it, with a
+// mark, so the reader sees the value that applies and knows that this layer
+// does not set it.
+func pathChangeItem(c *policyv1.PathChange) changeItem {
+	where, mark := "base", "(default)"
+	if c.GetLayer() == recordv1.Layer_LAYER_OVERRIDE {
+		where, mark = fmt.Sprintf("override %q", c.GetOverrideName()), "(inherited)"
+	}
+	item := changeItem{Where: where, What: c.GetPath(), Direction: directionToken(c.GetDirection())}
+	item.Old, item.oldHuman = cloudpolicy.FormatJSONValue(c.GetPath(), c.GetOldValue())
+	item.New, item.newHuman = cloudpolicy.FormatJSONValue(c.GetPath(), c.GetNewValue())
+	if c.GetInheritedValue() == "" {
+		return item
+	}
+	var inheritedHuman string
+	item.Inherited, inheritedHuman = cloudpolicy.FormatJSONValue(c.GetPath(), c.GetInheritedValue())
+	if c.GetOldValue() == "" {
+		item.oldHuman = inheritedHuman + " " + mark
+	}
+	if c.GetNewValue() == "" {
+		item.newHuman = inheritedHuman + " " + mark
+	}
+	return item
 }
 
 // overrideChangeValue gives the human form of a value of an override change.

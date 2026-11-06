@@ -143,6 +143,52 @@ func TestRunChangeShow_PreviewsAnOpenChange(t *testing.T) {
 	assert.Contains(t, plain, "change\toverride \"payments\"\tselector\t{\"matchLabels\":{\"custom/team\":\"pay\"}}\t", "plain keeps the value of the server")
 }
 
+func TestNewPreviewView_InheritedValue(t *testing.T) {
+	tests := []struct {
+		name          string
+		layer         recordv1.Layer
+		path          string
+		old, new      string
+		inherited     string
+		wantCell      string
+		wantInherited string
+	}{
+		{
+			name: "base sets a field for the first time", layer: recordv1.Layer_LAYER_BASE,
+			path: "scan_gate.fail_on", new: "SEVERITY_MEDIUM", inherited: "SEVERITY_HIGH",
+			wantCell: "high (default) -> medium", wantInherited: "high",
+		},
+		{
+			name: "override unsets a field", layer: recordv1.Layer_LAYER_OVERRIDE,
+			path: "package_admission.cooldown.min_age", old: `"86400s"`, inherited: `"604800s"`,
+			wantCell: "1d -> 7d (inherited)", wantInherited: "168h",
+		},
+		{
+			name: "no lower layer sets the field", layer: recordv1.Layer_LAYER_OVERRIDE,
+			path: "package_admission.cooldown.min_age", new: `"604800s"`,
+			wantCell: "- -> 7d",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &policyv1.PathChange{}
+			c.SetPath(tt.path)
+			c.SetLayer(tt.layer)
+			c.SetOverrideName("payments")
+			c.SetOldValue(tt.old)
+			c.SetNewValue(tt.new)
+			c.SetInheritedValue(tt.inherited)
+			res := &policyv1.PreviewPolicyChangeResponse{}
+			res.SetChanges([]*policyv1.PathChange{c})
+
+			got := newPreviewView(res)
+			require.Len(t, got.Items, 1)
+			assert.Equal(t, tt.wantCell, got.Items[0].changeCell())
+			assert.Equal(t, tt.wantInherited, got.Items[0].Inherited)
+		})
+	}
+}
+
 func TestRunChangeShow_Warnings(t *testing.T) {
 	client := mocks.NewPolicyServiceClientMock(t)
 	client.EXPECT().GetPolicyChange(mock.Anything, mock.Anything).Return(changeResponse(openChange("18")), nil)

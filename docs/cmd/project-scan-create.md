@@ -102,11 +102,23 @@ Scan a tag:
 safedep project scan create safedep/cli --tag v1.2.0
 ```
 
-Scan a full ref:
+Scan the branch or tag that a GitHub Actions push or tag workflow runs on:
 
 ```bash
-safedep project scan create safedep/cli --ref refs/tags/v1.2.0
+safedep project scan create safedep/cli --ref "$GITHUB_REF"
 ```
+
+In a GitHub Actions pull request workflow, `GITHUB_REF` is
+`refs/pull/<n>/merge`, a merge commit that GitHub builds for the pull request.
+It is not a branch or a tag, so the CLI rejects it. Scan the pull request's
+source branch instead:
+
+```bash
+safedep project scan create safedep/cli --branch "$GITHUB_HEAD_REF"
+```
+
+This works when the source branch is in the scanned repository. A branch in a
+fork is not, and the scan fails as not found.
 
 Submit a batch and receive JSON:
 

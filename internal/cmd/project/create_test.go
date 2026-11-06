@@ -108,7 +108,7 @@ func TestCreateProjectScans_SendsOneOrderedBatch(t *testing.T) {
 		),
 	}
 
-	result, err := createProjectScans(context.Background(), client, []string{"project-1", "project-2"})
+	result, err := createProjectScans(context.Background(), client, []string{"project-1", "project-2"}, "")
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, client.calls)
@@ -135,7 +135,7 @@ func TestCreateProjectScans_ConvertsCreatedAtToUTC(t *testing.T) {
 		),
 	}
 
-	result, err := createProjectScans(context.Background(), client, []string{"project-1", "project-2"})
+	result, err := createProjectScans(context.Background(), client, []string{"project-1", "project-2"}, "")
 	require.NoError(t, err)
 	require.Len(t, result.scans, 2)
 	require.NotNil(t, result.scans[0].CreatedAt)
@@ -147,7 +147,7 @@ func TestCreateProjectScans_RejectsInvalidInputBeforeRPC(t *testing.T) {
 	t.Parallel()
 
 	client := &fakeCreateProjectScansClient{}
-	_, err := createProjectScans(context.Background(), client, []string{"duplicate", "duplicate"})
+	_, err := createProjectScans(context.Background(), client, []string{"duplicate", "duplicate"}, "")
 	require.Error(t, err)
 	assert.Zero(t, client.calls)
 }
@@ -204,7 +204,7 @@ func TestCreateProjectScans_RejectsMalformedResponses(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			client := &fakeCreateProjectScansClient{res: tt.res}
-			_, err := createProjectScans(context.Background(), client, []string{"project-1"})
+			_, err := createProjectScans(context.Background(), client, []string{"project-1"}, "")
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "project scan create: invalid response")
 			assert.Contains(t, err.Error(), tt.wantErr)
@@ -221,7 +221,7 @@ func TestCreateProjectScans_PreservesGRPCStatusAndDetails(t *testing.T) {
 	require.NoError(t, err)
 
 	client := &fakeCreateProjectScansClient{err: rpcStatus.Err()}
-	_, err = createProjectScans(context.Background(), client, []string{"project-1"})
+	_, err = createProjectScans(context.Background(), client, []string{"project-1"}, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "project scan create")
 	assert.Equal(t, codes.ResourceExhausted, status.Code(err))

@@ -106,8 +106,35 @@ func TestParsePolicyFilters(t *testing.T) {
 }
 
 func TestPolicyCell(t *testing.T) {
-	assert.Equal(t, "-", policyCell(nil))
-	assert.Equal(t, "rev 47", policyCell([]ToolPolicy{{Tool: "pmg", Revision: 47}, {Tool: "vet", Revision: 47}}))
+	tests := []struct {
+		name     string
+		policies []ToolPolicy
+		want     string
+	}{
+		{"no tool", nil, "-"},
+		{"one revision", []ToolPolicy{{Tool: "pmg", Revision: 47}, {Tool: "vet", Revision: 47}}, "rev 47"},
+		{"two revisions", []ToolPolicy{{Tool: "pmg", Revision: 47}, {Tool: "vet", Revision: 46}}, "pmg 47, vet 46"},
+		{"only a disabled tool", []ToolPolicy{{Tool: "pmg", Revision: 0, State: "disabled"}}, "-"},
+		{
+			"a disabled tool and an applied tool",
+			[]ToolPolicy{{Tool: "pmg", Revision: 0, State: "disabled"}, {Tool: "vet", Revision: 46, State: "applied"}},
+			"rev 46",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, policyCell(tt.policies))
+		})
+	}
+}
+
+func TestList_DisabledToolIsNotInThePolicyCell(t *testing.T) {
+	report := &recordv1.ApplyReport{}
+	report.SetState(recordv1.ApplyState_APPLY_STATE_DISABLED)
+	p := &controltowerv1.EndpointToolPolicy{}
+	p.SetToolName("pmg")
+	p.SetPolicy(report)
+	assert.Equal(t, "-", policyCell(toolPolicies([]*controltowerv1.EndpointToolPolicy{p})))
 }
 
 func TestRunList_ShowsTheAppliedRevision(t *testing.T) {

@@ -73,7 +73,7 @@ func (r *ruleShowResult) RenderTable() string {
 	}
 	expires := v.expiresCell(now)
 	if v.expires != nil {
-		expires += " (" + v.expires.Format(time.DateOnly) + ")"
+		expires = expiryText(*v.expires, now)
 	}
 	return cloudpolicy.KeyValues([][2]string{
 		{"Rule", v.ID},

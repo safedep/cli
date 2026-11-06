@@ -9,6 +9,7 @@ import (
 	"time"
 
 	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
+	recordv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/record/v1"
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/cloudpolicy"
@@ -420,9 +421,23 @@ func parsePolicyFilters(selector, applied string) (*messagescontroltowerv1.Label
 	return sel, n, nil
 }
 
+const applyStatePrefix = "APPLY_STATE_"
+
+// disabledState is the state of a tool that does not apply the cloud
+// policy, as a pmg with cloud.policy: false. Its revision is 0 and means
+// nothing.
+var disabledState = tui.EnumToken(recordv1.ApplyState_APPLY_STATE_DISABLED.String(), applyStatePrefix)
+
 // policyCell shows the applied policy revision of each tool, as "rev 47" when
-// every tool applies the same revision, or "pmg 47, vet 46".
-func policyCell(policies []ToolPolicy) string {
+// every tool applies the same revision, or "pmg 47, vet 46". A tool that
+// does not apply the cloud policy is not in the cell.
+func policyCell(all []ToolPolicy) string {
+	policies := make([]ToolPolicy, 0, len(all))
+	for _, p := range all {
+		if p.State != disabledState {
+			policies = append(policies, p)
+		}
+	}
 	if len(policies) == 0 {
 		return "-"
 	}

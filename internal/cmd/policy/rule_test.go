@@ -9,12 +9,14 @@ import (
 	"testing"
 	"time"
 
+	policyv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/policy/v1/policyv1grpc"
 	corev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/core/v1"
 	policyv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/policy/v1"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -479,4 +481,79 @@ func TestRunRuleList_AtRevisionResolvesTheOverrideAtThatRevision(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got.Rules, 1)
 	assert.Equal(t, `override "payments-old"`, got.Rules[0].AttachesTo)
+}
+
+func TestExpiryText(t *testing.T) {
+	tests := []struct {
+		name    string
+		expires time.Time
+		want    string
+	}{
+		{"within 30 days", fixedNow.Add(3 * 24 * time.Hour), "in 3d (2026-11-03)"},
+		{"beyond 30 days", time.Date(2027, 1, 4, 0, 0, 0, 0, time.UTC), "2027-01-04"},
+		{"in the past", fixedNow.Add(-2 * time.Hour), "2h ago (2026-10-31)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, expiryText(tt.expires, fixedNow))
+		})
+	}
+}
+
+func TestRuleShow_ShowsTheExpiryDateOneTime(t *testing.T) {
+	r := ruleWithAttributes("r_1", corev1.Effect_EFFECT_TRUST, "")
+	expires := time.Now().Add(65 * 24 * time.Hour)
+	r.GetRule().SetExpiresAt(timestamppb.New(expires))
+	table := (&ruleShowResult{Rule: newRuleView(r, nil)}).RenderTable()
+	assert.Equal(t, 1, strings.Count(table, expires.UTC().Format(time.DateOnly)), table)
+}
+
+func TestCreateRules_ReportsTheExpiryOfTheFlag(t *testing.T) {
+	stderr := captureStderr(t)
+	client := mocks.NewPolicyServiceClientMock(t)
+	client.EXPECT().CreatePackageRules(mock.Anything, mock.Anything).RunAndReturn(
+		func(_ context.Context, req *policyv1.CreatePackageRulesRequest, _ ...grpc.CallOption) (*policyv1.CreatePackageRulesResponse, error) {
+			r := ruleWithAttributes("r_1", corev1.Effect_EFFECT_TRUST, "")
+			// The server keeps a time to the microsecond.
+			r.GetRule().SetExpiresAt(timestamppb.New(req.GetRules()[0].GetRule().GetExpiresAt().AsTime().Truncate(time.Microsecond)))
+			res := &policyv1.CreatePackageRulesResponse{}
+			res.SetRules([]*policyv1.PackageRuleWithAttributes{r})
+			res.SetRevision(revision(48, "trust"))
+			return res, nil
+		})
+	// Each read of the clock is later than the one before it.
+	now := fixedNow.Add(123456789 * time.Nanosecond)
+	clock := func() time.Time {
+		now = now.Add(5 * time.Millisecond)
+		return now
+	}
+	in := ruleCreateInput{Trust: true, Selector: "pkg:npm/leftpad@1.0.0", Scopes: []string{"malware"}, Reason: "FP", Expires: "7d"}
+	connect := func() (policyv1grpc.PolicyServiceClient, error) { return client, nil }
+
+	require.NoError(t, createRules(context.Background(), connect, in, nil, clock))
+	assert.Contains(t, stderr.String(), "The rule expires in 7d (2026-11-07)")
+}
+
+func TestAnnounceRuleCreate_WideBlock(t *testing.T) {
+	tests := []struct {
+		name     string
+		override string
+		want     string
+	}{
+		{"the policy base", "", "It stops every install of that ecosystem in the tenant"},
+		{"a policy override", "payments", `It stops every install of that ecosystem on the subjects that policy override "payments" selects`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stderr := captureStderr(t)
+			in := ruleCreateInput{Block: true, Selector: "pkg:npm/*", Reason: "x", Override: tt.override}
+			creates, err := buildRuleCreates(in, nil, fixedNow)
+			require.NoError(t, err)
+			announceRuleCreate(in, creates)
+			assert.Contains(t, stderr.String(), tt.want)
+			if tt.override != "" {
+				assert.NotContains(t, stderr.String(), "in the tenant")
+			}
+		})
+	}
 }

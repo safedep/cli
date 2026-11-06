@@ -33,7 +33,9 @@ safedep endpoint list --applied-revision '<48'
 ```
 
 The `Policy` column shows the applied policy revision that each tool reported:
-`rev 48` when every tool applies the same revision, or `pmg 48, vet 47`. JSON
+`rev 48` when every tool applies the same revision, or `pmg 48, vet 47`. A tool
+that does not apply the cloud policy, as pmg with `cloud.policy: false`, is not in
+the column. The column shows `-` when no tool applies the cloud policy. JSON
 output carries `tool_policies` for each endpoint: the tool, its version, its
 applied policy revision and the state of the policy in the tool.
 

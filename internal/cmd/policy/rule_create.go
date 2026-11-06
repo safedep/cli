@@ -2,14 +2,13 @@ package policy
 
 import (
 	"context"
+	"io"
 	"strings"
 	"time"
 
 	policyv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/policy/v1/policyv1grpc"
-	corev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/core/v1"
 	policyv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/policy/v1"
 	"github.com/safedep/dry/tui"
-	"github.com/safedep/dry/tui/humanize"
 	"github.com/spf13/cobra"
 
 	"github.com/safedep/cli/internal/app"
@@ -65,21 +64,14 @@ func ruleCreateCmd(a *app.App) *cobra.Command {
 			return validateRuleCreate(in)
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			rules, err := buildRuleCreates(in, cmd.InOrStdin(), time.Now())
-			if err != nil {
-				return err
+			connect := func() (policyv1grpc.PolicyServiceClient, error) {
+				client, err := a.ControlPlane()
+				if err != nil {
+					return nil, err
+				}
+				return cloudpolicy.NewPolicyClient(client.Connection()), nil
 			}
-			client, err := a.ControlPlane()
-			if err != nil {
-				return err
-			}
-			announceRuleCreate(in, rules)
-			res, err := runRuleCreate(cmd.Context(), cloudpolicy.NewPolicyClient(client.Connection()), in, rules)
-			if err != nil {
-				return err
-			}
-			reportRuleCreate(in, res, time.Now())
-			return nil
+			return createRules(cmd.Context(), connect, in, cmd.InOrStdin(), time.Now)
 		},
 	}
 	f := cmd.Flags()
@@ -96,6 +88,35 @@ func ruleCreateCmd(a *app.App) *cobra.Command {
 	f.StringVar(&in.Override, "override", "", "the policy override that the rule attaches to, or the policy base when empty")
 	f.StringVarP(&in.Message, "message", "m", "", "the publish message, or a message that the server writes when empty")
 	return cmd
+}
+
+// createRules reads the clock one time. The expiry of the rule and the
+// report of it use the same instant, so --expires 7d reports "in 7d" and not
+// "in 6d". The instant has no fraction of a second, because the server keeps
+// a time to the microsecond and a rounded expiry would show one day less.
+func createRules(
+	ctx context.Context,
+	connect func() (policyv1grpc.PolicyServiceClient, error),
+	in ruleCreateInput,
+	stdin io.Reader,
+	clock func() time.Time,
+) error {
+	now := clock().Truncate(time.Second)
+	rules, err := buildRuleCreates(in, stdin, now)
+	if err != nil {
+		return err
+	}
+	client, err := connect()
+	if err != nil {
+		return err
+	}
+	announceRuleCreate(in, rules)
+	res, err := runRuleCreate(ctx, client, in, rules)
+	if err != nil {
+		return err
+	}
+	reportRuleCreate(in, res, now)
+	return nil
 }
 
 func runRuleCreate(
@@ -137,8 +158,8 @@ func announceRuleCreate(in ruleCreateInput, creates []*policyv1.PackageRuleCreat
 	if in.Block {
 		for _, c := range creates {
 			if purl := c.GetRule().GetSelector().GetPurl(); isWideSelector(purl) {
-				tui.Warning("Selector %s blocks every package of its ecosystem. It stops every install of that ecosystem in the tenant",
-					clitui.EscapeLine(purl))
+				tui.Warning("Selector %s blocks every package of its ecosystem. It stops every install of that ecosystem %s",
+					clitui.EscapeLine(purl), blockPlace(in.Override))
 			}
 		}
 		tui.Info("A block stops new installs. It does not remove installed copies.")
@@ -151,19 +172,6 @@ func announceRuleCreate(in ruleCreateInput, creates []*policyv1.PackageRuleCreat
 	tui.Warning("Verified malware stays blocked")
 }
 
-func scopeEffect(scope corev1.TrustScope) string {
-	switch scope {
-	case corev1.TrustScope_TRUST_SCOPE_MALWARE:
-		return "a malware verdict that is not verified"
-	case corev1.TrustScope_TRUST_SCOPE_COOLDOWN:
-		return "the dependency cooldown"
-	case corev1.TrustScope_TRUST_SCOPE_VULNERABILITY:
-		return "the vulnerability findings of a scan gate"
-	default:
-		return "the verdicts of scope " + scope.String()
-	}
-}
-
 func reportRuleCreate(in ruleCreateInput, res *ruleCreateResult, now time.Time) {
 	if len(res.Rules) == 1 {
 		tui.Success("rule %s created%srevision %d published", clitui.EscapeLine(res.Rules[0].GetRule().GetRuleId()), sep, res.Revision)
@@ -172,7 +180,7 @@ func reportRuleCreate(in ruleCreateInput, res *ruleCreateResult, now time.Time) 
 	}
 	if in.Trust && len(res.Rules) == 1 {
 		if expires := cloudpolicy.TimeOf(res.Rules[0].GetRule().GetExpiresAt()); expires != nil {
-			tui.Info("  The rule expires %s (%s)", humanize.Time(*expires, now), expires.Format(time.DateOnly))
+			tui.Info("  The rule expires %s", expiryText(*expires, now))
 		}
 	}
 	tui.Info("  Each endpoint applies it after its next policy fetch. Pull request checks apply it at once.")

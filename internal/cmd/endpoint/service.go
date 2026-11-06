@@ -336,7 +336,7 @@ func toolPolicies(in []*controltowerv1.EndpointToolPolicy) []ToolPolicy {
 			Tool:     p.GetToolName(),
 			Version:  p.GetToolVersion(),
 			Revision: p.GetPolicy().GetRevision(),
-			State:    tui.EnumToken(p.GetPolicy().GetState().String(), "APPLY_STATE_"),
+			State:    tui.EnumToken(p.GetPolicy().GetState().String(), applyStatePrefix),
 		}
 		if ts := p.GetReportedAt(); ts != nil {
 			tp.ReportedAt = ts.AsTime().UTC()

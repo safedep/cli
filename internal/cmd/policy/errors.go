@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/prototext"
 
+	"github.com/safedep/cli/internal/cloudpolicy"
 	"github.com/safedep/cli/internal/tui"
 )
 
@@ -75,7 +76,7 @@ func describeStatus(err error) string {
 // desc =", so this reads the status of the innermost error. When the
 // message already holds the description of each violation, the violations
 // replace it, so no text shows two times.
-func describeStatusAt(err error, path func(string) string) string {
+func describeStatusAt(err error, path func(string) (string, bool)) string {
 	st, ok := innerStatus(err)
 	if !ok {
 		return tui.EscapeText(err.Error())
@@ -85,7 +86,12 @@ func describeStatusAt(err error, path func(string) string) string {
 	covered := true
 	if bad, ok := usefulerror.DetailAs[*errdetails.BadRequest](err); ok {
 		for _, v := range bad.GetFieldViolations() {
-			if line := violationLine(path(violationField(v)), v.GetDescription()); line != "" {
+			field, isDuration := path(violationField(v))
+			description := v.GetDescription()
+			if isDuration {
+				description = cloudpolicy.DocumentDurations(description)
+			}
+			if line := violationLine(field, description); line != "" {
 				lines = append(lines, tui.EscapeLine(line))
 			}
 			covered = covered && v.GetDescription() != "" && strings.Contains(msg, v.GetDescription())
@@ -170,8 +176,15 @@ func fieldPathString(path *validate.FieldPath) string {
 // path names a key of the file.
 const documentFieldPrefix = "settings."
 
-func documentPath(field string) string {
-	return strings.TrimPrefix(field, documentFieldPrefix)
+// documentPath is a field path of a request as the path of the key in the
+// edit document, and whether the field is a duration. Only a path below
+// documentFieldPrefix is in the document.
+func documentPath(field string) (string, bool) {
+	rest, ok := strings.CutPrefix(field, documentFieldPrefix)
+	if !ok {
+		return field, false
+	}
+	return cloudpolicy.DocumentPath(rest)
 }
 
 // overrideFieldError marks a save error of an edit of one policy override.
@@ -185,16 +198,16 @@ type overrideFieldError struct {
 func (e *overrideFieldError) Error() string { return e.err.Error() }
 func (e *overrideFieldError) Unwrap() error { return e.err }
 
-func (e *overrideFieldError) path(field string) string {
-	field = documentPath(field)
+func (e *overrideFieldError) path(field string) (string, bool) {
+	field, isDuration := documentPath(field)
 	prefix := fmt.Sprintf("overrides[%d]", e.index)
 	if field == prefix {
-		return ""
+		return "", isDuration
 	}
 	if rest, ok := strings.CutPrefix(field, prefix+"."); ok {
-		return rest
+		return rest, isDuration
 	}
-	return field
+	return field, isDuration
 }
 
 // errorText is the text of err for a person, for the error lines of the

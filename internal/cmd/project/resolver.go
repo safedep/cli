@@ -8,6 +8,7 @@ import (
 	"time"
 
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
+	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/safedep/dry/usefulerror"
 	"google.golang.org/grpc"
@@ -178,17 +179,23 @@ func collectProjectMatches(
 		if matches[name] == nil {
 			matches[name] = make(map[string]projectMatch)
 		}
-		match := projectMatch{
-			id:        project.GetProjectId(),
-			source:    tui.EnumToken(project.GetSource().String(), "SOURCE_"),
-			originURL: project.GetOriginUrl(),
-		}
-		if ts := project.GetCreatedAt(); ts != nil {
-			match.createdAt = ts.AsTime().UTC()
-		}
-		matches[name][project.GetProjectId()] = match
+		matches[name][project.GetProjectId()] = newProjectMatch(project)
 	}
 	return nil
+}
+
+// newProjectMatch is one project of an ambiguous name. Each lookup by name
+// builds its matches here, so every command shows the same details.
+func newProjectMatch(project *messagescontroltowerv1.Project) projectMatch {
+	match := projectMatch{
+		id:        project.GetProjectId(),
+		source:    tui.EnumToken(project.GetSource().String(), projectSourcePrefix),
+		originURL: project.GetOriginUrl(),
+	}
+	if ts := project.GetCreatedAt(); ts != nil {
+		match.createdAt = ts.AsTime().UTC()
+	}
+	return match
 }
 
 func ambiguousProjectNameError(op, name string, byID map[string]projectMatch) error {

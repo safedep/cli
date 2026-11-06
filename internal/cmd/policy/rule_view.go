@@ -79,19 +79,34 @@ func (v ruleView) expiresCell(now time.Time) string {
 	if v.expires == nil {
 		return "never"
 	}
-	return humanize.Time(*v.expires, now)
+	return expiryRelative(*v.expires, now)
 }
 
 // expiryText is a humanized expiry with its date, as "in 3d (2026-11-09)".
 // Beyond 30 days humanize.Time gives the date itself, so the date shows one
 // time only.
 func expiryText(expires, now time.Time) string {
-	rel := humanize.Time(expires, now)
+	rel := expiryRelative(expires, now)
 	date := expires.UTC().Format(time.DateOnly)
 	if rel == date {
 		return rel
 	}
 	return rel + " (" + date + ")"
+}
+
+// expiryRelative is humanize.Time with a time of a day or more rounded to
+// the nearest day. humanize.Time drops the part of a day, so a rule that
+// --expires 7d sets reads "in 6d" a few seconds after its create.
+func expiryRelative(expires, now time.Time) string {
+	rel := humanize.Time(expires, now)
+	d := expires.Sub(now)
+	if d.Abs() < 24*time.Hour || rel == expires.UTC().Format(time.DateOnly) {
+		return rel
+	}
+	if rounded := d.Round(24 * time.Hour); rounded.Abs() < 30*24*time.Hour {
+		return humanize.Time(now.Add(rounded), now)
+	}
+	return rel
 }
 
 // blockPlace names where a block applies: the tenant for the policy base,

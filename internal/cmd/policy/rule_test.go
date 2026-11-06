@@ -492,6 +492,11 @@ func TestExpiryText(t *testing.T) {
 		{"within 30 days", fixedNow.Add(3 * 24 * time.Hour), "in 3d (2026-11-03)"},
 		{"beyond 30 days", time.Date(2027, 1, 4, 0, 0, 0, 0, time.UTC), "2027-01-04"},
 		{"in the past", fixedNow.Add(-2 * time.Hour), "2h ago (2026-10-31)"},
+		{"seconds less than whole days", fixedNow.Add(7*24*time.Hour - 5*time.Second), "in 7d (2026-11-07)"},
+		{"more than half a day over whole days", fixedNow.Add(3*24*time.Hour + 13*time.Hour), "in 4d (2026-11-04)"},
+		{"days in the past", fixedNow.Add(-(2*24*time.Hour - time.Minute)), "2d ago (2026-10-29)"},
+		{"less than a day", fixedNow.Add(20 * time.Hour), "in 20h (2026-11-01)"},
+		{"days that round to 30", fixedNow.Add(30*24*time.Hour - time.Hour), "in 29d (2026-11-30)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

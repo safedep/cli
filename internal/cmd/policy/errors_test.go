@@ -99,7 +99,7 @@ func TestDescribeStatus(t *testing.T) {
 			err: statusWithViolations(codes.InvalidArgument,
 				"service execution failed: unknown label prefix \"team/\"",
 				violation("settings.overrides[0].selector.match_labels", "unknown label prefix \"team/\"")),
-			want: "overrides[0].selector.match_labels: unknown label prefix \"team/\"",
+			want: "overrides[0].selector.matchLabels: unknown label prefix \"team/\"",
 		},
 		{
 			name: "a protovalidate violation with an encoded field path",
@@ -137,7 +137,7 @@ func TestDescribeStatus(t *testing.T) {
 			name: "map key subscripts",
 			err: statusWithViolations(codes.InvalidArgument, "", violation(prototext.Format(mapKeyPath()),
 				"unknown label prefix")),
-			want: `overrides[2].selector.match_labels["team/x"]: unknown label prefix`,
+			want: `overrides[2].selector.matchLabels["team/x"]: unknown label prefix`,
 		},
 		{
 			name: "control characters from the server",
@@ -185,10 +185,10 @@ func TestServerErrorMapping_InvalidArgumentAndAlreadyExists(t *testing.T) {
 			err: mapChangeError("create", "", statusWithViolations(codes.InvalidArgument,
 				"service execution failed: API validation error",
 				violation(encodedFieldPath("settings", "base", "package_admission", "cooldown", "min_age"),
-					"value must be greater than or equal to 0s and less than or equal to 8760h0m0s"))),
+					"must be greater than or equal to 0s and less than or equal to 31536000s"))),
 			wantCode: usefulerror.ErrBadRequest,
 			wantHuman: "API validation error\nbase.package_admission.cooldown.min_age: " +
-				"value must be greater than or equal to 0s and less than or equal to 8760h0m0s",
+				"must be greater than or equal to 0s and less than or equal to 365d",
 			wantHelp: "Correct the values and run the command again",
 		},
 		{
@@ -284,7 +284,7 @@ func TestRunEdit_ServerFieldErrorReopensWithTheField(t *testing.T) {
 			fix:  replace("min_age: 400d", "min_age: 30d"),
 			violation: violation(encodedFieldPath("settings", "base", "package_admission", "cooldown", "min_age"),
 				"must be greater than or equal to 0s and less than or equal to 31536000s"),
-			want: "# !   base.package_admission.cooldown.min_age: must be greater than or equal to 0s",
+			want: "# !   base.package_admission.cooldown.min_age: must be greater than or equal to 0s and less than or equal to 365d\n",
 		},
 		{
 			name:      "an override name with an upper case letter",
@@ -296,9 +296,9 @@ func TestRunEdit_ServerFieldErrorReopensWithTheField(t *testing.T) {
 		{
 			name:      "an unknown selector label prefix",
 			bad:       replace("custom/criticality", "team/criticality"),
-			fix:       replace("team/criticality", "custom/criticality"),
-			violation: violation("settings.overrides[0].selector", `unknown label prefix "team/"`),
-			want:      "# !   overrides[0].selector: unknown label prefix \"team/\"\n",
+			fix:       replace("{team/criticality:", "{custom/criticality:"),
+			violation: violation(`settings.overrides[0].selector.match_labels["team/criticality"]`, `unknown label prefix "team/"`),
+			want:      "# !   overrides[0].selector.matchLabels[\"team/criticality\"]: unknown label prefix \"team/\"\n",
 		},
 		{
 			name:      "a field of the override in the file",

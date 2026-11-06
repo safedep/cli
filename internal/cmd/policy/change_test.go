@@ -2,6 +2,7 @@ package policy
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	errorv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/error/v1"
@@ -149,25 +150,30 @@ func TestNewPreviewView_InheritedValue(t *testing.T) {
 		name          string
 		layer         recordv1.Layer
 		path          string
-		old, new      string
+		oldValue      string
+		newValue      string
 		inherited     string
 		wantCell      string
 		wantInherited string
+		wantPlain     string
 	}{
 		{
 			name: "base sets a field for the first time", layer: recordv1.Layer_LAYER_BASE,
-			path: "scan_gate.fail_on", new: "SEVERITY_MEDIUM", inherited: "SEVERITY_HIGH",
+			path: "scan_gate.fail_on", newValue: "SEVERITY_MEDIUM", inherited: "SEVERITY_HIGH",
 			wantCell: "high (default) -> medium", wantInherited: "high",
+			wantPlain: "change\tbase\tscan_gate.fail_on\t-\tmedium\tTIGHTENS\thigh",
 		},
 		{
 			name: "override unsets a field", layer: recordv1.Layer_LAYER_OVERRIDE,
-			path: "package_admission.cooldown.min_age", old: `"86400s"`, inherited: `"604800s"`,
+			path: "package_admission.cooldown.min_age", oldValue: `"86400s"`, inherited: `"604800s"`,
 			wantCell: "1d -> 7d (inherited)", wantInherited: "168h",
+			wantPlain: "change\toverride \"payments\"\tpackage_admission.cooldown.min_age\t24h\t-\tTIGHTENS\t168h",
 		},
 		{
 			name: "no lower layer sets the field", layer: recordv1.Layer_LAYER_OVERRIDE,
-			path: "package_admission.cooldown.min_age", new: `"604800s"`,
-			wantCell: "- -> 7d",
+			path: "package_admission.cooldown.min_age", newValue: `"604800s"`,
+			wantCell:  "- -> 7d",
+			wantPlain: "change\toverride \"payments\"\tpackage_admission.cooldown.min_age\t-\t168h\tTIGHTENS\t",
 		},
 	}
 	for _, tt := range tests {
@@ -176,9 +182,10 @@ func TestNewPreviewView_InheritedValue(t *testing.T) {
 			c.SetPath(tt.path)
 			c.SetLayer(tt.layer)
 			c.SetOverrideName("payments")
-			c.SetOldValue(tt.old)
-			c.SetNewValue(tt.new)
+			c.SetOldValue(tt.oldValue)
+			c.SetNewValue(tt.newValue)
 			c.SetInheritedValue(tt.inherited)
+			c.SetDirection(policyv1.ChangeDirection_CHANGE_DIRECTION_TIGHTENS)
 			res := &policyv1.PreviewPolicyChangeResponse{}
 			res.SetChanges([]*policyv1.PathChange{c})
 
@@ -186,6 +193,8 @@ func TestNewPreviewView_InheritedValue(t *testing.T) {
 			require.Len(t, got.Items, 1)
 			assert.Equal(t, tt.wantCell, got.Items[0].changeCell())
 			assert.Equal(t, tt.wantInherited, got.Items[0].Inherited)
+			plain := (&changeShowResult{Preview: got}).RenderPlain()
+			assert.Equal(t, tt.wantPlain, plain[strings.LastIndex(plain, "\n")+1:])
 		})
 	}
 }

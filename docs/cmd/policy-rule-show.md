@@ -28,6 +28,9 @@ Created by    carol
 Revisions     added in revision 48 · active
 ```
 
+After an update of the rule, `Revisions` also names the revision of the last
+update, as `added in revision 48, updated in revision 52 · active`.
+
 ## Authentication
 
 Requires a control-plane OAuth session. Run `safedep auth login` first.

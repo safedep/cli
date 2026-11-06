@@ -316,6 +316,14 @@ func TestRunRuleShow(t *testing.T) {
 	assert.Contains(t, table, "Rule          r_9c1")
 	assert.Contains(t, table, "added in revision 40 · active")
 
+	updated := ruleWithAttributes("r_9c1", corev1.Effect_EFFECT_BLOCK, "")
+	updated.SetUpdatedRevision(43)
+	res.SetRule(updated)
+	got, err = runRuleShow(context.Background(), client, "r_9c1")
+	require.NoError(t, err)
+	assert.Contains(t, got.RenderTable(), "added in revision 40, updated in revision 43 · active")
+	assert.Contains(t, got.RenderPlain(), "updated_revision\t43")
+
 	missing := mocks.NewPolicyServiceClientMock(t)
 	missing.EXPECT().GetPackageRule(mock.Anything, mock.Anything).Return(nil, status.Error(codes.NotFound, "x"))
 	_, err = runRuleShow(context.Background(), missing, "r_x")

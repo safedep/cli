@@ -44,6 +44,8 @@ func TestDocumentDurations(t *testing.T) {
 		{"must be at most 604800s", "must be at most 7d"},
 		{"must be at most 3600s", "must be at most 3600s"},
 		{"must be at most 1.5s", "must be at most 1.5s"},
+		{"must be at most 0.604800s", "must be at most 0.604800s"},
+		{"604800s or 86400s", "7d or 1d"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {

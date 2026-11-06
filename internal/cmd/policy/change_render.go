@@ -68,7 +68,7 @@ func (r *changeShowResult) RenderPlain() string {
 		items = p.Items
 	}
 	for _, it := range items {
-		b.WriteString("\n" + tui.PlainRow("change", it.Where, it.What, it.Old, it.New, it.Direction))
+		b.WriteString("\n" + tui.PlainRow("change", it.Where, it.What, it.Old, it.New, it.Direction, it.Inherited))
 	}
 	if p := r.Preview; p != nil {
 		for _, w := range p.Warnings {

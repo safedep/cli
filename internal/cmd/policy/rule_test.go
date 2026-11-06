@@ -316,6 +316,14 @@ func TestRunRuleShow(t *testing.T) {
 	assert.Contains(t, table, "Rule          r_9c1")
 	assert.Contains(t, table, "added in revision 40 · active")
 
+	updated := ruleWithAttributes("r_9c1", corev1.Effect_EFFECT_BLOCK, "")
+	updated.SetUpdatedRevision(43)
+	res.SetRule(updated)
+	got, err = runRuleShow(context.Background(), client, "r_9c1")
+	require.NoError(t, err)
+	assert.Contains(t, got.RenderTable(), "added in revision 40, updated in revision 43 · active")
+	assert.Contains(t, got.RenderPlain(), "updated_revision\t43")
+
 	missing := mocks.NewPolicyServiceClientMock(t)
 	missing.EXPECT().GetPackageRule(mock.Anything, mock.Anything).Return(nil, status.Error(codes.NotFound, "x"))
 	_, err = runRuleShow(context.Background(), missing, "r_x")
@@ -386,13 +394,17 @@ func TestExpandScopes_AllMixedWithANamedScope(t *testing.T) {
 	}
 }
 
-func TestBuildRuleCreates_TrustExpiryLimit(t *testing.T) {
+func TestRuleCreate_TrustExpiryLimit(t *testing.T) {
 	in := ruleCreateInput{Trust: true, Selector: "pkg:pypi/foo@1.0.3", Scopes: []string{"malware"}, Reason: "FP", Expires: "90d"}
 	_, err := buildRuleCreates(in, nil, fixedNow)
 	require.NoError(t, err)
 
 	in.Expires = "91d"
-	_, err = buildRuleCreates(in, nil, fixedNow)
+	connect := func() (policyv1grpc.PolicyServiceClient, error) {
+		require.Fail(t, "createRules connected to the server before it validated the request")
+		return nil, nil
+	}
+	err = createRules(context.Background(), connect, in, nil, func() time.Time { return fixedNow })
 	ue, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok)
 	assert.Contains(t, ue.HumanError(), "a trust entry expires at most 90 days from now")

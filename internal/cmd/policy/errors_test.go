@@ -267,6 +267,19 @@ func TestKeptEditError_Help(t *testing.T) {
 }
 
 func TestRunEdit_ServerFieldErrorReopensWithTheField(t *testing.T) {
+	minAgeField := func(p *policyv1.Policy) string {
+		return p.GetBase().GetPackageAdmission().GetCooldown().GetMinAge().AsDuration().String()
+	}
+	payName := func(p *policyv1.Policy) string { return p.GetOverrides()[0].GetName() }
+	payLabels := func(p *policyv1.Policy) string { return fmt.Sprint(p.GetOverrides()[0].GetSelector().GetMatchLabels()) }
+	ciName := func(p *policyv1.Policy) string { return p.GetOverrides()[1].GetName() }
+	// The file header has the comment line "scan_gate.fail_on: high" of the
+	// default policy. The fix anchors on the indent of the field, so it edits
+	// the field and not that comment.
+	fixFailOn := replace("\n    fail_on: high", "\n    fail_on: medium")
+	ciFailOn := func(p *policyv1.Policy) string {
+		return p.GetOverrides()[1].GetSpec().GetScanGate().GetFailOn().String()
+	}
 	minAge := func(s string) string {
 		s = uncomment("  # package_admission:", "    # cooldown:", "      # min_age: 7d")(s)
 		return strings.Replace(s, "min_age: 7d", "min_age: 400d", 1)
@@ -277,6 +290,10 @@ func TestRunEdit_ServerFieldErrorReopensWithTheField(t *testing.T) {
 		bad, fix  func(string) string
 		violation *errdetails.BadRequest_FieldViolation
 		want      string
+		// field reads the edited field from the settings of a request. sent
+		// is its value in the refused request and in the corrected request.
+		field func(*policyv1.Policy) string
+		sent  [2]string
 	}{
 		{
 			name: "a min_age above the limit",
@@ -284,7 +301,9 @@ func TestRunEdit_ServerFieldErrorReopensWithTheField(t *testing.T) {
 			fix:  replace("min_age: 400d", "min_age: 30d"),
 			violation: violation(encodedFieldPath("settings", "base", "package_admission", "cooldown", "min_age"),
 				"must be greater than or equal to 0s and less than or equal to 31536000s"),
-			want: "# !   base.package_admission.cooldown.min_age: must be greater than or equal to 0s and less than or equal to 365d\n",
+			want:  "# !   base.package_admission.cooldown.min_age: must be greater than or equal to 0s and less than or equal to 365d\n",
+			field: minAgeField,
+			sent:  [2]string{"9600h0m0s", "720h0m0s"},
 		},
 		{
 			name:      "an override name with an upper case letter",
@@ -292,6 +311,8 @@ func TestRunEdit_ServerFieldErrorReopensWithTheField(t *testing.T) {
 			fix:       replace("name: Payments", "name: payments-team"),
 			violation: violation(encodedFieldPath("settings", "overrides[0]", "name"), "does not match regex pattern"),
 			want:      "# !   overrides[0].name: does not match regex pattern\n",
+			field:     payName,
+			sent:      [2]string{"Payments", "payments-team"},
 		},
 		{
 			name:      "an unknown selector label prefix",
@@ -299,6 +320,8 @@ func TestRunEdit_ServerFieldErrorReopensWithTheField(t *testing.T) {
 			fix:       replace("{team/criticality:", "{custom/criticality:"),
 			violation: violation(`settings.overrides[0].selector.match_labels["team/criticality"]`, `unknown label prefix "team/"`),
 			want:      "# !   overrides[0].selector.matchLabels[\"team/criticality\"]: unknown label prefix \"team/\"\n",
+			field:     payLabels,
+			sent:      [2]string{"map[team/criticality:high]", "map[custom/criticality:high]"},
 		},
 		{
 			name:      "a field of the override in the file",
@@ -307,42 +330,50 @@ func TestRunEdit_ServerFieldErrorReopensWithTheField(t *testing.T) {
 			fix:       replace("name: CI", "name: ci-runners"),
 			violation: violation(encodedFieldPath("settings", "overrides[1]", "name"), "does not match regex pattern"),
 			want:      "# !   name: does not match regex pattern\n",
+			field:     ciName,
+			sent:      [2]string{"CI", "ci-runners"},
 		},
 		{
 			name:     "a spec field of the override in the file",
 			override: "ci",
 			bad:      replace("fail_on: critical", "fail_on: high"),
-			fix:      replace("fail_on: high", "fail_on: medium"),
+			fix:      fixFailOn,
 			violation: violation(encodedFieldPath("settings", "overrides[1]", "spec", "scan_gate", "fail_on"),
 				"value must be one of the defined enum values"),
-			want: "# !   spec.scan_gate.fail_on: value must be one of the defined enum values\n",
+			want:  "# !   spec.scan_gate.fail_on: value must be one of the defined enum values\n",
+			field: ciFailOn,
+			sent:  [2]string{"SEVERITY_HIGH", "SEVERITY_MEDIUM"},
 		},
 		{
 			name:      "the override in the file as a whole",
 			override:  "ci",
 			bad:       replace("fail_on: critical", "fail_on: high"),
-			fix:       replace("fail_on: high", "fail_on: medium"),
+			fix:       fixFailOn,
 			violation: violation(encodedFieldPath("settings", "overrides[1]"), "the override selects one endpoint"),
 			want:      "# !   the override selects one endpoint\n",
+			field:     ciFailOn,
+			sent:      [2]string{"SEVERITY_HIGH", "SEVERITY_MEDIUM"},
 		},
 		{
 			name:      "another override in an edit of one override",
 			override:  "ci",
 			bad:       replace("fail_on: critical", "fail_on: high"),
-			fix:       replace("fail_on: high", "fail_on: medium"),
+			fix:       fixFailOn,
 			violation: violation(encodedFieldPath("settings", "overrides[0]", "priority"), "must be unique"),
 			want:      "# !   overrides[0].priority: must be unique\n",
+			field:     ciFailOn,
+			sent:      [2]string{"SEVERITY_HIGH", "SEVERITY_MEDIUM"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			client := mocks.NewPolicyServiceClientMock(t)
 			client.EXPECT().GetPolicy(mock.Anything, mock.Anything).Return(headResponse(), nil)
-			calls := 0
+			var requests []*policyv1.CreatePolicyChangeRequest
 			client.EXPECT().CreatePolicyChange(mock.Anything, mock.Anything).
-				RunAndReturn(func(context.Context, *policyv1.CreatePolicyChangeRequest, ...grpc.CallOption) (*policyv1.CreatePolicyChangeResponse, error) {
-					calls++
-					if calls == 1 {
+				RunAndReturn(func(_ context.Context, r *policyv1.CreatePolicyChangeRequest, _ ...grpc.CallOption) (*policyv1.CreatePolicyChangeResponse, error) {
+					requests = append(requests, r)
+					if len(requests) == 1 {
 						return nil, statusWithViolations(codes.InvalidArgument,
 							"service execution failed: "+tt.violation.GetDescription(), tt.violation)
 					}
@@ -355,7 +386,9 @@ func TestRunEdit_ServerFieldErrorReopensWithTheField(t *testing.T) {
 			change, err := runEdit(context.Background(), client, ed.open, "", editInput{Override: tt.override})
 			require.NoError(t, err)
 			assert.Equal(t, "18", change.GetChangeId())
-			assert.Equal(t, 2, calls)
+			require.Len(t, requests, 2)
+			assert.Equal(t, tt.sent[0], tt.field(requests[0].GetSettings()), "the refused request")
+			assert.Equal(t, tt.sent[1], tt.field(requests[1].GetSettings()), "the corrected request")
 			require.Len(t, ed.seen, 2)
 			assert.Contains(t, ed.seen[1], tt.want)
 			assert.NotContains(t, ed.seen[1], "rpc error")

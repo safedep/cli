@@ -28,6 +28,7 @@ type ruleView struct {
 	AttachesTo      string   `json:"attaches_to"`
 	CreatedBy       string   `json:"created_by,omitempty"`
 	AddedRevision   uint64   `json:"added_revision"`
+	UpdatedRevision uint64   `json:"updated_revision,omitempty"`
 	RemovedRevision uint64   `json:"removed_revision,omitempty"`
 	ExpiresAt       string   `json:"expires_at,omitempty"`
 	CreatedAt       string   `json:"created_at,omitempty"`
@@ -53,6 +54,7 @@ func newRuleView(r *policyv1.PackageRuleWithAttributes, names map[string]string)
 		AttachesTo:      baseAttachment,
 		CreatedBy:       cloudpolicy.ActorName(r.GetCreatedBy()),
 		AddedRevision:   r.GetAddedRevision(),
+		UpdatedRevision: r.GetUpdatedRevision(),
 		RemovedRevision: r.GetRemovedRevision(),
 		ExpiresAt:       cloudpolicy.RFC3339(expires),
 		CreatedAt:       cloudpolicy.RFC3339(cloudpolicy.TimeOf(r.GetCreatedAt())),

@@ -43,7 +43,7 @@ r_80b  pkg:npm/leftpad  trust   malware           FP, S-71        web           
 ## Output
 
 `json` holds `rules` (rule id, purl, vers, effect, scopes, reason, ticket,
-requester, override id, `attaches_to`, author, added and removed revision, times)
+requester, override id, `attaches_to`, author, added, updated and removed revision, times)
 and `next_page_token`. `plain` writes a tab-separated header and one row for each
 rule. The table humanizes the expiry.
 

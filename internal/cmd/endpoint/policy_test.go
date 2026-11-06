@@ -2,6 +2,7 @@ package endpoint
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -130,17 +131,21 @@ func TestPolicyCell(t *testing.T) {
 
 func TestToolPolicies_StatesWithNoRevisionAreNotInThePolicyCell(t *testing.T) {
 	tests := []struct {
-		state recordv1.ApplyState
-		want  string
+		state    recordv1.ApplyState
+		revision uint64
+		want     string
 	}{
-		{recordv1.ApplyState_APPLY_STATE_DISABLED, "-"},
-		{recordv1.ApplyState_APPLY_STATE_NONE, "-"},
-		{recordv1.ApplyState_APPLY_STATE_STALE, "rev 0"},
+		{recordv1.ApplyState_APPLY_STATE_DISABLED, 0, "-"},
+		{recordv1.ApplyState_APPLY_STATE_NONE, 0, "-"},
+		{recordv1.ApplyState_APPLY_STATE_UNSPECIFIED, 0, "-"},
+		{recordv1.ApplyState_APPLY_STATE_UNSPECIFIED, 47, "rev 47"},
+		{recordv1.ApplyState_APPLY_STATE_STALE, 0, "rev 0"},
 	}
 	for _, tt := range tests {
-		t.Run(tt.state.String(), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s rev %d", tt.state, tt.revision), func(t *testing.T) {
 			report := &recordv1.ApplyReport{}
 			report.SetState(tt.state)
+			report.SetRevision(tt.revision)
 			p := &controltowerv1.EndpointToolPolicy{}
 			p.SetToolName("pmg")
 			p.SetPolicy(report)

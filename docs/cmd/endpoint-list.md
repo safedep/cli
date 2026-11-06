@@ -36,7 +36,8 @@ The `Policy` column shows the applied policy revision that each tool reported:
 `rev 48` when every tool applies the same revision, or `pmg 48, vet 47`. A tool
 that applies no cloud policy is not in the column: its state is `disabled`, as for
 pmg with `cloud.policy: false`, or `none`, when the tool has no policy cache yet and applies its
-baseline. The column shows `-` when no tool is left. JSON
+baseline. A tool that sent no policy report is not in the column either. The column
+shows `-` when no tool is left. JSON
 output carries `tool_policies` for each endpoint: the tool, its version, its
 applied policy revision and the state of the policy in the tool.
 

@@ -25,7 +25,7 @@ func ruleShowCmd(a *app.App) *cobra.Command {
 		Use:   "show RULE",
 		Short: "Show one package rule",
 		Long: "Show one package rule: its selector, effect, trust scopes, reason, ticket, requester, the " +
-			"policy override that it attaches to, its expiry, and the revisions that added and removed it. " +
+			"policy override that it attaches to, its expiry, and the revisions that added, updated and removed it. " +
 			"A block message of a tool cites the rule id.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -89,8 +89,19 @@ func (r *ruleShowResult) table(now time.Time) string {
 		{"Attaches to", v.AttachesTo},
 		{"Expires", expires},
 		{"Created by", cloudpolicy.EmptyDash(v.CreatedBy)},
-		{"Revisions", fmt.Sprintf("added in revision %d%s%s", v.AddedRevision, sep, removed)},
+		{"Revisions", v.revisions() + sep + removed},
 	})
+}
+
+// The server sends updated_revision 0 when no update changed the rule. An
+// updated revision equal to the added revision tells the reader nothing new,
+// so the row leaves it out.
+func (v ruleView) revisions() string {
+	text := fmt.Sprintf("added in revision %d", v.AddedRevision)
+	if v.UpdatedRevision > 0 && v.UpdatedRevision != v.AddedRevision {
+		text += fmt.Sprintf(", updated in revision %d", v.UpdatedRevision)
+	}
+	return text
 }
 
 func (r *ruleShowResult) RenderPlain() string {
@@ -108,6 +119,7 @@ func (r *ruleShowResult) RenderPlain() string {
 		clitui.PlainRow("expires_at", v.ExpiresAt),
 		clitui.PlainRow("created_by", v.CreatedBy),
 		clitui.PlainRow("added_revision", fmt.Sprint(v.AddedRevision)),
+		clitui.PlainRow("updated_revision", fmt.Sprint(v.UpdatedRevision)),
 		clitui.PlainRow("removed_revision", fmt.Sprint(v.RemovedRevision)),
 	}, "\n")
 }

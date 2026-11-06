@@ -122,8 +122,8 @@ type ToolPolicy struct {
 	State      string
 	ReportedAt time.Time
 	// noRevision marks a tool that applies no cloud policy: it is disabled
-	// in the tool, or the tool has no policy cache yet. Its revision is 0
-	// and means nothing.
+	// in the tool, the tool has no policy cache yet, or the endpoint sent no
+	// policy report for the tool. Its revision is 0 and means nothing.
 	noRevision bool
 }
 type ListEndpoint struct {
@@ -346,6 +346,8 @@ func toolPolicies(in []*controltowerv1.EndpointToolPolicy) []ToolPolicy {
 		switch p.GetPolicy().GetState() {
 		case recordv1.ApplyState_APPLY_STATE_DISABLED, recordv1.ApplyState_APPLY_STATE_NONE:
 			tp.noRevision = true
+		case recordv1.ApplyState_APPLY_STATE_UNSPECIFIED:
+			tp.noRevision = tp.Revision == 0
 		}
 		if ts := p.GetReportedAt(); ts != nil {
 			tp.ReportedAt = ts.AsTime().UTC()

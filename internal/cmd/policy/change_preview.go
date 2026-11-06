@@ -7,6 +7,7 @@ import (
 	"time"
 
 	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
+	corev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/core/v1"
 	recordv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/record/v1"
 	policyv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/policy/v1"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -19,12 +20,14 @@ import (
 // `change show` and `change publish` print.
 
 // changeItem is one row of "What changes": a field, a policy override or a
-// package rule operation.
+// package rule operation. Inherited is the value that the lower layers give
+// a field on a side that this layer does not set.
 type changeItem struct {
 	Where     string `json:"where"`
 	What      string `json:"what"`
 	Old       string `json:"old,omitempty"`
 	New       string `json:"new,omitempty"`
+	Inherited string `json:"inherited,omitempty"`
 	Direction string `json:"direction"`
 	oldHuman  string
 	newHuman  string
@@ -91,22 +94,13 @@ func newPreviewView(res *policyv1.PreviewPolicyChangeResponse) *previewView {
 		Warnings:         []warningView{},
 	}
 	for _, c := range res.GetChanges() {
-		where := "base"
-		if c.GetLayer() == recordv1.Layer_LAYER_OVERRIDE {
-			where = fmt.Sprintf("override %q", c.GetOverrideName())
-		}
-		oldValue, oldHuman := cloudpolicy.FormatJSONValue(c.GetPath(), c.GetOldValue())
-		newValue, newHuman := cloudpolicy.FormatJSONValue(c.GetPath(), c.GetNewValue())
-		v.Items = append(v.Items, changeItem{
-			Where: where, What: c.GetPath(), Old: oldValue, New: newValue,
-			Direction: directionToken(c.GetDirection()), oldHuman: oldHuman, newHuman: newHuman,
-		})
+		v.Items = append(v.Items, pathChangeItem(c))
 	}
 	for _, c := range res.GetOverrideChanges() {
 		v.Items = append(v.Items, overrideChangeItem(c))
 	}
 	for _, op := range res.GetPackageRuleOperations() {
-		item := ruleOperationItem(op.GetOperation())
+		item := ruleOperationItem(op.GetOperation(), op.GetHeadRule())
 		item.Direction = directionToken(op.GetDirection())
 		if op.GetOperation().HasCreate() {
 			item.New = fmt.Sprintf("matches %d packages, seen on %d endpoints in 30d",
@@ -133,6 +127,32 @@ func newPreviewView(res *policyv1.PreviewPolicyChangeResponse) *previewView {
 		})
 	}
 	return v
+}
+
+// pathChangeItem turns one change to a field into a row. A side that the
+// layer does not set shows the value that the lower layers give it, with a
+// mark, so the reader sees the value that applies and knows that this layer
+// does not set it.
+func pathChangeItem(c *policyv1.PathChange) changeItem {
+	where, mark := "base", "(default)"
+	if c.GetLayer() == recordv1.Layer_LAYER_OVERRIDE {
+		where, mark = fmt.Sprintf("override %q", c.GetOverrideName()), "(inherited)"
+	}
+	item := changeItem{Where: where, What: c.GetPath(), Direction: directionToken(c.GetDirection())}
+	item.Old, item.oldHuman = cloudpolicy.FormatJSONValue(c.GetPath(), c.GetOldValue())
+	item.New, item.newHuman = cloudpolicy.FormatJSONValue(c.GetPath(), c.GetNewValue())
+	if c.GetInheritedValue() == "" {
+		return item
+	}
+	var inheritedHuman string
+	item.Inherited, inheritedHuman = cloudpolicy.FormatJSONValue(c.GetPath(), c.GetInheritedValue())
+	if c.GetOldValue() == "" {
+		item.oldHuman = inheritedHuman + " " + mark
+	}
+	if c.GetNewValue() == "" {
+		item.newHuman = inheritedHuman + " " + mark
+	}
+	return item
 }
 
 // overrideChangeValue gives the human form of a value of an override change.
@@ -213,25 +233,49 @@ func overrideChangeItem(c *policyv1.OverrideChange) changeItem {
 func ruleOperationItems(ops []*policyv1.PackageRuleOperation) []changeItem {
 	out := make([]changeItem, 0, len(ops))
 	for _, op := range ops {
-		out = append(out, ruleOperationItem(op))
+		out = append(out, ruleOperationItem(op, nil))
 	}
 	return out
 }
 
-func ruleOperationItem(op *policyv1.PackageRuleOperation) changeItem {
-	item := changeItem{Where: "package rules", oldHuman: "-", newHuman: "-"}
+// ruleOperationItem turns one package rule operation into a row. head is
+// the rule at head for an update or a delete. Only a preview has it. With
+// head the row names what the rule selects, as the notice of the server
+// does. Without it the row names the rule id only.
+func ruleOperationItem(op *policyv1.PackageRuleOperation, head *policyv1.PackageRuleWithAttributes) changeItem {
+	overrideID := op.GetCreate().GetOverrideId()
+	if head != nil {
+		overrideID = head.GetOverrideId()
+	}
+	item := changeItem{Where: ruleOperationPlace(overrideID), oldHuman: "-", newHuman: "-"}
 	switch {
 	case op.HasCreate():
-		rule := op.GetCreate().GetRule()
-		item.What = fmt.Sprintf("create %s %s",
-			tui.EnumToken(rule.GetEffect().String(), effectPrefix), selectorText(rule.GetSelector()))
-		if id := op.GetCreate().GetOverrideId(); id != "" {
-			item.Where = "package rules of override " + id
-		}
+		item.What = "create " + ruleText(op.GetCreate().GetRule())
 	case op.HasUpdate():
-		item.What = "update " + op.GetUpdate().GetRuleId()
+		item.What = "update " + headRuleText(op.GetUpdate().GetRuleId(), head)
 	case op.HasDelete():
-		item.What = "delete " + op.GetDelete().GetRuleId()
+		item.What = "delete " + headRuleText(op.GetDelete().GetRuleId(), head)
 	}
 	return item
+}
+
+func ruleOperationPlace(overrideID string) string {
+	if overrideID == "" {
+		return "package rules"
+	}
+	return "package rules of override " + overrideID
+}
+
+// ruleText names a rule by its effect and selector, as "trust pkg:npm/evil".
+func ruleText(rule *corev1.PackageRule) string {
+	return tui.EnumToken(rule.GetEffect().String(), effectPrefix) + " " + selectorText(rule.GetSelector())
+}
+
+// headRuleText names the rule of an update or a delete, as
+// "trust pkg:npm/evil (r_0123456789)".
+func headRuleText(id string, head *policyv1.PackageRuleWithAttributes) string {
+	if head == nil {
+		return id
+	}
+	return ruleText(head.GetRule()) + " (" + id + ")"
 }

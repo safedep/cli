@@ -46,6 +46,14 @@ know what each tool did before. A selector edit always loosens, because it can
 move subjects to another policy override. The impact counts only projects: the
 pull request check enforces `scan_gate.fail_on` and does not support the cooldown.
 
+When the change sets a field that its layer did not set before, or unsets a
+field, the empty side shows the value that the lower layers give the field, as
+`high (default) -> medium` for the policy base and `medium -> high (inherited)`
+for a policy override. A side shows `-` when no lower layer sets the field.
+
+An update or a delete of a package rule names the rule at head by its effect,
+selector and id, as `delete trust pkg:npm/lodash (r_68e23zskkh)`.
+
 A stale change shows `STALE: sync it before you publish` in the first line. A
 published or deleted change shows no preview.
 
@@ -53,7 +61,8 @@ published or deleted change shows no preview.
 
 `json` holds `change` and `preview` (head revision, stale, direction, changes,
 matched counts, coverage, warnings). `plain` writes `key<TAB>value` lines and one
-`change<TAB>where<TAB>what<TAB>old<TAB>new<TAB>direction` line for each change.
+`change<TAB>where<TAB>what<TAB>old<TAB>new<TAB>direction<TAB>inherited` line for
+each change. `inherited` is the value of the lower layers on an empty side.
 Values in `plain` and `json` are exact, as `168h`, and a selector is the protojson
 that the server sends. The table humanizes them, as `7d` and `custom/criticality=high`.
 

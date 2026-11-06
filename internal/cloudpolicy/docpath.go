@@ -134,7 +134,10 @@ func joinFieldPath(segments []pathSegment) string {
 }
 
 // wholeSeconds matches a protovalidate duration in seconds, as "31536000s".
-var wholeSeconds = regexp.MustCompile(`\b([0-9]+)s\b`)
+// RE2 has no lookbehind, so the first group captures the character before
+// the number. It excludes a word character and a dot, so the fraction of
+// "0.604800s" does not match.
+var wholeSeconds = regexp.MustCompile(`(^|[^\w.])([0-9]+)s\b`)
 
 // DocumentDurations writes each duration in text that is a whole number of
 // days in the form of the document notes, as "31536000s" to "365d".
@@ -142,10 +145,11 @@ var wholeSeconds = regexp.MustCompile(`\b([0-9]+)s\b`)
 // compare with the "from 0s to 365d" note of the file.
 func DocumentDurations(text string) string {
 	return wholeSeconds.ReplaceAllStringFunc(text, func(m string) string {
-		n, err := strconv.ParseInt(strings.TrimSuffix(m, "s"), 10, 64)
+		parts := wholeSeconds.FindStringSubmatch(m)
+		n, err := strconv.ParseInt(parts[2], 10, 64)
 		if err != nil || n == 0 || n%(24*60*60) != 0 || n > int64(time.Duration(1<<62)/time.Second) {
 			return m
 		}
-		return humanDuration(time.Duration(n) * time.Second)
+		return parts[1] + humanDuration(time.Duration(n)*time.Second)
 	})
 }

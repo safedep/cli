@@ -31,7 +31,7 @@ safedep policy change create --from-revision 46 --capability scan_gate -m "rever
 
 ```
 ✓ change 20 restores scan_gate from revision 46 · package rules stay at head
-! It loosens scan_gate.fail_on (medium -> high) in override "payments"
+! It loosens scan_gate.fail_on from medium to high in override "payments"
   Review it: safedep policy change show 20
   Publish it: safedep policy change publish 20
 ```

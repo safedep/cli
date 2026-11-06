@@ -85,6 +85,18 @@ func TestIsRetryable(t *testing.T) {
 		{"the title with no detail", status.Error(codes.InvalidArgument, "title: must be at most 200 characters"), false},
 		{"a message with no field", status.Error(codes.InvalidArgument, "override priorities must be unique"), true},
 		{"another code", status.Error(codes.Unavailable, "down"), false},
+		{
+			"an encoded field path of the document",
+			badRequest(encodedFieldPath("settings", "base", "package_admission", "cooldown", "min_age"), "must be at most 365d"),
+			true,
+		},
+		{"the title after the service prefix", status.Error(codes.InvalidArgument, "service execution failed: title: too long"), false},
+		{
+			"a mapped error of the document",
+			mapChangeError("create", "", badRequest(encodedFieldPath("settings", "overrides[0]", "name"), "does not match")),
+			true,
+		},
+		{"a mapped error of the title", mapChangeError("create", "", status.Error(codes.InvalidArgument, "title: too long")), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

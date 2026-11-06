@@ -1,13 +1,18 @@
 package policy
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 
+	validate "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	errorv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/error/v1"
+	"buf.build/go/protovalidate"
 	"github.com/safedep/dry/usefulerror"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/prototext"
 
 	"github.com/safedep/cli/internal/tui"
 )
@@ -26,9 +31,89 @@ func invalidInputError(cause error, help string) error {
 
 // failedPreconditionError shows the detail of a FAILED_PRECONDITION. The
 // server sends no reason with it, so the hint covers the cases of the RPC.
-func failedPreconditionError(st *status.Status, help string, cause error) error {
+func failedPreconditionError(err error, help string, cause error) error {
 	return newPolicyError(usefulerror.ErrConflict,
-		"The server refused the request: "+tui.EscapeLine(st.Message()), help, cause)
+		"The server refused the request: "+describeStatus(err), help, cause)
+}
+
+// invalidArgumentError shows the message and each field violation of an
+// INVALID_ARGUMENT. Without it, the generic conversion shows only "Invalid
+// request" and the user cannot find the field to fix.
+func invalidArgumentError(err error, help string, cause error) error {
+	return newPolicyError(usefulerror.ErrBadRequest, describeStatus(err), help, cause)
+}
+
+// serviceFailedPrefix is the text that the server puts before the message of
+// a service error. It names no field and no fix, so the CLI removes it.
+const serviceFailedPrefix = "service execution failed: "
+
+// describeStatus is the text of a gRPC status error for a person: the status
+// message, then each field violation of a BadRequest detail as
+// "field: description". The text of status.FromError on a wrapped error
+// starts with "rpc error: code = ... desc =", so this reads the status of
+// the innermost error. When the message already holds the description of
+// each violation, the violations replace it, so no text shows two times.
+func describeStatus(err error) string {
+	st, ok := innerStatus(err)
+	if !ok {
+		return err.Error()
+	}
+	msg := strings.TrimSpace(st.Message())
+	for strings.HasPrefix(msg, serviceFailedPrefix) {
+		msg = strings.TrimSpace(strings.TrimPrefix(msg, serviceFailedPrefix))
+	}
+	var lines []string
+	covered := true
+	if bad, ok := usefulerror.DetailAs[*errdetails.BadRequest](err); ok {
+		for _, v := range bad.GetFieldViolations() {
+			line := v.GetDescription()
+			if field := violationField(v); field != "" {
+				line = field + ": " + line
+			}
+			lines = append(lines, tui.EscapeLine(line))
+			covered = covered && v.GetDescription() != "" && strings.Contains(msg, v.GetDescription())
+		}
+	}
+	if msg != "" && (len(lines) == 0 || !covered) {
+		lines = append([]string{tui.EscapeText(msg)}, lines...)
+	}
+	if len(lines) == 0 {
+		return st.Code().String()
+	}
+	return strings.Join(lines, "\n")
+}
+
+// innerStatus is the status of the innermost gRPC error in the chain of err,
+// with its message as the server sent it.
+func innerStatus(err error) (*status.Status, bool) {
+	var gs interface{ GRPCStatus() *status.Status }
+	if !errors.As(err, &gs) {
+		return nil, false
+	}
+	st := gs.GRPCStatus()
+	return st, st != nil
+}
+
+// violationField is the field of a violation as a path, as in
+// "settings.overrides[0].name". The server sends the protovalidate field
+// path of a request as protobuf text, which no person can read.
+func violationField(v *errdetails.BadRequest_FieldViolation) string {
+	field := v.GetField()
+	path := &validate.FieldPath{}
+	if err := prototext.Unmarshal([]byte(field), path); err != nil || len(path.GetElements()) == 0 {
+		return field
+	}
+	return protovalidate.FieldPathString(path)
+}
+
+// errorText is the text of err for a person: the human error of a useful
+// error in the chain, else the text of describeStatus.
+func errorText(err error) string {
+	var ue usefulerror.UsefulError
+	if errors.As(err, &ue) {
+		return ue.HumanError()
+	}
+	return describeStatus(err)
 }
 
 // violatesField reports whether a BadRequest detail of err names field.
@@ -38,11 +123,26 @@ func violatesField(err error, field string) bool {
 		return false
 	}
 	for _, v := range bad.GetFieldViolations() {
-		if v.GetField() == field {
+		if violationField(v) == field {
 			return true
 		}
 	}
 	return false
+}
+
+// alreadyExistsError is the error for a package rule that selects the same
+// package as a rule at head. The server names that rule in a ResourceInfo
+// detail. Without the detail, the status message is the fallback.
+func alreadyExistsError(err error, cause error) error {
+	if info, ok := usefulerror.DetailAs[*errdetails.ResourceInfo](err); ok && info.GetResourceName() != "" {
+		id := tui.EscapeLine(info.GetResourceName())
+		return newPolicyError(usefulerror.ErrConflict,
+			fmt.Sprintf("Package rule %s already selects this package.", id),
+			"See it with: safedep policy rule show "+id,
+			cause)
+	}
+	return newPolicyError(usefulerror.ErrConflict, describeStatus(err),
+		"List the rules: safedep policy rule list", cause)
 }
 
 // mapChangeError gives the recovery for the errors of a policy change RPC:
@@ -77,7 +177,11 @@ func mapChangeError(op, changeID string, err error) error {
 				"Ask an Admin of the tenant to do it",
 				cause)
 		case codes.FailedPrecondition:
-			return failedPreconditionError(st, changePreconditionHelp(changeID), cause)
+			return failedPreconditionError(err, changePreconditionHelp(changeID), cause)
+		case codes.InvalidArgument:
+			return invalidArgumentError(err, "Correct the values and run the command again", cause)
+		case codes.AlreadyExists:
+			return alreadyExistsError(err, cause)
 		}
 	}
 	return cause
@@ -127,7 +231,11 @@ func mapRuleError(op, ruleID string, err error) error {
 				"Ask an Admin of the tenant to do it",
 				cause)
 		case codes.FailedPrecondition:
-			return failedPreconditionError(st, "List the rules: safedep policy rule list", cause)
+			return failedPreconditionError(err, "List the rules: safedep policy rule list", cause)
+		case codes.InvalidArgument:
+			return invalidArgumentError(err, fmt.Sprintf("See the flags: safedep policy rule %s --help", op), cause)
+		case codes.AlreadyExists:
+			return alreadyExistsError(err, cause)
 		}
 	}
 	return cause
@@ -167,7 +275,7 @@ func mapDecisionListError(err error) error {
 			}
 		}
 		return newPolicyError(usefulerror.ErrBadRequest,
-			"The server refused the filters: "+tui.EscapeLine(st.Message()),
+			"The server refused the filters: "+describeStatus(err),
 			"See the filters: safedep policy decision list --help",
 			cause)
 	case codes.Unimplemented:

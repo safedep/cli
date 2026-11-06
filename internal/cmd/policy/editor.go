@@ -13,7 +13,6 @@ import (
 	"github.com/safedep/dry/usefulerror"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -49,13 +48,13 @@ func isRetryable(err error) bool {
 	if errors.As(err, &r) {
 		return true
 	}
-	st, ok := status.FromError(err)
+	st, ok := innerStatus(err)
 	if !ok || st.Code() != codes.InvalidArgument {
 		return false
 	}
 	if bad, ok := usefulerror.DetailAs[*errdetails.BadRequest](err); ok && len(bad.GetFieldViolations()) > 0 {
 		for _, v := range bad.GetFieldViolations() {
-			if isDocumentField(v.GetField()) {
+			if isDocumentField(violationField(v)) {
 				return true
 			}
 		}
@@ -63,7 +62,7 @@ func isRetryable(err error) bool {
 	}
 	// With no field detail, the message starts with the field, as in
 	// "title: must be at most 200 characters".
-	field, _, found := strings.Cut(st.Message(), ":")
+	field, _, found := strings.Cut(strings.TrimPrefix(st.Message(), serviceFailedPrefix), ":")
 	return !found || strings.ContainsAny(field, " ") || isDocumentField(field)
 }
 
@@ -163,7 +162,7 @@ func editLoop(
 func errorLines(err error) []byte {
 	var b strings.Builder
 	b.WriteString(errorLinePrefix + "The last save failed:\n")
-	for _, line := range strings.Split(err.Error(), "\n") {
+	for _, line := range strings.Split(errorText(err), "\n") {
 		b.WriteString(errorLinePrefix + "  " + line + "\n")
 	}
 	b.WriteString(errorLinePrefix + "Fix the file and save it again. Close it with no change to stop.\n")
@@ -181,6 +180,9 @@ func stripErrorLines(text []byte) []byte {
 	return text
 }
 
+// noHelpText is the help of a useful error that has no help.
+const noHelpText = "No additional help is available for this error."
+
 // keptEditError keeps the code, the message and the help of a useful
 // error, such as the one for a role that cannot change the policy, and adds
 // the path of the kept file.
@@ -188,8 +190,8 @@ func keptEditError(path string, cause error) error {
 	code, human, help := usefulerror.ErrBadRequest, "The command did not save the policy edit: "+cause.Error(), ""
 	if ue, ok := usefulerror.AsUsefulError(cause); ok {
 		code, human = ue.Code(), "The command did not save the policy edit: "+ue.HumanError()
-		if ue.Help() != "" {
-			help = ue.Help() + ". "
+		if h := strings.TrimRight(ue.Help(), ". "); h != "" && ue.Help() != noHelpText {
+			help = h + ". "
 		}
 	}
 	return usefulerror.NewUsefulError().

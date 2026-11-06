@@ -9,6 +9,8 @@ import (
 
 	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	policyv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/policy/v1"
+	"buf.build/go/protovalidate"
+	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/tui"
 	"github.com/safedep/dry/usefulerror"
 	"google.golang.org/protobuf/proto"
@@ -264,7 +266,38 @@ func validateSettings(p *policyv1.Policy) error {
 			return fmt.Errorf("override %q: give it a selector. Write selector: {} to select every subject", o.GetName())
 		}
 	}
-	return nil
+	return checkProtoRules(p)
+}
+
+// checkProtoRules checks the protovalidate rules of the policy, as the server
+// does, and gives each violation with its field path. The server sends its
+// field paths as protobuf text, so without this check an edit with a value
+// out of range fails with no field name and the editor does not open again.
+func checkProtoRules(p *policyv1.Policy) error {
+	err := protovalidate.Validate(p)
+	if err == nil {
+		return nil
+	}
+	var verr *protovalidate.ValidationError
+	if !errors.As(err, &verr) {
+		log.Warnf("policy edit: cannot check the policy rules before the save: %v", err)
+		return nil
+	}
+	errs := make([]error, 0, len(verr.Violations))
+	for _, v := range verr.Violations {
+		if v == nil || v.Proto == nil {
+			continue
+		}
+		msg := v.Proto.GetMessage()
+		if path := protovalidate.FieldPathString(v.Proto.GetField()); path != "" {
+			msg = path + ": " + msg
+		}
+		errs = append(errs, errors.New(msg))
+	}
+	if len(errs) == 0 {
+		return err
+	}
+	return errors.Join(errs...)
 }
 
 func warnComments(saved, written []byte) {

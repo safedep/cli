@@ -93,8 +93,9 @@ func (r *ruleShowResult) table(now time.Time) string {
 	})
 }
 
-// revisions names the revision that added the rule, and the revision of its
-// last update when an update changed it later.
+// The server sends updated_revision 0 when no update changed the rule. An
+// updated revision equal to the added revision tells the reader nothing new,
+// so the row leaves it out.
 func (v ruleView) revisions() string {
 	text := fmt.Sprintf("added in revision %d", v.AddedRevision)
 	if v.UpdatedRevision > 0 && v.UpdatedRevision != v.AddedRevision {

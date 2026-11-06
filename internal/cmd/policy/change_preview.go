@@ -243,7 +243,11 @@ func ruleOperationItems(ops []*policyv1.PackageRuleOperation) []changeItem {
 // head the row names what the rule selects, as the notice of the server
 // does. Without it the row names the rule id only.
 func ruleOperationItem(op *policyv1.PackageRuleOperation, head *policyv1.PackageRuleWithAttributes) changeItem {
-	item := changeItem{Where: ruleOperationPlace(op.GetCreate().GetOverrideId()), oldHuman: "-", newHuman: "-"}
+	overrideID := op.GetCreate().GetOverrideId()
+	if head != nil {
+		overrideID = head.GetOverrideId()
+	}
+	item := changeItem{Where: ruleOperationPlace(overrideID), oldHuman: "-", newHuman: "-"}
 	switch {
 	case op.HasCreate():
 		item.What = "create " + ruleText(op.GetCreate().GetRule())
@@ -251,9 +255,6 @@ func ruleOperationItem(op *policyv1.PackageRuleOperation, head *policyv1.Package
 		item.What = "update " + headRuleText(op.GetUpdate().GetRuleId(), head)
 	case op.HasDelete():
 		item.What = "delete " + headRuleText(op.GetDelete().GetRuleId(), head)
-	}
-	if head != nil {
-		item.Where = ruleOperationPlace(head.GetOverrideId())
 	}
 	return item
 }

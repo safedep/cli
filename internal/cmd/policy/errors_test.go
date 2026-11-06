@@ -273,6 +273,10 @@ func TestRunEdit_ServerFieldErrorReopensWithTheField(t *testing.T) {
 	payName := func(p *policyv1.Policy) string { return p.GetOverrides()[0].GetName() }
 	payLabels := func(p *policyv1.Policy) string { return fmt.Sprint(p.GetOverrides()[0].GetSelector().GetMatchLabels()) }
 	ciName := func(p *policyv1.Policy) string { return p.GetOverrides()[1].GetName() }
+	// The file header has the comment line "scan_gate.fail_on: high" of the
+	// default policy. The fix anchors on the indent of the field, so it edits
+	// the field and not that comment.
+	fixFailOn := replace("\n    fail_on: high", "\n    fail_on: medium")
 	ciFailOn := func(p *policyv1.Policy) string {
 		return p.GetOverrides()[1].GetSpec().GetScanGate().GetFailOn().String()
 	}
@@ -333,7 +337,7 @@ func TestRunEdit_ServerFieldErrorReopensWithTheField(t *testing.T) {
 			name:     "a spec field of the override in the file",
 			override: "ci",
 			bad:      replace("fail_on: critical", "fail_on: high"),
-			fix:      replace("\n    fail_on: high", "\n    fail_on: medium"),
+			fix:      fixFailOn,
 			violation: violation(encodedFieldPath("settings", "overrides[1]", "spec", "scan_gate", "fail_on"),
 				"value must be one of the defined enum values"),
 			want:  "# !   spec.scan_gate.fail_on: value must be one of the defined enum values\n",
@@ -344,7 +348,7 @@ func TestRunEdit_ServerFieldErrorReopensWithTheField(t *testing.T) {
 			name:      "the override in the file as a whole",
 			override:  "ci",
 			bad:       replace("fail_on: critical", "fail_on: high"),
-			fix:       replace("\n    fail_on: high", "\n    fail_on: medium"),
+			fix:       fixFailOn,
 			violation: violation(encodedFieldPath("settings", "overrides[1]"), "the override selects one endpoint"),
 			want:      "# !   the override selects one endpoint\n",
 			field:     ciFailOn,
@@ -354,7 +358,7 @@ func TestRunEdit_ServerFieldErrorReopensWithTheField(t *testing.T) {
 			name:      "another override in an edit of one override",
 			override:  "ci",
 			bad:       replace("fail_on: critical", "fail_on: high"),
-			fix:       replace("\n    fail_on: high", "\n    fail_on: medium"),
+			fix:       fixFailOn,
 			violation: violation(encodedFieldPath("settings", "overrides[0]", "priority"), "must be unique"),
 			want:      "# !   overrides[0].priority: must be unique\n",
 			field:     ciFailOn,

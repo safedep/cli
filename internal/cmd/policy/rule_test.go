@@ -394,13 +394,17 @@ func TestExpandScopes_AllMixedWithANamedScope(t *testing.T) {
 	}
 }
 
-func TestBuildRuleCreates_TrustExpiryLimit(t *testing.T) {
+func TestRuleCreate_TrustExpiryLimit(t *testing.T) {
 	in := ruleCreateInput{Trust: true, Selector: "pkg:pypi/foo@1.0.3", Scopes: []string{"malware"}, Reason: "FP", Expires: "90d"}
 	_, err := buildRuleCreates(in, nil, fixedNow)
 	require.NoError(t, err)
 
 	in.Expires = "91d"
-	_, err = buildRuleCreates(in, nil, fixedNow)
+	connect := func() (policyv1grpc.PolicyServiceClient, error) {
+		require.Fail(t, "createRules connected to the server before it validated the request")
+		return nil, nil
+	}
+	err = createRules(context.Background(), connect, in, nil, func() time.Time { return fixedNow })
 	ue, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok)
 	assert.Contains(t, ue.HumanError(), "a trust entry expires at most 90 days from now")

@@ -42,7 +42,7 @@ default branch that its repository reports at admission.
 |------|---------|-------|
 | `--branch <name>` | `--branch release/1.2` | The branch `release/1.2`. |
 | `--tag <name>` | `--tag v1.2.0` | The tag `v1.2.0`. |
-| `--ref <ref>` | `--ref refs/tags/v1.2.0` | Exactly that ref. Use it when you already have a full ref, such as `$GITHUB_REF` in CI. A plain name is a branch: `--ref main` scans `refs/heads/main`. |
+| `--ref <ref>` | `--ref refs/tags/v1.2.0` | Exactly that ref, which must start with `refs/heads/` or `refs/tags/`. Use it when you already have a full ref. A plain name is a branch: `--ref main` scans `refs/heads/main`. |
 
 `--branch` and `--tag` take a short name. Pass a full ref with `--ref`.
 
@@ -102,10 +102,10 @@ Scan a tag:
 safedep project scan create safedep/cli --tag v1.2.0
 ```
 
-Scan the ref a CI job runs on:
+Scan a full ref:
 
 ```bash
-safedep project scan create safedep/cli --ref "$GITHUB_REF"
+safedep project scan create safedep/cli --ref refs/tags/v1.2.0
 ```
 
 Submit a batch and receive JSON:

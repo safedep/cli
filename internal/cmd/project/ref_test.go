@@ -125,6 +125,11 @@ func TestCreateCmd_RejectsABadRefSelectionBeforeAnyRequest(t *testing.T) {
 			wantHelp: "Pass the name without refs/, or pass the full ref with --ref refs/tags/v1.",
 		},
 		{
+			name:     "pull request ref",
+			flags:    []string{"--ref", "refs/pull/123/merge"},
+			wantHelp: "Only branches and tags can be scanned. Pass --branch, --tag, or a ref under refs/heads/ or refs/tags/.",
+		},
+		{
 			name:     "branch and tag",
 			flags:    []string{"--branch", "main", "--tag", "v1"},
 			wantHelp: "Pass only one of --branch, --tag or --ref.",
@@ -229,11 +234,11 @@ func TestRunCreate_KeepsOtherServerErrorsWhenARefIsSet(t *testing.T) {
 
 // FuzzRefFlags checks the rule that maps any value of each flag to the ref the
 // API receives. --branch and --tag add their namespace and refuse a value that
-// already has one. --ref sends a value under refs/ as given and treats any
-// other value as a branch.
+// already has one. --ref sends a branch or tag ref as given, refuses any other
+// value under refs/, and treats any other value as a branch.
 func FuzzRefFlags(f *testing.F) {
 	for _, seed := range []string{
-		"main", "release/1.2", "refs/heads/main", "refs/tags/v1.2.0", "refs/pull/1/head",
+		"main", "release/1.2", "refs/heads/main", "refs/tags/v1.2.0", "refs/pull/1/head", "refs/pull/1/merge",
 		"refs/", "refs", "heads/main", "tags/v1", " refs/heads/main", "REFS/heads/main",
 	} {
 		f.Add(seed)
@@ -243,12 +248,17 @@ func FuzzRefFlags(f *testing.F) {
 			return
 		}
 		underRefs := strings.HasPrefix(value, "refs/")
+		branchOrTag := strings.HasPrefix(value, "refs/heads/") || strings.HasPrefix(value, "refs/tags/")
 
 		ref, err := refFlags{Ref: value, Set: []string{refFlag}}.qualified()
-		require.NoError(t, err)
-		if underRefs {
+		switch {
+		case branchOrTag:
+			require.NoError(t, err)
 			assert.Equal(t, value, ref)
-		} else {
+		case underRefs:
+			require.Error(t, err)
+		default:
+			require.NoError(t, err)
 			assert.Equal(t, "refs/heads/"+value, ref)
 		}
 

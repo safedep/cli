@@ -29,8 +29,8 @@ type refFlags struct {
 
 // qualified is the full ref the API requires, or "" to scan the default
 // branch. --branch and --tag name the namespace, so the CLI never guesses.
-// A plain --ref name is a branch, as in "git switch <name>", and a full --ref
-// goes through unchanged so the server owns the ref name rules.
+// A plain --ref name is a branch, as in "git switch <name>". A full branch or
+// tag ref goes through unchanged, so the server owns the ref name rules.
 func (f refFlags) qualified() (string, error) {
 	switch len(f.Set) {
 	case 0:
@@ -55,8 +55,17 @@ func (f refFlags) qualified() (string, error) {
 			"Pass a branch name, refs/heads/<branch> or refs/tags/<tag>, or omit --ref to scan the default branch.",
 		)
 	}
-	if strings.HasPrefix(f.Ref, refPrefix) {
+	if strings.HasPrefix(f.Ref, branchRefPrefix) || strings.HasPrefix(f.Ref, tagRefPrefix) {
 		return f.Ref, nil
+	}
+	// The API scans only branches and tags. Another ref, such as a pull
+	// request ref, fails here with advice instead of as a ref the repository
+	// does not have.
+	if strings.HasPrefix(f.Ref, refPrefix) {
+		return "", invalidRefError(
+			fmt.Errorf("--ref %q is not a branch or a tag", f.Ref),
+			"Only branches and tags can be scanned. Pass --branch, --tag, or a ref under refs/heads/ or refs/tags/.",
+		)
 	}
 	return branchRefPrefix + f.Ref, nil
 }

@@ -502,10 +502,9 @@ func TestExpiryText(t *testing.T) {
 
 func TestRuleShow_ShowsTheExpiryDateOneTime(t *testing.T) {
 	r := ruleWithAttributes("r_1", corev1.Effect_EFFECT_TRUST, "")
-	expires := time.Now().Add(65 * 24 * time.Hour)
-	r.GetRule().SetExpiresAt(timestamppb.New(expires))
-	table := (&ruleShowResult{Rule: newRuleView(r, nil)}).RenderTable()
-	assert.Equal(t, 1, strings.Count(table, expires.UTC().Format(time.DateOnly)), table)
+	r.GetRule().SetExpiresAt(timestamppb.New(fixedNow.Add(65 * 24 * time.Hour)))
+	table := (&ruleShowResult{Rule: newRuleView(r, nil)}).table(fixedNow)
+	assert.Equal(t, 1, strings.Count(table, "2027-01-04"), table)
 }
 
 func TestCreateRules_ReportsTheExpiryOfTheFlag(t *testing.T) {

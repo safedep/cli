@@ -92,6 +92,11 @@ func TestIsRetryable(t *testing.T) {
 		},
 		{"the title after the service prefix", status.Error(codes.InvalidArgument, "service execution failed: title: too long"), false},
 		{
+			"the title after a doubled service prefix",
+			status.Error(codes.InvalidArgument, "service execution failed: service execution failed: title: too long"),
+			false,
+		},
+		{
 			"a mapped error of the document",
 			mapChangeError("create", "", badRequest(encodedFieldPath("settings", "overrides[0]", "name"), "does not match")),
 			true,

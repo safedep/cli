@@ -62,7 +62,7 @@ func isRetryable(err error) bool {
 	}
 	// With no field detail, the message starts with the field, as in
 	// "title: must be at most 200 characters".
-	field, _, found := strings.Cut(strings.TrimPrefix(st.Message(), serviceFailedPrefix), ":")
+	field, _, found := strings.Cut(stripServicePrefix(st.Message()), ":")
 	return !found || strings.ContainsAny(field, " ") || isDocumentField(field)
 }
 

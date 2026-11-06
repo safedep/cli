@@ -3,11 +3,11 @@ package policy
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	validate "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	errorv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/error/v1"
-	"buf.build/go/protovalidate"
 	"github.com/safedep/dry/usefulerror"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
@@ -47,30 +47,47 @@ func invalidArgumentError(err error, help string, cause error) error {
 // a service error. It names no field and no fix, so the CLI removes it.
 const serviceFailedPrefix = "service execution failed: "
 
-// describeStatus is the text of a gRPC status error for a person: the status
-// message, then each field violation of a BadRequest detail as
-// "field: description". The text of status.FromError on a wrapped error
-// starts with "rpc error: code = ... desc =", so this reads the status of
-// the innermost error. When the message already holds the description of
-// each violation, the violations replace it, so no text shows two times.
-func describeStatus(err error) string {
-	st, ok := innerStatus(err)
-	if !ok {
-		return err.Error()
-	}
-	msg := strings.TrimSpace(st.Message())
+// stripServicePrefix removes each leading serviceFailedPrefix of a status
+// message. A server that wraps an error two times sends the prefix two
+// times, and a field name after one prefix must still read as the field.
+func stripServicePrefix(msg string) string {
+	msg = strings.TrimSpace(msg)
 	for strings.HasPrefix(msg, serviceFailedPrefix) {
 		msg = strings.TrimSpace(strings.TrimPrefix(msg, serviceFailedPrefix))
 	}
+	return msg
+}
+
+// noReasonText is the text of a status that has no message and no field
+// violation.
+const noReasonText = "The server gave no reason"
+
+// describeStatus is the text of a gRPC status error for a person, with each
+// field path in the form of the edit document. See describeStatusAt.
+func describeStatus(err error) string {
+	return describeStatusAt(err, documentPath)
+}
+
+// describeStatusAt is the text of a gRPC status error for a person: the
+// status message, then each field violation of a BadRequest detail as
+// "field: description", with the field from path. The text of
+// status.FromError on a wrapped error starts with "rpc error: code = ...
+// desc =", so this reads the status of the innermost error. When the
+// message already holds the description of each violation, the violations
+// replace it, so no text shows two times.
+func describeStatusAt(err error, path func(string) string) string {
+	st, ok := innerStatus(err)
+	if !ok {
+		return tui.EscapeText(err.Error())
+	}
+	msg := stripServicePrefix(st.Message())
 	var lines []string
 	covered := true
 	if bad, ok := usefulerror.DetailAs[*errdetails.BadRequest](err); ok {
 		for _, v := range bad.GetFieldViolations() {
-			line := v.GetDescription()
-			if field := violationField(v); field != "" {
-				line = field + ": " + line
+			if line := violationLine(path(violationField(v)), v.GetDescription()); line != "" {
+				lines = append(lines, tui.EscapeLine(line))
 			}
-			lines = append(lines, tui.EscapeLine(line))
 			covered = covered && v.GetDescription() != "" && strings.Contains(msg, v.GetDescription())
 		}
 	}
@@ -78,9 +95,19 @@ func describeStatus(err error) string {
 		lines = append([]string{tui.EscapeText(msg)}, lines...)
 	}
 	if len(lines) == 0 {
-		return st.Code().String()
+		return noReasonText
 	}
 	return strings.Join(lines, "\n")
+}
+
+func violationLine(field, description string) string {
+	switch {
+	case field == "":
+		return description
+	case description == "":
+		return field
+	}
+	return field + ": " + description
 }
 
 // innerStatus is the status of the innermost gRPC error in the chain of err,
@@ -94,21 +121,91 @@ func innerStatus(err error) (*status.Status, bool) {
 	return st, st != nil
 }
 
-// violationField is the field of a violation as a path, as in
+// violationField is the field of a violation as a dotted path, as in
 // "settings.overrides[0].name". The server sends the protovalidate field
-// path of a request as protobuf text, which no person can read.
+// path of a request as the protobuf text of a buf.validate.FieldPath, which
+// no person can read. A field that does not parse as that text stays as it
+// is.
 func violationField(v *errdetails.BadRequest_FieldViolation) string {
 	field := v.GetField()
 	path := &validate.FieldPath{}
 	if err := prototext.Unmarshal([]byte(field), path); err != nil || len(path.GetElements()) == 0 {
 		return field
 	}
-	return protovalidate.FieldPathString(path)
+	return fieldPathString(path)
 }
 
-// errorText is the text of err for a person: the human error of a useful
-// error in the chain, else the text of describeStatus.
+// fieldPathString writes a field path as protovalidate.FieldPathString
+// does. The CLI does not import protovalidate, because its CEL runtime makes
+// the binary 18% larger.
+func fieldPathString(path *validate.FieldPath) string {
+	var b strings.Builder
+	for i, el := range path.GetElements() {
+		if i > 0 {
+			b.WriteByte('.')
+		}
+		b.WriteString(el.GetFieldName())
+		var key string
+		switch el.WhichSubscript() {
+		case validate.FieldPathElement_Index_case:
+			key = strconv.FormatUint(el.GetIndex(), 10)
+		case validate.FieldPathElement_BoolKey_case:
+			key = strconv.FormatBool(el.GetBoolKey())
+		case validate.FieldPathElement_IntKey_case:
+			key = strconv.FormatInt(el.GetIntKey(), 10)
+		case validate.FieldPathElement_UintKey_case:
+			key = strconv.FormatUint(el.GetUintKey(), 10)
+		case validate.FieldPathElement_StringKey_case:
+			key = strconv.Quote(el.GetStringKey())
+		default:
+			continue
+		}
+		b.WriteString("[" + key + "]")
+	}
+	return b.String()
+}
+
+// documentFieldPrefix is the request field that holds the edit document.
+// The CLI shows a document path without it, as the local checks do, so a
+// path names a key of the file.
+const documentFieldPrefix = "settings."
+
+func documentPath(field string) string {
+	return strings.TrimPrefix(field, documentFieldPrefix)
+}
+
+// overrideFieldError marks a save error of an edit of one policy override.
+// The file of that edit holds the override only, so a field path of it
+// shows without "overrides[i].".
+type overrideFieldError struct {
+	err   error
+	index int
+}
+
+func (e *overrideFieldError) Error() string { return e.err.Error() }
+func (e *overrideFieldError) Unwrap() error { return e.err }
+
+func (e *overrideFieldError) path(field string) string {
+	field = documentPath(field)
+	prefix := fmt.Sprintf("overrides[%d]", e.index)
+	if field == prefix {
+		return ""
+	}
+	if rest, ok := strings.CutPrefix(field, prefix+"."); ok {
+		return rest
+	}
+	return field
+}
+
+// errorText is the text of err for a person, for the error lines of the
+// edit file. An INVALID_ARGUMENT of an edit of one policy override shows its
+// field paths as paths of the file. Other errors show the human error of a
+// useful error in the chain, else the text of describeStatus.
 func errorText(err error) string {
+	var oe *overrideFieldError
+	if st, ok := innerStatus(err); ok && st.Code() == codes.InvalidArgument && errors.As(err, &oe) {
+		return describeStatusAt(err, oe.path)
+	}
 	var ue usefulerror.UsefulError
 	if errors.As(err, &ue) {
 		return ue.HumanError()
@@ -137,7 +234,7 @@ func alreadyExistsError(err error, cause error) error {
 	if info, ok := usefulerror.DetailAs[*errdetails.ResourceInfo](err); ok && info.GetResourceName() != "" {
 		id := tui.EscapeLine(info.GetResourceName())
 		return newPolicyError(usefulerror.ErrConflict,
-			fmt.Sprintf("Package rule %s already selects this package.", id),
+			fmt.Sprintf("Package rule %s already selects this package", id),
 			"See it with: safedep policy rule show "+id,
 			cause)
 	}
@@ -264,15 +361,11 @@ func mapDecisionListError(err error) error {
 			"Ask an Admin of the tenant for a role that can read the policy",
 			cause)
 	case codes.InvalidArgument:
-		if bad, ok := usefulerror.DetailAs[*errdetails.BadRequest](err); ok {
-			for _, v := range bad.GetFieldViolations() {
-				if v.GetField() == "pagination.page_token" {
-					return newPolicyError(usefulerror.ErrBadRequest,
-						"The page token is not valid",
-						"Run the command again without --page-token",
-						cause)
-				}
-			}
+		if violatesField(err, "pagination.page_token") {
+			return newPolicyError(usefulerror.ErrBadRequest,
+				"The page token is not valid",
+				"Run the command again without --page-token",
+				cause)
 		}
 		return newPolicyError(usefulerror.ErrBadRequest,
 			"The server refused the filters: "+describeStatus(err),

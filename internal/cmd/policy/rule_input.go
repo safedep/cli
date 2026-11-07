@@ -63,7 +63,7 @@ func validateRuleCreate(in ruleCreateInput) error {
 			"Write each line as: PURL [RANGE]")
 	case strings.TrimSpace(in.Reason) == "":
 		return invalidInputError(errors.New("--reason is required"), "Say why the rule exists, as in --reason \"IR-2291 credential stealer\"")
-	case in.Trust && len(in.Scopes) == 0 && len(in.Vulnerabilities) > 0:
+	case in.Trust && len(in.Scopes) == 0 && in.waives():
 		return waivedNeedsScopeError()
 	case in.Trust && len(in.Scopes) == 0:
 		return invalidInputError(errors.New("a trust entry needs --scope"),
@@ -72,7 +72,7 @@ func validateRuleCreate(in ruleCreateInput) error {
 		return invalidInputError(errors.New("a trust entry needs --expires"), "As in --expires 30d")
 	case in.Block && len(in.Scopes) > 0:
 		return invalidInputError(errors.New("a block entry has no scope"), "Remove --scope")
-	case in.Block && len(in.Vulnerabilities) > 0:
+	case in.Block && in.waives():
 		return invalidInputError(errors.New("a block entry waives no vulnerability"), "Remove --vulnerability")
 	}
 	_, _, err := ruleScopes(in)
@@ -84,7 +84,7 @@ func validateRuleCreate(in ruleCreateInput) error {
 // NAMED_VULNERABILITY. Without --vulnerability it waives every vulnerability.
 func ruleScopes(in ruleCreateInput) ([]corev1.TrustScope, []*corev1.WaivedVulnerability, error) {
 	scopes, err := expandScopes(in.Scopes)
-	if err != nil || len(in.Vulnerabilities) == 0 {
+	if err != nil || !in.waives() {
 		return scopes, nil, err
 	}
 	if err := checkWaivedScope(scopes); err != nil {
@@ -100,31 +100,38 @@ func ruleScopes(in ruleCreateInput) ([]corev1.TrustScope, []*corev1.WaivedVulner
 // expandScopes reads the --scope values. "all" expands to every trust scope
 // that this SDK knows, because the contract has no "all" value: a scope that
 // a later release adds never widens a stored entry.
+// Every value is checked before "all" expands, so a bad value after "all"
+// still fails.
 func expandScopes(values []string) ([]corev1.TrustScope, error) {
 	var out []corev1.TrustScope
+	all := false
 	for _, v := range values {
-		if strings.EqualFold(strings.TrimSpace(v), scopeAll) {
-			out = out[:0]
-			for _, token := range createScopeTokens() {
-				scope, err := parseTrustScope(token, createScopeTokens())
-				if err != nil {
-					return nil, err
-				}
-				out = append(out, scope)
-			}
-			return out, nil
-		}
-		if strings.EqualFold(strings.TrimSpace(v), namedVulnerabilityToken()) {
+		switch token := strings.TrimSpace(v); {
+		case strings.EqualFold(token, scopeAll):
+			all = true
+		case strings.EqualFold(token, namedVulnerabilityToken()):
 			return nil, invalidInputError(fmt.Errorf("--scope %s is not a value of create: it needs vulnerability ids", v),
 				"Use --scope vulnerability with --vulnerability ID")
+		default:
+			scope, err := parseTrustScope(v, createScopeTokens())
+			if err != nil {
+				return nil, err
+			}
+			if !slices.Contains(out, scope) {
+				out = append(out, scope)
+			}
 		}
-		scope, err := parseTrustScope(v, createScopeTokens())
+	}
+	if !all {
+		return out, nil
+	}
+	out = out[:0]
+	for _, token := range createScopeTokens() {
+		scope, err := parseTrustScope(token, createScopeTokens())
 		if err != nil {
 			return nil, err
 		}
-		if !slices.Contains(out, scope) {
-			out = append(out, scope)
-		}
+		out = append(out, scope)
 	}
 	return out, nil
 }

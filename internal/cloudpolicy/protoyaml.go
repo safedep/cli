@@ -341,6 +341,7 @@ func (c *yamlCodec) decodeMessage(n *yaml.Node, m protoreflect.Message, path str
 // commented, sets nothing, so a partial uncomment never empties a list.
 func (c *yamlCodec) decodeListSetting(n *yaml.Node, m protoreflect.Message, fd protoreflect.FieldDescriptor, path string) error {
 	inner := wrappedList(fd.Message())
+	n = resolveAlias(n)
 	list := n
 	if n.Kind == yaml.MappingNode {
 		list = nil
@@ -352,7 +353,7 @@ func (c *yamlCodec) decodeListSetting(n *yaml.Node, m protoreflect.Message, fd p
 			if list != nil {
 				return errAt(key, joinPath(path, key.Value), "the field is set twice")
 			}
-			list = n.Content[i+1]
+			list = resolveAlias(n.Content[i+1])
 		}
 		path = joinPath(path, c.key(inner))
 	}
@@ -360,6 +361,15 @@ func (c *yamlCodec) decodeListSetting(n *yaml.Node, m protoreflect.Message, fd p
 		return nil
 	}
 	return c.decodeField(list, m.Mutable(fd).Message(), inner, path)
+}
+
+// resolveAlias follows a YAML alias, as "allow: *empty", to the node of its
+// anchor.
+func resolveAlias(n *yaml.Node) *yaml.Node {
+	for n != nil && n.Kind == yaml.AliasNode && n.Alias != nil {
+		n = n.Alias
+	}
+	return n
 }
 
 func (c *yamlCodec) knownFields(md protoreflect.MessageDescriptor) []string {

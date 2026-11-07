@@ -49,6 +49,12 @@ func TestValidateRuleCreate(t *testing.T) {
 		{"license", func(in *ruleCreateInput) { in.Scopes = []string{"license"} }, trust, ""},
 		{"named vulnerability needs ids", func(in *ruleCreateInput) { in.Scopes = []string{"named-vulnerability"} }, trust,
 			"--scope named-vulnerability is not a value of create: it needs vulnerability ids"},
+		{"named vulnerability after all", func(in *ruleCreateInput) { in.Scopes = []string{"all", "named-vulnerability"} }, trust,
+			"--scope named-vulnerability is not a value of create"},
+		{"named vulnerability before all", func(in *ruleCreateInput) { in.Scopes = []string{"named-vulnerability", "all"} }, trust,
+			"--scope named-vulnerability is not a value of create"},
+		{"unknown scope after all", func(in *ruleCreateInput) { in.Scopes = []string{"all", "secrets"} }, trust,
+			`unknown trust scope "secrets"`},
 		{"waived vulnerabilities with no scope", func(in *ruleCreateInput) {
 			in.Scopes, in.Vulnerabilities = nil, []string{"CVE-2024-1234"}
 		}, trust, "--vulnerability needs --scope vulnerability"},

@@ -30,12 +30,15 @@ type ruleCreateInput struct {
 	Vers            string
 	Scopes          []string
 	Vulnerabilities []string
-	Reason          string
-	Ticket          string
-	RequestedBy     string
-	Expires         string
-	Override        string
-	Message         string
+	// VulnerabilitySet is true when the command line has --vulnerability,
+	// also with an empty value, which parses to no ids.
+	VulnerabilitySet bool
+	Reason           string
+	Ticket           string
+	RequestedBy      string
+	Expires          string
+	Override         string
+	Message          string
 }
 
 type ruleCreateResult struct {
@@ -64,6 +67,7 @@ func ruleCreateCmd(a *app.App) *cobra.Command {
 			if len(args) == 1 {
 				in.Selector = args[0]
 			}
+			in.VulnerabilitySet = cmd.Flags().Changed("vulnerability")
 			return validateRuleCreate(in)
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {

@@ -420,6 +420,26 @@ func TestUnmarshalPolicy_ListSettingForms(t *testing.T) {
 		})
 	}
 
+	aliases := []struct {
+		name string
+		doc  string
+		want []string
+	}{
+		{"an alias to a wrapper", "deny: &empty {licenses: []}\n      allow: *empty", []string{}},
+		{"an alias to a bare list", "deny: &list [GPL-3.0-only]\n      allow: *list", []string{"GPL-3.0-only"}},
+		{"an alias to the list of a wrapper", "deny: {licenses: &list [MIT]}\n      allow: {licenses: *list}", []string{"MIT"}},
+	}
+	for _, tt := range aliases {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := UnmarshalPolicy([]byte("base:\n  scan_gate:\n    licenses:\n      " + tt.doc + "\n"))
+			require.NoError(t, err)
+			licenses := got.GetBase().GetScanGate().GetLicenses()
+			require.True(t, licenses.HasDeny())
+			require.True(t, licenses.HasAllow(), "the alias sets the allow list")
+			assert.Equal(t, tt.want, append([]string{}, licenses.GetAllow().GetLicenses()...))
+		})
+	}
+
 	_, err := UnmarshalPolicy([]byte("base:\n  scan_gate:\n    licenses:\n      deny: {licenses: [MIT], licences: [MIT]}\n"))
 	assert.ErrorContains(t, err, "scan_gate.licenses.deny.licences: unknown field. Known fields: licenses")
 	_, err = UnmarshalPolicy([]byte("base:\n  scan_gate:\n    licenses:\n      deny: MIT\n"))

@@ -150,11 +150,14 @@ safedep policy edit --override payments
 - The command warns when the file holds a comment that it did not write. The
   policy keeps no comments.
 - A parent key that you uncomment with no field below it makes no change.
-- A license list is one setting. `deny: {licenses: []}` sets a deny list with no
-  entries, so it denies nothing. `allow: {licenses: []}` turns off the allow list
-  of the layer below. A `deny:` or `allow:` line that you uncomment with nothing
-  below it makes no change. A list replaces the list of the layer below. No
-  layer merges two lists.
+- A license list is one setting. Only a list sets it: `deny: [GPL-3.0-only]`,
+  or the form that the document writes, `deny: {licenses: [GPL-3.0-only]}`. A list
+  replaces the list of the layer below. No layer merges two lists.
+- `deny: []` or `deny: {licenses: []}` sets a deny list with no entries, so it
+  denies nothing. `allow: []` turns off the allow list of the layer below.
+- A `deny:` or `allow:` key with no list makes no change. This is also true when
+  you uncomment `deny:` and `licenses:` but leave the items commented, and for
+  `deny: {}`.
 - The command warns when an added or changed policy override selects on a
   `managed/`, `reported/` or `scm-property/` label. A tool sets such a label, so
   a person on the endpoint can change it. The save continues.

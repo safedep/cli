@@ -311,14 +311,18 @@ func (c *yamlCodec) decodeMessage(n *yaml.Node, m protoreflect.Message, path str
 			return errAt(key, fieldPath, "the field is set twice")
 		}
 		seen[fd.Name()] = struct{}{}
+		if isListSetting(fd) {
+			if err := c.decodeListSetting(value, m, fd, fieldPath); err != nil {
+				return err
+			}
+			continue
+		}
 		if isNull(value) {
 			// "key:" with only commented lines below sets a message with no
 			// fields, so the edit template of a set but empty spec round
 			// trips. A label selector stays unset, because an empty selector
-			// selects every subject. A list setting stays unset too, because
-			// a set wrapper with no items is an empty list: an uncommented
-			// "deny:" alone must not remove every license from a deny list.
-			if !fd.IsList() && !fd.IsMap() && isMessageKind(fd) && !isFormattedMessage(fd.Message()) && !isListSetting(fd) {
+			// selects every subject.
+			if !fd.IsList() && !fd.IsMap() && isMessageKind(fd) && !isFormattedMessage(fd.Message()) {
 				m.Mutable(fd)
 			}
 			continue
@@ -328,6 +332,34 @@ func (c *yamlCodec) decodeMessage(n *yaml.Node, m protoreflect.Message, path str
 		}
 	}
 	return nil
+}
+
+// decodeListSetting reads a list setting in the wrapper form, as
+// "deny: {licenses: [MIT]}", or as the bare list, as "deny: [MIT]". Only a
+// list sets it, because a set wrapper with no items is an empty list. A key
+// with nothing below it, as "deny:" or "licenses:" whose items stay
+// commented, sets nothing, so a partial uncomment never empties a list.
+func (c *yamlCodec) decodeListSetting(n *yaml.Node, m protoreflect.Message, fd protoreflect.FieldDescriptor, path string) error {
+	inner := wrappedList(fd.Message())
+	list := n
+	if n.Kind == yaml.MappingNode {
+		list = nil
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			key := n.Content[i]
+			if c.fieldByKey(fd.Message(), key.Value) != inner {
+				return errAt(key, joinPath(path, key.Value), "unknown field. Known fields: %s", c.key(inner))
+			}
+			if list != nil {
+				return errAt(key, joinPath(path, key.Value), "the field is set twice")
+			}
+			list = n.Content[i+1]
+		}
+		path = joinPath(path, c.key(inner))
+	}
+	if list == nil || isNull(list) {
+		return nil
+	}
+	return c.decodeField(list, m.Mutable(fd).Message(), inner, path)
 }
 
 func (c *yamlCodec) knownFields(md protoreflect.MessageDescriptor) []string {

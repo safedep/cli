@@ -384,8 +384,44 @@ func TestMarshalPolicyTemplate_LicenseListsRoundTrip(t *testing.T) {
 }
 
 func TestUnmarshalPolicy_AnUncommentedListKeyAloneSetsNothing(t *testing.T) {
-	got, err := UnmarshalPolicy([]byte("base:\n  scan_gate:\n    licenses:\n      deny:\n"))
-	require.NoError(t, err)
-	assert.False(t, got.GetBase().GetScanGate().GetLicenses().HasDeny(), "deny: alone must not empty the deny list")
-	assert.False(t, PruneEmpty(got).(*policyv1.Policy).HasBase())
+	for name, doc := range map[string]string{
+		"the setting key":                   "      deny:\n",
+		"the setting key and its list key":  "      deny:\n        licenses:\n        # - GPL-3.0-only\n",
+		"the wrapper form with no list key": "      deny: {}\n",
+		"the wrapper form with a null list": "      deny: {licenses: }\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := UnmarshalPolicy([]byte("base:\n  scan_gate:\n    licenses:\n" + doc))
+			require.NoError(t, err)
+			assert.False(t, got.GetBase().GetScanGate().GetLicenses().HasDeny(), "a key with no list must not empty the deny list")
+			assert.False(t, PruneEmpty(got).(*policyv1.Policy).HasBase())
+		})
+	}
+}
+
+func TestUnmarshalPolicy_ListSettingForms(t *testing.T) {
+	tests := []struct {
+		name string
+		doc  string
+		want []string
+	}{
+		{"the bare empty list", "deny: []", []string{}},
+		{"the bare list", "deny: [GPL-3.0-only]", []string{"GPL-3.0-only"}},
+		{"the wrapper form with an empty list", "deny: {licenses: []}", []string{}},
+		{"the wrapper form", "deny:\n        licenses:\n          - GPL-3.0-only", []string{"GPL-3.0-only"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := UnmarshalPolicy([]byte("base:\n  scan_gate:\n    licenses:\n      " + tt.doc + "\n"))
+			require.NoError(t, err)
+			licenses := got.GetBase().GetScanGate().GetLicenses()
+			require.True(t, licenses.HasDeny(), "a list sets the deny list")
+			assert.Equal(t, tt.want, append([]string{}, licenses.GetDeny().GetLicenses()...))
+		})
+	}
+
+	_, err := UnmarshalPolicy([]byte("base:\n  scan_gate:\n    licenses:\n      deny: {licenses: [MIT], licences: [MIT]}\n"))
+	assert.ErrorContains(t, err, "scan_gate.licenses.deny.licences: unknown field. Known fields: licenses")
+	_, err = UnmarshalPolicy([]byte("base:\n  scan_gate:\n    licenses:\n      deny: MIT\n"))
+	assert.ErrorContains(t, err, "expected a list")
 }

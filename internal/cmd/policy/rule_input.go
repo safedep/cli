@@ -63,6 +63,8 @@ func validateRuleCreate(in ruleCreateInput) error {
 			"Write each line as: PURL [RANGE]")
 	case strings.TrimSpace(in.Reason) == "":
 		return invalidInputError(errors.New("--reason is required"), "Say why the rule exists, as in --reason \"IR-2291 credential stealer\"")
+	case in.Trust && len(in.Scopes) == 0 && len(in.Vulnerabilities) > 0:
+		return waivedNeedsScopeError()
 	case in.Trust && len(in.Scopes) == 0:
 		return invalidInputError(errors.New("a trust entry needs --scope"),
 			"Name each verdict that it waives: --scope "+strings.Join(createScopeTokens(), ", --scope ")+", or --scope all")
@@ -111,6 +113,10 @@ func expandScopes(values []string) ([]corev1.TrustScope, error) {
 				out = append(out, scope)
 			}
 			return out, nil
+		}
+		if strings.EqualFold(strings.TrimSpace(v), namedVulnerabilityToken()) {
+			return nil, invalidInputError(fmt.Errorf("--scope %s is not a value of create: it needs vulnerability ids", v),
+				"Use --scope vulnerability with --vulnerability ID")
 		}
 		scope, err := parseTrustScope(v, createScopeTokens())
 		if err != nil {

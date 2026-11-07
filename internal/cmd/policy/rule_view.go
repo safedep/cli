@@ -22,7 +22,7 @@ type ruleView struct {
 	Vers            string                    `json:"vers,omitempty"`
 	Effect          string                    `json:"effect"`
 	Scopes          []string                  `json:"scopes"`
-	Vulnerabilities []waivedVulnerabilityView `json:"vulnerabilities,omitempty"`
+	Vulnerabilities []waivedVulnerabilityView `json:"vulnerabilities"`
 	Reason          string                    `json:"reason"`
 	Ticket          string                    `json:"ticket,omitempty"`
 	RequestedBy     string                    `json:"requested_by,omitempty"`
@@ -81,9 +81,6 @@ type waivedVulnerabilityView struct {
 }
 
 func waivedViews(waived []*corev1.WaivedVulnerability) []waivedVulnerabilityView {
-	if len(waived) == 0 {
-		return nil
-	}
 	out := make([]waivedVulnerabilityView, 0, len(waived))
 	for _, w := range waived {
 		out = append(out, waivedVulnerabilityView{ID: w.GetId(), Justification: justificationName(w.GetJustification())})

@@ -76,6 +76,9 @@ func TestFormatJSONValue(t *testing.T) {
 		{"scan_gate.licenses.deny", `{"licenses":["GPL-3.0-only","MIT"]}`, "GPL-3.0-only, MIT", "GPL-3.0-only, MIT"},
 		{"scan_gate.licenses.deny", `{}`, "[]", "[]"},
 		{"scan_gate.licenses.allow", `["MIT"]`, "MIT", "MIT"},
+		// A server that walks into the wrapper reports the inner list.
+		{"scan_gate.licenses.deny.licenses", `["GPL-3.0-only","MIT"]`, "GPL-3.0-only, MIT", "GPL-3.0-only, MIT"},
+		{"scan_gate.licenses.deny.licenses", `[]`, "[]", "[]"},
 		{"unknown.path", `"text"`, "text", "text"},
 		{"unknown.path", `{"a":1}`, `{"a":1}`, `{"a":1}`},
 		{"unknown.path", `not json`, "not json", "not json"},

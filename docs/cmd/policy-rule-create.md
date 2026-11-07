@@ -23,7 +23,7 @@ safedep policy rule create --trust PURL --scope vulnerability --vulnerability ID
 | `-f`, `--file <path>` | With `--block`: a file with one selector on each line, a PURL and an optional range after a space. `#` starts a comment. `-` reads stdin. At most 1,000 selectors, in one revision. |
 | `--vers <range>` | A version range, as `'>=1.2.0'` or `'vers:npm/>=1.2.0\|<2.0.0'`. A bare range gets the `vers:` prefix and the type of the PURL. |
 | `--scope <scope>` | With `--trust`: `malware`, `cooldown`, `vulnerability`, `license` or `all`. Repeatable. Required. |
-| `--vulnerability <id>[:<justification>]` | With `--scope vulnerability` as the only scope: waive only this vulnerability id, as `CVE-2024-3094`. Repeatable, at most 100 ids, each one time. See below. |
+| `--vulnerability <id>[:<justification>]` | With `--scope vulnerability` as the only scope: waive only this vulnerability id, as `CVE-2024-3094`. Repeatable, or comma-separated. At most 100 ids, each one time. See below. |
 | `--expires <when>` | A duration from now, as `30d`, or a date, as `2027-01-26`. Required with `--trust`, and at most 90 days from now for a trust entry. |
 | `--reason <text>` | Why the rule exists. Required. Tools show it in a block message. |
 | `--ticket <ref>` | A ticket or incident reference, as `IR-2291`. |
@@ -60,6 +60,7 @@ entry with the one scope `named-vulnerability`. It waives only the vulnerabiliti
 that it names and their aliases, so a CVE id also waives the GHSA id of the same
 vulnerability. A scan gate still fails on every other vulnerability of the
 package. The command refuses `--vulnerability` with another scope or with `all`.
+`--scope named-vulnerability` is not a value of this command.
 
 Write the id as its advisory publishes it, as `CVE-2024-3094`,
 `GHSA-jfh8-c2jp-5v3q` or `RHSA-2024:1234`. The optional justification says why
@@ -72,9 +73,10 @@ the vulnerability does not affect the package, with an OpenVEX name:
 - `inline_mitigations_already_exist`
 
 An id can hold a `:`. The command splits the value at its last `:` only when the
-text after it is a justification name. Otherwise the whole value is the id, so
-`RHSA-2024:1234` is one id. Without a justification, `--reason` is the only
-explanation.
+text after it is a justification name, in any case. Otherwise the whole value is
+the id, so `RHSA-2024:1234` is one id. A suffix with `_` that is not a name is an
+unknown justification. An id that ends with `:` is refused. Without a
+justification, `--reason` is the only explanation.
 
 ## Examples
 

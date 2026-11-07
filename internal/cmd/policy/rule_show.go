@@ -78,16 +78,12 @@ func (r *ruleShowResult) table(now time.Time) string {
 	if v.expires != nil {
 		expires = expiryText(*v.expires, now)
 	}
-	rows := [][2]string{
+	return cloudpolicy.KeyValues([][2]string{
 		{"Rule", v.ID},
 		{"Selector", v.selector()},
 		{"Effect", v.Effect},
 		{"Scope", cloudpolicy.EmptyDash(strings.Join(v.Scopes, ", "))},
-	}
-	if len(v.Vulnerabilities) > 0 {
-		rows = append(rows, [2]string{"Vulnerabilities", v.waivedText()})
-	}
-	return cloudpolicy.KeyValues(append(rows, [][2]string{
+		{"Vulnerabilities", cloudpolicy.EmptyDash(v.waivedText())},
 		{"Reason", v.Reason},
 		{"Ticket", cloudpolicy.EmptyDash(v.Ticket)},
 		{"Requested by", cloudpolicy.EmptyDash(v.RequestedBy)},
@@ -95,7 +91,7 @@ func (r *ruleShowResult) table(now time.Time) string {
 		{"Expires", expires},
 		{"Created by", cloudpolicy.EmptyDash(v.CreatedBy)},
 		{"Revisions", v.revisions() + sep + removed},
-	}...))
+	})
 }
 
 // The server sends updated_revision 0 when no update changed the rule. An

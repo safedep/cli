@@ -48,7 +48,10 @@ func TestValidateRuleCreate(t *testing.T) {
 		{"unknown scope", func(in *ruleCreateInput) { in.Scopes = []string{"secrets"} }, trust, `unknown trust scope "secrets"`},
 		{"license", func(in *ruleCreateInput) { in.Scopes = []string{"license"} }, trust, ""},
 		{"named vulnerability needs ids", func(in *ruleCreateInput) { in.Scopes = []string{"named-vulnerability"} }, trust,
-			`unknown trust scope "named-vulnerability": allowed values are malware, cooldown, vulnerability, license`},
+			"--scope named-vulnerability is not a value of create: it needs vulnerability ids"},
+		{"waived vulnerabilities with no scope", func(in *ruleCreateInput) {
+			in.Scopes, in.Vulnerabilities = nil, []string{"CVE-2024-1234"}
+		}, trust, "--vulnerability needs --scope vulnerability"},
 		{"waived vulnerabilities", func(in *ruleCreateInput) {
 			in.Scopes, in.Vulnerabilities = []string{"vulnerability"}, []string{"CVE-2024-1234", "GHSA-jfh8-c2jp-5v3q"}
 		}, trust, ""},
@@ -83,7 +86,10 @@ func TestValidateRuleCreate(t *testing.T) {
 }
 
 // allScopes is what --scope all expands to. It leaves out
-// NAMED_VULNERABILITY, because that scope needs vulnerability ids.
+// NAMED_VULNERABILITY, because that scope needs vulnerability ids. The list
+// is hard-coded on purpose: the contract has no property that says a scope
+// needs data, so a scope that a later SDK adds must fail this test and force
+// a decision at the bump.
 var allScopes = []corev1.TrustScope{
 	corev1.TrustScope_TRUST_SCOPE_MALWARE,
 	corev1.TrustScope_TRUST_SCOPE_COOLDOWN,
@@ -340,7 +346,8 @@ func TestRunRuleShow(t *testing.T) {
 	got, err := runRuleShow(context.Background(), client, "r_9c1")
 	require.NoError(t, err)
 	table := got.RenderTable()
-	assert.Contains(t, table, "Rule          r_9c1")
+	assert.Contains(t, table, "Rule             r_9c1")
+	assert.Contains(t, table, "Vulnerabilities  -")
 	assert.Contains(t, table, "added in revision 40 · active")
 
 	updated := ruleWithAttributes("r_9c1", corev1.Effect_EFFECT_BLOCK, "")

@@ -84,9 +84,9 @@ func ruleCreateCmd(a *app.App) *cobra.Command {
 	f.StringVar(&in.Vers, "vers", "", "a version range, as in '>=1.2.0' or 'vers:npm/>=1.2.0|<2.0.0'")
 	f.StringSliceVar(&in.Scopes, "scope", nil,
 		"with --trust: a verdict to waive, one of "+strings.Join(createScopeTokens(), ", ")+", or all (repeatable)")
-	f.StringArrayVar(&in.Vulnerabilities, "vulnerability", nil,
+	f.StringSliceVar(&in.Vulnerabilities, "vulnerability", nil,
 		"with --scope vulnerability: waive only this id, as CVE-2024-3094, with an optional :JUSTIFICATION, one of "+
-			strings.Join(justificationNames(), ", ")+" (repeatable)")
+			strings.Join(justificationNames(), ", ")+" (repeatable, or comma-separated)")
 	f.StringVar(&in.Reason, "reason", "", "why the rule exists, which tools show in a block message (required)")
 	f.StringVar(&in.Ticket, "ticket", "", "a ticket or incident reference, as in IR-2291")
 	f.StringVar(&in.RequestedBy, "requested-by", "", "the team or person that asked for the rule")

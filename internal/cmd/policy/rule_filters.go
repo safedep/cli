@@ -16,11 +16,18 @@ func trustScopeTokens() []string {
 	return tui.EnumTokens(corev1.TrustScope_name, trustScopePrefix)
 }
 
+func namedVulnerabilityToken() string {
+	return tui.EnumToken(corev1.TrustScope_TRUST_SCOPE_NAMED_VULNERABILITY.String(), trustScopePrefix)
+}
+
 // createScopeTokens are the values of --scope in a create. A trust entry
 // gets NAMED_VULNERABILITY from --scope vulnerability with --vulnerability,
-// because that scope needs ids. So "all" leaves it out too.
+// because that scope needs ids. So "all" leaves it out too. The exclusion is
+// by name on purpose: the contract has no property that says a scope needs
+// data, so a scope that a later SDK adds joins "all" and fails the test of
+// allScopes, which forces a decision at the bump.
 func createScopeTokens() []string {
-	named := tui.EnumToken(corev1.TrustScope_TRUST_SCOPE_NAMED_VULNERABILITY.String(), trustScopePrefix)
+	named := namedVulnerabilityToken()
 	return slices.DeleteFunc(trustScopeTokens(), func(token string) bool { return token == named })
 }
 

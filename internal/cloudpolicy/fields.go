@@ -260,8 +260,8 @@ func FormatJSONValue(path, raw string) (string, string) {
 			return duration.Format(d), humanDuration(d)
 		}
 		return text, text
-	case fd != nil && isListSetting(fd):
-		if items, ok := jsonListItems(value, wrappedList(fd.Message())); ok {
+	case fd != nil && (isListSetting(fd) || isWrappedList(path)):
+		if items, ok := jsonListItems(value, fd); ok {
 			return items, items
 		}
 		compact, err := json.Marshal(value)
@@ -280,11 +280,23 @@ func FormatJSONValue(path, raw string) (string, string) {
 	}
 }
 
+// isWrappedList reports the path of the list inside a list setting, as
+// scan_gate.licenses.deny.licenses. A server that walks into the wrapper
+// reports a change at this path, so its value reads as the setting's.
+func isWrappedList(path string) bool {
+	i := strings.LastIndex(path, ".")
+	if i < 0 {
+		return false
+	}
+	parent := fieldByPath(path[:i])
+	return parent != nil && isListSetting(parent)
+}
+
 // jsonListItems reads the items of a list setting from its JSON value: the
 // protojson of the wrapper, as {"licenses": ["MIT"]}, or the list itself.
-func jsonListItems(value any, inner protoreflect.FieldDescriptor) (string, bool) {
-	if wrapper, ok := value.(map[string]any); ok {
-		value, ok = wrapper[inner.JSONName()]
+func jsonListItems(value any, fd protoreflect.FieldDescriptor) (string, bool) {
+	if wrapper, ok := value.(map[string]any); ok && isListSetting(fd) {
+		value, ok = wrapper[wrappedList(fd.Message()).JSONName()]
 		if !ok {
 			value = []any{}
 		}

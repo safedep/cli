@@ -45,7 +45,28 @@ func TestValidateRuleCreate(t *testing.T) {
 		{"trust without scope", func(in *ruleCreateInput) { in.Scopes = nil }, trust, "a trust entry needs --scope"},
 		{"trust without expiry", func(in *ruleCreateInput) { in.Expires = "" }, trust, "a trust entry needs --expires"},
 		{"block with scope", func(in *ruleCreateInput) { in.Scopes = []string{"malware"} }, block, "a block entry has no scope"},
-		{"unknown scope", func(in *ruleCreateInput) { in.Scopes = []string{"license"} }, trust, `unknown trust scope "license"`},
+		{"unknown scope", func(in *ruleCreateInput) { in.Scopes = []string{"secrets"} }, trust, `unknown trust scope "secrets"`},
+		{"license", func(in *ruleCreateInput) { in.Scopes = []string{"license"} }, trust, ""},
+		{"named vulnerability needs ids", func(in *ruleCreateInput) { in.Scopes = []string{"named-vulnerability"} }, trust,
+			`unknown trust scope "named-vulnerability": allowed values are malware, cooldown, vulnerability, license`},
+		{"waived vulnerabilities", func(in *ruleCreateInput) {
+			in.Scopes, in.Vulnerabilities = []string{"vulnerability"}, []string{"CVE-2024-1234", "GHSA-jfh8-c2jp-5v3q"}
+		}, trust, ""},
+		{"waived vulnerabilities with another scope", func(in *ruleCreateInput) {
+			in.Scopes, in.Vulnerabilities = []string{"malware"}, []string{"CVE-2024-1234"}
+		}, trust, "--vulnerability needs --scope vulnerability"},
+		{"waived vulnerabilities with a second scope", func(in *ruleCreateInput) {
+			in.Scopes, in.Vulnerabilities = []string{"vulnerability", "license"}, []string{"CVE-2024-1234"}
+		}, trust, "--vulnerability needs --scope vulnerability as the only scope"},
+		{"waived vulnerabilities with all", func(in *ruleCreateInput) {
+			in.Scopes, in.Vulnerabilities = []string{"all"}, []string{"CVE-2024-1234"}
+		}, trust, "--vulnerability needs --scope vulnerability as the only scope"},
+		{"waived vulnerabilities on a block", func(in *ruleCreateInput) { in.Vulnerabilities = []string{"CVE-2024-1234"} }, block,
+			"a block entry waives no vulnerability"},
+		{"a waived vulnerability twice", func(in *ruleCreateInput) {
+			in.Scopes = []string{"vulnerability"}
+			in.Vulnerabilities = []string{"CVE-2024-1234", "CVE-2024-1234:component_not_present"}
+		}, trust, "--vulnerability CVE-2024-1234 is given more than once"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -61,14 +82,20 @@ func TestValidateRuleCreate(t *testing.T) {
 	}
 }
 
+// allScopes is what --scope all expands to. It leaves out
+// NAMED_VULNERABILITY, because that scope needs vulnerability ids.
+var allScopes = []corev1.TrustScope{
+	corev1.TrustScope_TRUST_SCOPE_MALWARE,
+	corev1.TrustScope_TRUST_SCOPE_COOLDOWN,
+	corev1.TrustScope_TRUST_SCOPE_VULNERABILITY,
+	corev1.TrustScope_TRUST_SCOPE_LICENSE,
+}
+
 func TestExpandScopes_AllIsEveryKnownScope(t *testing.T) {
 	all, err := expandScopes([]string{"all"})
 	require.NoError(t, err)
-	assert.Equal(t, []corev1.TrustScope{
-		corev1.TrustScope_TRUST_SCOPE_MALWARE,
-		corev1.TrustScope_TRUST_SCOPE_COOLDOWN,
-		corev1.TrustScope_TRUST_SCOPE_VULNERABILITY,
-	}, all)
+	assert.Equal(t, allScopes, all)
+	assert.NotContains(t, all, corev1.TrustScope_TRUST_SCOPE_NAMED_VULNERABILITY)
 	for _, s := range all {
 		assert.NotEqual(t, corev1.TrustScope_TRUST_SCOPE_UNSPECIFIED, s)
 	}
@@ -386,11 +413,7 @@ func TestExpandScopes_AllMixedWithANamedScope(t *testing.T) {
 	for _, in := range [][]string{{"malware", "all"}, {"all", "cooldown"}, {"ALL"}} {
 		got, err := expandScopes(in)
 		require.NoError(t, err)
-		assert.Equal(t, []corev1.TrustScope{
-			corev1.TrustScope_TRUST_SCOPE_MALWARE,
-			corev1.TrustScope_TRUST_SCOPE_COOLDOWN,
-			corev1.TrustScope_TRUST_SCOPE_VULNERABILITY,
-		}, got, "%v", in)
+		assert.Equal(t, allScopes, got, "%v", in)
 	}
 }
 
@@ -455,7 +478,7 @@ func TestRuleList_RenderPlainEscapesServerText(t *testing.T) {
 	assert.Contains(t, plain, `IR-1\x1b[2J\tsecond column?`)
 	lines := strings.Split(plain, "\n")
 	require.Len(t, lines, 2)
-	assert.Len(t, strings.Split(lines[1], "\t"), 9, "a tab in a value adds no column")
+	assert.Len(t, strings.Split(lines[1], "\t"), 10, "a tab in a value adds no column")
 	assert.NotContains(t, res.RenderTable(), "\x1b")
 }
 

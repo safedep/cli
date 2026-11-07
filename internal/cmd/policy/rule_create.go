@@ -23,18 +23,19 @@ const (
 )
 
 type ruleCreateInput struct {
-	Block       bool
-	Trust       bool
-	Selector    string
-	File        string
-	Vers        string
-	Scopes      []string
-	Reason      string
-	Ticket      string
-	RequestedBy string
-	Expires     string
-	Override    string
-	Message     string
+	Block           bool
+	Trust           bool
+	Selector        string
+	File            string
+	Vers            string
+	Scopes          []string
+	Vulnerabilities []string
+	Reason          string
+	Ticket          string
+	RequestedBy     string
+	Expires         string
+	Override        string
+	Message         string
 }
 
 type ruleCreateResult struct {
@@ -53,6 +54,8 @@ func ruleCreateCmd(a *app.App) *cobra.Command {
 			"revision: one PURL on each line, with an optional vers range after a space. A trust entry " +
 			"selects one package and waives the verdicts of its --scope. It needs --expires. It never " +
 			"waives verified malware. --scope all expands to every trust scope that this CLI knows. " +
+			"--scope vulnerability with --vulnerability ID[:JUSTIFICATION] waives only the named " +
+			"vulnerabilities, and every other vulnerability of the package still fails a scan gate. " +
 			"A rule attaches to the policy base unless you pass --override NAME.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {
@@ -80,7 +83,10 @@ func ruleCreateCmd(a *app.App) *cobra.Command {
 	f.StringVarP(&in.File, "file", "f", "", "with --block: a file of selectors, one on each line, or - for stdin")
 	f.StringVar(&in.Vers, "vers", "", "a version range, as in '>=1.2.0' or 'vers:npm/>=1.2.0|<2.0.0'")
 	f.StringSliceVar(&in.Scopes, "scope", nil,
-		"with --trust: a verdict to waive, one of "+strings.Join(trustScopeTokens(), ", ")+", or all (repeatable)")
+		"with --trust: a verdict to waive, one of "+strings.Join(createScopeTokens(), ", ")+", or all (repeatable)")
+	f.StringArrayVar(&in.Vulnerabilities, "vulnerability", nil,
+		"with --scope vulnerability: waive only this id, as CVE-2024-3094, with an optional :JUSTIFICATION, one of "+
+			strings.Join(justificationNames(), ", ")+" (repeatable)")
 	f.StringVar(&in.Reason, "reason", "", "why the rule exists, which tools show in a block message (required)")
 	f.StringVar(&in.Ticket, "ticket", "", "a ticket or incident reference, as in IR-2291")
 	f.StringVar(&in.RequestedBy, "requested-by", "", "the team or person that asked for the rule")
@@ -165,9 +171,13 @@ func announceRuleCreate(in ruleCreateInput, creates []*policyv1.PackageRuleCreat
 		tui.Info("A block stops new installs. It does not remove installed copies.")
 		return
 	}
-	purl := creates[0].GetRule().GetSelector().GetPurl()
-	for _, scope := range creates[0].GetRule().GetScopes() {
-		tui.Warning("This rule loosens the policy: it waives %s for %s.", scopeEffect(scope), clitui.EscapeLine(purl))
+	rule := creates[0].GetRule()
+	purl := rule.GetSelector().GetPurl()
+	for _, scope := range rule.GetScopes() {
+		tui.Warning("This rule loosens the policy: it waives %s for %s.", scopeEffect(rule, scope), clitui.EscapeLine(purl))
+	}
+	if len(rule.GetVulnerabilities()) > 0 {
+		tui.Info("A scan gate still fails on every other vulnerability of the package.")
 	}
 	tui.Warning("Verified malware stays blocked")
 }

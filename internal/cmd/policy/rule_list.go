@@ -161,7 +161,7 @@ func (r *ruleListResult) RenderTable() string {
 	rows := make([][]string, 0, len(r.Rules))
 	for _, rule := range r.Rules {
 		rows = append(rows, []string{
-			rule.ID, rule.selector(), rule.Effect, cloudpolicy.EmptyDash(strings.Join(rule.Scopes, ",")),
+			rule.ID, rule.selector(), rule.Effect, rule.scopeText(),
 			rule.Reason, cloudpolicy.EmptyDash(rule.RequestedBy), rule.AttachesTo, rule.expiresCell(now),
 		})
 	}
@@ -182,10 +182,10 @@ func (r *ruleListResult) RenderTable() string {
 
 func (r *ruleListResult) RenderPlain() string {
 	var b strings.Builder
-	b.WriteString("rule_id\tpurl\tvers\teffect\tscopes\treason\trequested_by\toverride_id\texpires_at")
+	b.WriteString("rule_id\tpurl\tvers\teffect\tscopes\treason\trequested_by\toverride_id\texpires_at\tvulnerabilities")
 	for _, rule := range r.Rules {
 		b.WriteString("\n" + tui.PlainRow(rule.ID, rule.Purl, rule.Vers, rule.Effect, strings.Join(rule.Scopes, ","),
-			rule.Reason, rule.RequestedBy, rule.OverrideID, rule.ExpiresAt))
+			rule.Reason, rule.RequestedBy, rule.OverrideID, rule.ExpiresAt, rule.waivedPlain()))
 	}
 	return b.String()
 }

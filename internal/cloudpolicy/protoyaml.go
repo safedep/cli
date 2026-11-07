@@ -111,6 +111,13 @@ func (c *yamlCodec) encodeField(fd protoreflect.FieldDescriptor, v protoreflect.
 			out.Content = append(out.Content, scalarNode(k.String()), c.encodeSingular(fd.MapValue(), entries.Get(k)))
 		}
 		return out
+	case isListSetting(fd):
+		// The wrapper keeps its list key also with no items, so a layer
+		// that sets an empty list writes "licenses: []" and not "{}".
+		inner := wrappedList(fd.Message())
+		out := &yaml.Node{Kind: yaml.MappingNode}
+		out.Content = append(out.Content, scalarNode(c.key(inner)), c.encodeField(inner, v.Message().Get(inner)))
+		return out
 	default:
 		return c.encodeSingular(fd, v)
 	}
@@ -308,8 +315,10 @@ func (c *yamlCodec) decodeMessage(n *yaml.Node, m protoreflect.Message, path str
 			// "key:" with only commented lines below sets a message with no
 			// fields, so the edit template of a set but empty spec round
 			// trips. A label selector stays unset, because an empty selector
-			// selects every subject.
-			if !fd.IsList() && !fd.IsMap() && isMessageKind(fd) && !isFormattedMessage(fd.Message()) {
+			// selects every subject. A list setting stays unset too, because
+			// a set wrapper with no items is an empty list: an uncommented
+			// "deny:" alone must not remove every license from a deny list.
+			if !fd.IsList() && !fd.IsMap() && isMessageKind(fd) && !isFormattedMessage(fd.Message()) && !isListSetting(fd) {
 				m.Mutable(fd)
 			}
 			continue

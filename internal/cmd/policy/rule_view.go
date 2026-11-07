@@ -2,6 +2,7 @@ package policy
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	corev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/core/v1"
@@ -16,23 +17,24 @@ import (
 // `rule create` print.
 
 type ruleView struct {
-	ID              string   `json:"rule_id"`
-	Purl            string   `json:"purl"`
-	Vers            string   `json:"vers,omitempty"`
-	Effect          string   `json:"effect"`
-	Scopes          []string `json:"scopes"`
-	Reason          string   `json:"reason"`
-	Ticket          string   `json:"ticket,omitempty"`
-	RequestedBy     string   `json:"requested_by,omitempty"`
-	OverrideID      string   `json:"override_id,omitempty"`
-	AttachesTo      string   `json:"attaches_to"`
-	CreatedBy       string   `json:"created_by,omitempty"`
-	AddedRevision   uint64   `json:"added_revision"`
-	UpdatedRevision uint64   `json:"updated_revision,omitempty"`
-	RemovedRevision uint64   `json:"removed_revision,omitempty"`
-	ExpiresAt       string   `json:"expires_at,omitempty"`
-	CreatedAt       string   `json:"created_at,omitempty"`
-	UpdatedAt       string   `json:"updated_at,omitempty"`
+	ID              string                    `json:"rule_id"`
+	Purl            string                    `json:"purl"`
+	Vers            string                    `json:"vers,omitempty"`
+	Effect          string                    `json:"effect"`
+	Scopes          []string                  `json:"scopes"`
+	Vulnerabilities []waivedVulnerabilityView `json:"vulnerabilities,omitempty"`
+	Reason          string                    `json:"reason"`
+	Ticket          string                    `json:"ticket,omitempty"`
+	RequestedBy     string                    `json:"requested_by,omitempty"`
+	OverrideID      string                    `json:"override_id,omitempty"`
+	AttachesTo      string                    `json:"attaches_to"`
+	CreatedBy       string                    `json:"created_by,omitempty"`
+	AddedRevision   uint64                    `json:"added_revision"`
+	UpdatedRevision uint64                    `json:"updated_revision,omitempty"`
+	RemovedRevision uint64                    `json:"removed_revision,omitempty"`
+	ExpiresAt       string                    `json:"expires_at,omitempty"`
+	CreatedAt       string                    `json:"created_at,omitempty"`
+	UpdatedAt       string                    `json:"updated_at,omitempty"`
 	expires         *time.Time
 }
 
@@ -47,6 +49,7 @@ func newRuleView(r *policyv1.PackageRuleWithAttributes, names map[string]string)
 		Vers:            rule.GetSelector().GetVers(),
 		Effect:          tui.EnumToken(rule.GetEffect().String(), effectPrefix),
 		Scopes:          scopeTokens(rule.GetScopes()),
+		Vulnerabilities: waivedViews(rule.GetVulnerabilities()),
 		Reason:          rule.GetReason(),
 		Ticket:          r.GetTicket(),
 		RequestedBy:     r.GetRequestedBy(),
@@ -68,6 +71,62 @@ func newRuleView(r *policyv1.PackageRuleWithAttributes, names map[string]string)
 		}
 	}
 	return v
+}
+
+// waivedVulnerabilityView is one vulnerability that a trust entry waives.
+// The justification is its short OpenVEX name.
+type waivedVulnerabilityView struct {
+	ID            string `json:"id"`
+	Justification string `json:"justification,omitempty"`
+}
+
+func waivedViews(waived []*corev1.WaivedVulnerability) []waivedVulnerabilityView {
+	if len(waived) == 0 {
+		return nil
+	}
+	out := make([]waivedVulnerabilityView, 0, len(waived))
+	for _, w := range waived {
+		out = append(out, waivedVulnerabilityView{ID: w.GetId(), Justification: justificationName(w.GetJustification())})
+	}
+	return out
+}
+
+// waivedText is the form for people, as
+// "CVE-2024-3094 (vulnerable_code_not_in_execute_path), GHSA-jfh8-c2jp-5v3q".
+func (v ruleView) waivedText() string {
+	texts := make([]string, 0, len(v.Vulnerabilities))
+	for _, w := range v.Vulnerabilities {
+		text := w.ID
+		if w.Justification != "" {
+			text += " (" + w.Justification + ")"
+		}
+		texts = append(texts, text)
+	}
+	return strings.Join(texts, ", ")
+}
+
+// waivedPlain is the form of the --vulnerability flag, as
+// "CVE-2024-3094:vulnerable_code_not_in_execute_path,GHSA-jfh8-c2jp-5v3q".
+func (v ruleView) waivedPlain() string {
+	values := make([]string, 0, len(v.Vulnerabilities))
+	for _, w := range v.Vulnerabilities {
+		value := w.ID
+		if w.Justification != "" {
+			value += ":" + w.Justification
+		}
+		values = append(values, value)
+	}
+	return strings.Join(values, ",")
+}
+
+// scopeText is the scope cell of a table. A trust entry that names
+// vulnerabilities shows them after its scope.
+func (v ruleView) scopeText() string {
+	text := strings.Join(v.Scopes, ",")
+	if len(v.Vulnerabilities) > 0 {
+		text += ": " + v.waivedText()
+	}
+	return cloudpolicy.EmptyDash(text)
 }
 
 func (v ruleView) selector() string {
@@ -120,7 +179,7 @@ func blockPlace(override string) string {
 	return fmt.Sprintf("on the subjects that policy override %q selects", tui.EscapeLine(override))
 }
 
-func scopeEffect(scope corev1.TrustScope) string {
+func scopeEffect(rule *corev1.PackageRule, scope corev1.TrustScope) string {
 	switch scope {
 	case corev1.TrustScope_TRUST_SCOPE_MALWARE:
 		return "a malware verdict that is not verified"
@@ -128,6 +187,14 @@ func scopeEffect(scope corev1.TrustScope) string {
 		return "the dependency cooldown"
 	case corev1.TrustScope_TRUST_SCOPE_VULNERABILITY:
 		return "the vulnerability findings of a scan gate"
+	case corev1.TrustScope_TRUST_SCOPE_LICENSE:
+		return "the license findings of a scan gate"
+	case corev1.TrustScope_TRUST_SCOPE_NAMED_VULNERABILITY:
+		ids := make([]string, 0, len(rule.GetVulnerabilities()))
+		for _, w := range rule.GetVulnerabilities() {
+			ids = append(ids, w.GetId())
+		}
+		return "the scan gate findings of " + strings.Join(ids, ", ")
 	default:
 		return "the verdicts of scope " + scope.String()
 	}

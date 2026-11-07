@@ -2,6 +2,7 @@ package policy
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	corev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/core/v1"
@@ -15,6 +16,14 @@ func trustScopeTokens() []string {
 	return tui.EnumTokens(corev1.TrustScope_name, trustScopePrefix)
 }
 
+// createScopeTokens are the values of --scope in a create. A trust entry
+// gets NAMED_VULNERABILITY from --scope vulnerability with --vulnerability,
+// because that scope needs ids. So "all" leaves it out too.
+func createScopeTokens() []string {
+	named := tui.EnumToken(corev1.TrustScope_TRUST_SCOPE_NAMED_VULNERABILITY.String(), trustScopePrefix)
+	return slices.DeleteFunc(trustScopeTokens(), func(token string) bool { return token == named })
+}
+
 func parseEffect(token string) (corev1.Effect, error) {
 	n, ok := tui.ParseEnumToken(corev1.Effect_name, effectPrefix, token)
 	if !ok {
@@ -24,12 +33,14 @@ func parseEffect(token string) (corev1.Effect, error) {
 	return corev1.Effect(n), nil
 }
 
-func parseTrustScope(token string) (corev1.TrustScope, error) {
-	n, ok := tui.ParseEnumToken(corev1.TrustScope_name, trustScopePrefix, strings.ToLower(strings.TrimSpace(token)))
-	if !ok {
+// parseTrustScope reads one of the allowed tokens.
+func parseTrustScope(token string, allowed []string) (corev1.TrustScope, error) {
+	normalized := strings.ToLower(strings.TrimSpace(token))
+	n, ok := tui.ParseEnumToken(corev1.TrustScope_name, trustScopePrefix, normalized)
+	if !ok || !slices.Contains(allowed, normalized) {
 		return 0, invalidInputError(
-			fmt.Errorf("unknown trust scope %q: allowed values are %s", token, strings.Join(trustScopeTokens(), ", ")),
-			"Retry with one of: "+strings.Join(trustScopeTokens(), ", "))
+			fmt.Errorf("unknown trust scope %q: allowed values are %s", token, strings.Join(allowed, ", ")),
+			"Retry with one of: "+strings.Join(allowed, ", "))
 	}
 	return corev1.TrustScope(n), nil
 }
@@ -51,7 +62,7 @@ func ruleListFilters(in *ruleListInput, overrideID string) (*policyv1.ListPackag
 		set = true
 	}
 	if in.Scope != "" {
-		scope, err := parseTrustScope(in.Scope)
+		scope, err := parseTrustScope(in.Scope, trustScopeTokens())
 		if err != nil {
 			return nil, err
 		}

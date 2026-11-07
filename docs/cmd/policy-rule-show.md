@@ -28,6 +28,14 @@ Created by    carol
 Revisions     added in revision 48 · active
 ```
 
+A trust entry that waives named vulnerabilities has a `Vulnerabilities` row
+after `Scope`, with the justification of each id:
+
+```
+Scope            named-vulnerability
+Vulnerabilities  CVE-2024-1234 (vulnerable_code_not_in_execute_path), GHSA-jfh8-c2jp-5v3q
+```
+
 After an update of the rule, `Revisions` also names the revision of the last
 update, as `added in revision 48, updated in revision 52 · active`.
 

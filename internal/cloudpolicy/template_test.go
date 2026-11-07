@@ -36,6 +36,18 @@ func TestMarshalPolicyTemplate_NewTenant(t *testing.T) {
   # scan_gate:
     # fail_on: high  # critical, high, medium, low, info. Now: high (default policy, revision 1)
     # fail_on_attacks: fail  # report, fail. Now: fail (default policy, revision 1)
+    # licenses:
+      # The licenses that fail the gate. A list replaces the list below it. deny: {licenses: []}
+      # denies nothing. Values: {licenses: [text, ...]}. Now: not set, each tool uses its local
+      # value
+      # deny:
+      # With entries, a license outside the list fails the gate. A list replaces the list below it.
+      # An empty list turns the allow list off. Values: {licenses: [text, ...]}. Now: not set, each
+      # tool uses its local value
+      # allow:
+      # What the gate does on a package with an unknown license that the lists do not fail. Values:
+      # allow, report, fail. Now: not set, each tool uses its local value
+      # unknown: allow
 # base_description: Why the base has these values  # text
 
 # An example policy override. It applies to the subjects that its selector matches.
@@ -294,4 +306,86 @@ func TestPruneEmpty(t *testing.T) {
 			assert.True(t, proto.Equal(before, tt.in), "PruneEmpty does not change its input")
 		})
 	}
+}
+
+// licenseList builds a list setting. With no licenses it is set and empty.
+func licenseList(licenses ...string) *scangatev1.LicenseList {
+	l := &scangatev1.LicenseList{}
+	l.SetLicenses(licenses)
+	return l
+}
+
+func specWithLicenses(deny, allow *scangatev1.LicenseList, unknown scangatev1.UnknownLicenseGate) *specv1.PolicySpec {
+	licenses := &scangatev1.LicenseGate{}
+	if deny != nil {
+		licenses.SetDeny(deny)
+	}
+	if allow != nil {
+		licenses.SetAllow(allow)
+	}
+	if unknown != scangatev1.UnknownLicenseGate_UNKNOWN_LICENSE_GATE_UNSPECIFIED {
+		licenses.SetUnknown(unknown)
+	}
+	gate := &scangatev1.ScanGate{}
+	gate.SetLicenses(licenses)
+	spec := &specv1.PolicySpec{}
+	spec.SetScanGate(gate)
+	return spec
+}
+
+func TestMarshalPolicyTemplate_LicenseGateOfTheDefaultPolicy(t *testing.T) {
+	def := DefaultLayer{
+		Revision: 2,
+		Spec: specWithLicenses(licenseList("GPL-2.0-only", "GPL-3.0-only"), nil,
+			scangatev1.UnknownLicenseGate_UNKNOWN_LICENSE_GATE_ALLOW),
+	}
+	b, err := MarshalPolicyTemplate(&policyv1.Policy{}, "", def)
+	require.NoError(t, err)
+	text := string(b)
+
+	assert.Contains(t, text, "Now: GPL-2.0-only, GPL-3.0-only (default\n      # policy, revision 2)\n"+
+		"      # deny:\n"+
+		"      #   licenses:\n"+
+		"      #     - GPL-2.0-only\n"+
+		"      #     - GPL-3.0-only\n")
+	assert.Contains(t, text, "Values: {licenses: [text, ...]}. Now: not set, each\n      # tool uses its local value\n      # allow:\n")
+	assert.Contains(t, text, "allow, report, fail. Now: allow (default policy, revision 2)\n      # unknown: allow\n")
+	for _, line := range strings.Split(text, "\n") {
+		assert.LessOrEqual(t, len(line), templateWidth, line)
+	}
+}
+
+func TestMarshalPolicyTemplate_LicenseListsRoundTrip(t *testing.T) {
+	tests := []struct {
+		name string
+		spec *specv1.PolicySpec
+		want string
+	}{
+		{"an empty deny list denies nothing", specWithLicenses(licenseList(), nil, 0), "      deny:\n        licenses: []\n"},
+		{"an empty allow list turns the allow list off", specWithLicenses(nil, licenseList(), 0), "      allow:\n        licenses: []\n"},
+		{"lists with entries", specWithLicenses(licenseList("AGPL-3.0-only"), licenseList("MIT", "Apache-2.0"),
+			scangatev1.UnknownLicenseGate_UNKNOWN_LICENSE_GATE_FAIL),
+			"      deny:\n        licenses:\n          - AGPL-3.0-only\n      allow:\n        licenses:\n          - MIT\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &policyv1.Policy{}
+			p.SetBase(tt.spec)
+			b, err := MarshalPolicyTemplate(p, "", defaultPolicy())
+			require.NoError(t, err)
+			assert.Contains(t, string(b), tt.want)
+
+			got, err := UnmarshalPolicy(b)
+			require.NoError(t, err)
+			assert.True(t, proto.Equal(p, got), "got %v\n%s", got, b)
+			assert.True(t, proto.Equal(p, PruneEmpty(got)), "a set list with no items is a value")
+		})
+	}
+}
+
+func TestUnmarshalPolicy_AnUncommentedListKeyAloneSetsNothing(t *testing.T) {
+	got, err := UnmarshalPolicy([]byte("base:\n  scan_gate:\n    licenses:\n      deny:\n"))
+	require.NoError(t, err)
+	assert.False(t, got.GetBase().GetScanGate().GetLicenses().HasDeny(), "deny: alone must not empty the deny list")
+	assert.False(t, PruneEmpty(got).(*policyv1.Policy).HasBase())
 }

@@ -65,14 +65,34 @@ func validateRuleCreate(in ruleCreateInput) error {
 		return invalidInputError(errors.New("--reason is required"), "Say why the rule exists, as in --reason \"IR-2291 credential stealer\"")
 	case in.Trust && len(in.Scopes) == 0:
 		return invalidInputError(errors.New("a trust entry needs --scope"),
-			"Name each verdict that it waives: --scope "+strings.Join(trustScopeTokens(), ", --scope ")+", or --scope all")
+			"Name each verdict that it waives: --scope "+strings.Join(createScopeTokens(), ", --scope ")+", or --scope all")
 	case in.Trust && in.Expires == "":
 		return invalidInputError(errors.New("a trust entry needs --expires"), "As in --expires 30d")
 	case in.Block && len(in.Scopes) > 0:
 		return invalidInputError(errors.New("a block entry has no scope"), "Remove --scope")
+	case in.Block && len(in.Vulnerabilities) > 0:
+		return invalidInputError(errors.New("a block entry waives no vulnerability"), "Remove --vulnerability")
 	}
-	_, err := expandScopes(in.Scopes)
+	_, _, err := ruleScopes(in)
 	return err
+}
+
+// ruleScopes gives the scopes of the rule and the vulnerabilities that it
+// waives. --scope vulnerability with --vulnerability gives the one scope
+// NAMED_VULNERABILITY. Without --vulnerability it waives every vulnerability.
+func ruleScopes(in ruleCreateInput) ([]corev1.TrustScope, []*corev1.WaivedVulnerability, error) {
+	scopes, err := expandScopes(in.Scopes)
+	if err != nil || len(in.Vulnerabilities) == 0 {
+		return scopes, nil, err
+	}
+	if err := checkWaivedScope(scopes); err != nil {
+		return nil, nil, err
+	}
+	waived, err := parseWaivedVulnerabilities(in.Vulnerabilities)
+	if err != nil {
+		return nil, nil, err
+	}
+	return []corev1.TrustScope{corev1.TrustScope_TRUST_SCOPE_NAMED_VULNERABILITY}, waived, nil
 }
 
 // expandScopes reads the --scope values. "all" expands to every trust scope
@@ -83,8 +103,8 @@ func expandScopes(values []string) ([]corev1.TrustScope, error) {
 	for _, v := range values {
 		if strings.EqualFold(strings.TrimSpace(v), scopeAll) {
 			out = out[:0]
-			for _, token := range trustScopeTokens() {
-				scope, err := parseTrustScope(token)
+			for _, token := range createScopeTokens() {
+				scope, err := parseTrustScope(token, createScopeTokens())
 				if err != nil {
 					return nil, err
 				}
@@ -92,7 +112,7 @@ func expandScopes(values []string) ([]corev1.TrustScope, error) {
 			}
 			return out, nil
 		}
-		scope, err := parseTrustScope(v)
+		scope, err := parseTrustScope(v, createScopeTokens())
 		if err != nil {
 			return nil, err
 		}
@@ -113,7 +133,7 @@ func buildRuleCreates(in ruleCreateInput, stdin io.Reader, now time.Time) ([]*po
 	if in.Trust {
 		effect = corev1.Effect_EFFECT_TRUST
 	}
-	scopes, err := expandScopes(in.Scopes)
+	scopes, waived, err := ruleScopes(in)
 	if err != nil {
 		return nil, err
 	}
@@ -152,6 +172,7 @@ func buildRuleCreates(in ruleCreateInput, stdin io.Reader, now time.Time) ([]*po
 		rule.SetSelector(selector)
 		rule.SetEffect(effect)
 		rule.SetScopes(scopes)
+		rule.SetVulnerabilities(waived)
 		rule.SetReason(in.Reason)
 		if expires != nil {
 			rule.SetExpiresAt(expires)

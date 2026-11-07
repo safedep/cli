@@ -4,8 +4,8 @@ go 1.26.2
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260709200747-435963d16310.1
-	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20261106062459-79f98cf26185.1
-	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20261106062459-79f98cf26185.2
+	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20261107111754-29a1adb160aa.1
+	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20261107111754-29a1adb160aa.2
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/cli/browser v1.3.0

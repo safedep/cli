@@ -18,11 +18,30 @@ func TestFields(t *testing.T) {
 	assert.Empty(t, Fields(nil))
 }
 
+func TestFields_ListSettings(t *testing.T) {
+	licenses := &scangatev1.LicenseGate{}
+	deny := &scangatev1.LicenseList{}
+	deny.SetLicenses([]string{"GPL-3.0-only", "AGPL-3.0-only"})
+	licenses.SetDeny(deny)
+	licenses.SetAllow(&scangatev1.LicenseList{})
+	spec := specWith(scangatev1.Severity_SEVERITY_HIGH, 0)
+	spec.GetScanGate().SetLicenses(licenses)
+
+	assert.Equal(t, []FieldValue{
+		{Path: "scan_gate.fail_on", Value: "high", Human: "high"},
+		{Path: "scan_gate.licenses.deny", Value: "GPL-3.0-only, AGPL-3.0-only", Human: "GPL-3.0-only, AGPL-3.0-only"},
+		{Path: "scan_gate.licenses.allow", Value: "[]", Human: "[]"},
+	}, Fields(spec))
+}
+
 func TestLeafPathsAndCapabilities(t *testing.T) {
 	paths := LeafPaths()
 	assert.Contains(t, paths, "scan_gate.fail_on")
 	assert.Contains(t, paths, "scan_gate.fail_on_attacks")
 	assert.Contains(t, paths, "package_admission.cooldown.min_age")
+	assert.Contains(t, paths, "scan_gate.licenses.deny", "a list setting is one setting")
+	assert.Contains(t, paths, "scan_gate.licenses.unknown")
+	assert.NotContains(t, paths, "scan_gate.licenses.deny.licenses")
 	for _, p := range paths {
 		assert.NotContains(t, p, "core", "package rules are not settings")
 	}
@@ -54,6 +73,12 @@ func TestFormatJSONValue(t *testing.T) {
 		{"package_admission.cooldown.min_age", `"604800s"`, "168h", "7d"},
 		{"package_admission.cooldown.min_age", `"0s"`, "0s", "0s"},
 		{"scan_gate.fail_on", "", "-", "-"},
+		{"scan_gate.licenses.deny", `{"licenses":["GPL-3.0-only","MIT"]}`, "GPL-3.0-only, MIT", "GPL-3.0-only, MIT"},
+		{"scan_gate.licenses.deny", `{}`, "[]", "[]"},
+		{"scan_gate.licenses.allow", `["MIT"]`, "MIT", "MIT"},
+		// A server that walks into the wrapper reports the inner list.
+		{"scan_gate.licenses.deny.licenses", `["GPL-3.0-only","MIT"]`, "GPL-3.0-only, MIT", "GPL-3.0-only, MIT"},
+		{"scan_gate.licenses.deny.licenses", `[]`, "[]", "[]"},
 		{"unknown.path", `"text"`, "text", "text"},
 		{"unknown.path", `{"a":1}`, `{"a":1}`, `{"a":1}`},
 		{"unknown.path", `not json`, "not json", "not json"},

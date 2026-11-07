@@ -7,8 +7,10 @@ import (
 	"strings"
 	"time"
 
+	optionsv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/options/v1"
 	specv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/spec/v1"
 	"github.com/safedep/dry/tui/humanize"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -16,9 +18,15 @@ import (
 	"github.com/safedep/cli/internal/duration"
 )
 
-// coreCapability is the capability of the package rules. It is not a policy
-// setting, so the field lists and the restore leave it out.
-const coreCapability = "core"
+const (
+	// coreCapability is the capability of the package rules. It is not a
+	// policy setting, so the field lists and the restore leave it out.
+	coreCapability = "core"
+
+	// emptyList is the value of a list setting that a layer sets to no
+	// items. It differs from a setting that the layer does not set.
+	emptyList = "[]"
+)
 
 // FieldValue is one set field of a PolicySpec.
 type FieldValue struct {
@@ -134,11 +142,39 @@ func isLeaf(fd protoreflect.FieldDescriptor) bool {
 	if fd.Kind() != protoreflect.MessageKind || fd.IsList() || fd.IsMap() {
 		return true
 	}
-	return isFormattedMessage(fd.Message())
+	return isFormattedMessage(fd.Message()) || isListSetting(fd)
+}
+
+// isListSetting reports a message field that the contract marks as one
+// setting with a merge option, such as scan_gate.licenses.deny. The message
+// wraps one list, so a layer can set the list to no items. Its path is the
+// path of the field, and a set wrapper with no items is an empty list, not
+// "not set".
+func isListSetting(fd protoreflect.FieldDescriptor) bool {
+	if fd.Kind() != protoreflect.MessageKind || fd.IsList() || fd.IsMap() || isFormattedMessage(fd.Message()) {
+		return false
+	}
+	contract, ok := proto.GetExtension(fd.Options(), optionsv1.E_Field).(*optionsv1.FieldContract)
+	return ok && contract.GetMerge() != optionsv1.Merge_MERGE_UNSPECIFIED && wrappedList(fd.Message()) != nil
+}
+
+// wrappedList is the one repeated field of a list setting, or nil.
+func wrappedList(md protoreflect.MessageDescriptor) protoreflect.FieldDescriptor {
+	if md.Fields().Len() != 1 || !md.Fields().Get(0).IsList() {
+		return nil
+	}
+	return md.Fields().Get(0)
 }
 
 func formatFieldValue(fd protoreflect.FieldDescriptor, v protoreflect.Value) (string, string) {
 	switch {
+	case isListSetting(fd):
+		inner := wrappedList(fd.Message())
+		items := v.Message().Get(inner)
+		if items.List().Len() == 0 {
+			return emptyList, emptyList
+		}
+		return formatFieldValue(inner, items)
 	case fd.IsList():
 		list := v.List()
 		values := make([]string, 0, list.Len())
@@ -224,6 +260,15 @@ func FormatJSONValue(path, raw string) (string, string) {
 			return duration.Format(d), humanDuration(d)
 		}
 		return text, text
+	case fd != nil && (isListSetting(fd) || isWrappedList(path)):
+		if items, ok := jsonListItems(value, fd); ok {
+			return items, items
+		}
+		compact, err := json.Marshal(value)
+		if err != nil {
+			return raw, raw
+		}
+		return string(compact), string(compact)
 	case isString:
 		return text, text
 	default:
@@ -233,6 +278,41 @@ func FormatJSONValue(path, raw string) (string, string) {
 		}
 		return string(compact), string(compact)
 	}
+}
+
+// isWrappedList reports the path of the list inside a list setting, as
+// scan_gate.licenses.deny.licenses. A server that walks into the wrapper
+// reports a change at this path, so its value reads as the setting's.
+func isWrappedList(path string) bool {
+	i := strings.LastIndex(path, ".")
+	if i < 0 {
+		return false
+	}
+	parent := fieldByPath(path[:i])
+	return parent != nil && isListSetting(parent)
+}
+
+// jsonListItems reads the items of a list setting from its JSON value: the
+// protojson of the wrapper, as {"licenses": ["MIT"]}, or the list itself.
+func jsonListItems(value any, fd protoreflect.FieldDescriptor) (string, bool) {
+	if wrapper, ok := value.(map[string]any); ok && isListSetting(fd) {
+		value, ok = wrapper[wrappedList(fd.Message()).JSONName()]
+		if !ok {
+			value = []any{}
+		}
+	}
+	list, ok := value.([]any)
+	if !ok {
+		return "", false
+	}
+	if len(list) == 0 {
+		return emptyList, true
+	}
+	items := make([]string, 0, len(list))
+	for _, item := range list {
+		items = append(items, fmt.Sprint(item))
+	}
+	return strings.Join(items, ", "), true
 }
 
 func fieldByPath(path string) protoreflect.FieldDescriptor {

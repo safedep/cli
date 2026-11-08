@@ -15,7 +15,7 @@ safedep policy rule list [--effect trust|block] [--scope SCOPE] [--selector-pref
 | Flag | Description |
 |------|-------------|
 | `--effect <effect>` | `trust` or `block`. |
-| `--scope <scope>` | Trust entries with this scope: `malware`, `cooldown` or `vulnerability`. |
+| `--scope <scope>` | Trust entries with this scope: `malware`, `cooldown`, `vulnerability`, `license` or `named-vulnerability`. |
 | `--selector-prefix <text>` | Rules whose selector starts with this text, as `pkg:npm/`. |
 | `--expiring <duration>` | Rules that expire within this time from now, as `7d`. |
 | `--override <name>` | Rules that attach to this policy override. |
@@ -42,10 +42,16 @@ r_80b  pkg:npm/leftpad  trust   malware           FP, S-71        web           
 
 ## Output
 
-`json` holds `rules` (rule id, purl, vers, effect, scopes, reason, ticket,
-requester, override id, `attaches_to`, author, added, updated and removed revision, times)
-and `next_page_token`. `plain` writes a tab-separated header and one row for each
-rule. The table humanizes the expiry.
+`json` holds `rules` (rule id, purl, vers, effect, scopes, `vulnerabilities`, reason,
+ticket, requester, override id, `attaches_to`, author, added, updated and removed
+revision, times) and `next_page_token`. `vulnerabilities` lists each waived `id` and
+its `justification` for a trust entry with the scope `named-vulnerability`, and is
+an empty list for every other rule. `plain`
+writes a tab-separated header and one row for each rule. Its last column,
+`vulnerabilities`, has the form of the `--vulnerability` flag, as
+`CVE-2024-1234:vulnerable_code_not_in_execute_path,GHSA-jfh8-c2jp-5v3q`, so you
+can pass the value back to `--vulnerability`. The table
+shows the waived vulnerabilities after the scope, and humanizes the expiry.
 
 ## Authentication
 

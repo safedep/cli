@@ -9,6 +9,7 @@ import (
 	validate "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	packageadmissionv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/packageadmission/v1"
+	scangatev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/scangate/v1"
 	specv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/spec/v1"
 	policyv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/policy/v1"
 	yaml "go.yaml.in/yaml/v3"
@@ -45,6 +46,20 @@ var (
 	// values of the base. The template shows it commented when it is unset,
 	// because the header asks for the reason in a description field.
 	baseDescriptionFullName = policyFullName.Append("base_description")
+
+	licenseGateFullName = (&scangatev1.LicenseGate{}).ProtoReflect().Descriptor().FullName()
+
+	// fieldNotes give the meaning of a field whose value form alone misleads
+	// a person. An empty license list is a value, and the gate reads the
+	// lists before unknown.
+	fieldNotes = map[protoreflect.FullName]string{
+		licenseGateFullName.Append("deny"): "The licenses that fail the gate. A list replaces the list below it. " +
+			"deny: {licenses: []} denies nothing.",
+		licenseGateFullName.Append("allow"): "With entries, a license outside the list fails the gate. " +
+			"A list replaces the list below it. An empty list turns the allow list off.",
+		licenseGateFullName.Append("unknown"): "What the gate does on a package with an unknown license " +
+			"that the lists do not fail.",
+	}
 )
 
 // DefaultLayer is the SafeDep default policy, the layer below the base.
@@ -312,7 +327,11 @@ func (w *templateWriter) commentedLeaf(
 			return err
 		}
 	}
-	text := tui.EscapeLine(valueForm(fd) + ". " + now)
+	text := valueForm(fd) + ". " + now
+	if note, ok := fieldNotes[fd.FullName()]; ok {
+		text = note + " Values: " + text
+	}
+	text = tui.EscapeLine(text)
 	first := strings.Repeat(" ", indent) + "# " + lines[0]
 	if len(first)+len("  # ")+len(text) <= templateWidth {
 		w.lines = append(w.lines, first+"  # "+text)
@@ -509,6 +528,9 @@ func placeholderValue(fd protoreflect.FieldDescriptor) (protoreflect.Value, bool
 // valueForm describes the values that a field accepts, in the words of the
 // codec.
 func valueForm(fd protoreflect.FieldDescriptor) string {
+	if isListSetting(fd) {
+		return "{" + documentCodec.key(wrappedList(fd.Message())) + ": [text, ...]}"
+	}
 	form := singularForm(fd)
 	switch {
 	case fd.IsList():
@@ -597,8 +619,9 @@ func valueAtPath(spec *specv1.PolicySpec, path string) (protoreflect.Value, bool
 }
 
 // PruneEmpty returns a copy of m with every message field that holds no
-// field cleared, at every level. A label selector, a duration and a time
-// stay, because their empty value means something: every subject, or zero.
+// field cleared, at every level. A label selector, a duration, a time and a
+// list setting stay, because their empty value means something: every
+// subject, zero, or a list with no items.
 // An edit compares pruned messages, so a parent key that a person uncomments
 // with no field below it is no change.
 func PruneEmpty(m proto.Message) proto.Message {
@@ -611,7 +634,7 @@ func pruneMessage(m protoreflect.Message) {
 	var empty []protoreflect.FieldDescriptor
 	m.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
 		switch {
-		case !isMessageKind(fd) || fd.IsMap():
+		case !isMessageKind(fd) || fd.IsMap() || isListSetting(fd):
 		case fd.IsList():
 			list := v.List()
 			for i := 0; i < list.Len(); i++ {

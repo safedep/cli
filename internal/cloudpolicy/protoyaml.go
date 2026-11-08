@@ -111,6 +111,13 @@ func (c *yamlCodec) encodeField(fd protoreflect.FieldDescriptor, v protoreflect.
 			out.Content = append(out.Content, scalarNode(k.String()), c.encodeSingular(fd.MapValue(), entries.Get(k)))
 		}
 		return out
+	case isListSetting(fd):
+		// The wrapper keeps its list key also with no items, so a layer
+		// that sets an empty list writes "licenses: []" and not "{}".
+		inner := wrappedList(fd.Message())
+		out := &yaml.Node{Kind: yaml.MappingNode}
+		out.Content = append(out.Content, scalarNode(c.key(inner)), c.encodeField(inner, v.Message().Get(inner)))
+		return out
 	default:
 		return c.encodeSingular(fd, v)
 	}
@@ -304,6 +311,12 @@ func (c *yamlCodec) decodeMessage(n *yaml.Node, m protoreflect.Message, path str
 			return errAt(key, fieldPath, "the field is set twice")
 		}
 		seen[fd.Name()] = struct{}{}
+		if isListSetting(fd) {
+			if err := c.decodeListSetting(value, m, fd, fieldPath); err != nil {
+				return err
+			}
+			continue
+		}
 		if isNull(value) {
 			// "key:" with only commented lines below sets a message with no
 			// fields, so the edit template of a set but empty spec round
@@ -319,6 +332,44 @@ func (c *yamlCodec) decodeMessage(n *yaml.Node, m protoreflect.Message, path str
 		}
 	}
 	return nil
+}
+
+// decodeListSetting reads a list setting in the wrapper form, as
+// "deny: {licenses: [MIT]}", or as the bare list, as "deny: [MIT]". Only a
+// list sets it, because a set wrapper with no items is an empty list. A key
+// with nothing below it, as "deny:" or "licenses:" whose items stay
+// commented, sets nothing, so a partial uncomment never empties a list.
+func (c *yamlCodec) decodeListSetting(n *yaml.Node, m protoreflect.Message, fd protoreflect.FieldDescriptor, path string) error {
+	inner := wrappedList(fd.Message())
+	n = resolveAlias(n)
+	list := n
+	if n.Kind == yaml.MappingNode {
+		list = nil
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			key := n.Content[i]
+			if c.fieldByKey(fd.Message(), key.Value) != inner {
+				return errAt(key, joinPath(path, key.Value), "unknown field. Known fields: %s", c.key(inner))
+			}
+			if list != nil {
+				return errAt(key, joinPath(path, key.Value), "the field is set twice")
+			}
+			list = resolveAlias(n.Content[i+1])
+		}
+		path = joinPath(path, c.key(inner))
+	}
+	if list == nil || isNull(list) {
+		return nil
+	}
+	return c.decodeField(list, m.Mutable(fd).Message(), inner, path)
+}
+
+// resolveAlias follows a YAML alias, as "allow: *empty", to the node of its
+// anchor.
+func resolveAlias(n *yaml.Node) *yaml.Node {
+	for n != nil && n.Kind == yaml.AliasNode && n.Alias != nil {
+		n = n.Alias
+	}
+	return n
 }
 
 func (c *yamlCodec) knownFields(md protoreflect.MessageDescriptor) []string {

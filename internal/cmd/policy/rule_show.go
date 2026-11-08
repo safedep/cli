@@ -24,7 +24,7 @@ func ruleShowCmd(a *app.App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show RULE",
 		Short: "Show one package rule",
-		Long: "Show one package rule: its selector, effect, trust scopes, reason, ticket, requester, the " +
+		Long: "Show one package rule: its selector, effect, trust scopes, the vulnerabilities that it waives, reason, ticket, requester, the " +
 			"policy override that it attaches to, its expiry, and the revisions that added, updated and removed it. " +
 			"A block message of a tool cites the rule id.",
 		Args: cobra.ExactArgs(1),
@@ -83,6 +83,7 @@ func (r *ruleShowResult) table(now time.Time) string {
 		{"Selector", v.selector()},
 		{"Effect", v.Effect},
 		{"Scope", cloudpolicy.EmptyDash(strings.Join(v.Scopes, ", "))},
+		{"Vulnerabilities", cloudpolicy.EmptyDash(v.waivedText())},
 		{"Reason", v.Reason},
 		{"Ticket", cloudpolicy.EmptyDash(v.Ticket)},
 		{"Requested by", cloudpolicy.EmptyDash(v.RequestedBy)},
@@ -112,6 +113,7 @@ func (r *ruleShowResult) RenderPlain() string {
 		clitui.PlainRow("vers", v.Vers),
 		clitui.PlainRow("effect", v.Effect),
 		clitui.PlainRow("scopes", strings.Join(v.Scopes, ",")),
+		clitui.PlainRow("vulnerabilities", v.waivedPlain()),
 		clitui.PlainRow("reason", v.Reason),
 		clitui.PlainRow("ticket", v.Ticket),
 		clitui.PlainRow("requested_by", v.RequestedBy),

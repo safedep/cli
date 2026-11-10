@@ -132,6 +132,20 @@ func (r *changeShowResult) headline() string {
 	return strings.Join(parts, sep)
 }
 
+// emptyChangesMessage says why the table of changes has no row. The server
+// previews only an open change, so a closed change that edited the settings
+// has no field rows.
+func (r *changeShowResult) emptyChangesMessage() string {
+	c := r.Change
+	if r.Preview != nil || !c.EditsSettings {
+		return "The change edits nothing."
+	}
+	if c.PublishedRevision > 0 {
+		return fmt.Sprintf("The change edited the policy settings. See them: safedep policy revision show %d", c.PublishedRevision)
+	}
+	return "The change edited the policy settings. Only an open change has a preview of them."
+}
+
 func (r *changeShowResult) RenderTable() string {
 	now := time.Now()
 	sections := []string{r.headline()}
@@ -153,7 +167,7 @@ func (r *changeShowResult) RenderTable() string {
 		Title("What changes").
 		Headers("WHERE", "WHAT", "OLD -> NEW", "DIRECTION").
 		Rows(tui.EscapeCells(rows)...).
-		EmptyMessage("The change edits nothing.").
+		EmptyMessage(r.emptyChangesMessage()).
 		Render())
 
 	if p := r.Preview; p != nil {

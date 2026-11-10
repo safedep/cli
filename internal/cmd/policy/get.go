@@ -91,7 +91,7 @@ func readPolicyAt(
 	req.SetRevision(revision)
 	res, err := client.GetPolicyRevision(ctx, req)
 	if err != nil {
-		return 0, nil, fmt.Errorf("policy: get revision %d: %w", revision, err)
+		return 0, nil, mapRevisionError("policy: get revision", revision, err)
 	}
 	return revision, res.GetPolicy(), nil
 }

@@ -142,6 +142,17 @@ func TestRunList_MemberIsDenied(t *testing.T) {
 	assert.Equal(t, "Only an Admin can read the audit log", ue.HumanError())
 }
 
+func TestRunList_ShowsWhyTheServerRefusedTheRequest(t *testing.T) {
+	client := &fakeLister{err: status.Error(codes.InvalidArgument,
+		`service execution failed: invalid audit event list request: audit: unknown resource kind: "bogus"`)}
+	_, err := runList(context.Background(), client, listInput{Resource: "bogus"}, now)
+	ue, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Equal(t, usefulerror.ErrBadRequest, ue.Code())
+	assert.Equal(t, `The server refused the request: invalid audit event list request: audit: unknown resource kind: "bogus"`, ue.HumanError())
+	assert.Equal(t, "See the filters: safedep audit event list --help", ue.Help())
+}
+
 func TestRender_EscapesServerText(t *testing.T) {
 	e := auditEvent()
 	e.GetActor().SetDisplayName("mallory\x1b]0;owned\x07")

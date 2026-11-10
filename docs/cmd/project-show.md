@@ -1,13 +1,19 @@
 # safedep project show
 
-Show one project by its exact name: its source, its labels from every source, and
-the policy revision and policy overrides that apply to it.
+Show one project by its exact name or by its ID: its source, its labels from every
+source, and the policy revision and policy overrides that apply to it.
 
 ## Synopsis
 
 ```
-safedep project show PROJECT_NAME [--output table|plain|json]
+safedep project show (PROJECT_NAME | --project-id ID) [--output table|plain|json]
 ```
+
+## Flags
+
+| Flag | Description |
+|------|-------------|
+| `--project-id <id>` | The project ID instead of a name. Use it when two projects have the same name. |
 
 ## Examples
 
@@ -33,7 +39,8 @@ Policy of each field: safedep project policy show PAY/settlement
 ```
 
 When the policy service does not answer, the command warns and shows the rest.
-When two projects have the name, the command lists their ids.
+When two projects have the name, the command lists their IDs. Run it again with
+`--project-id` and one of them.
 
 ## Authentication
 

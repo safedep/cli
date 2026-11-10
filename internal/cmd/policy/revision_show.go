@@ -62,7 +62,7 @@ func runRevisionShow(ctx context.Context, client policyv1grpc.PolicyServiceClien
 	req.SetRevision(revision)
 	res, err := client.GetPolicyRevision(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("policy revision show: %w", err)
+		return nil, mapRevisionError("policy revision show", revision, err)
 	}
 	doc, err := cloudpolicy.PolicyMap(res.GetPolicy())
 	if err != nil {

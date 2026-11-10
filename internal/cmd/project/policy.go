@@ -2,7 +2,6 @@ package project
 
 import (
 	"context"
-	"errors"
 
 	specv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/spec/v1"
 	"github.com/spf13/cobra"
@@ -40,9 +39,8 @@ func policyShowCmd(a *app.App) *cobra.Command {
 			if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {
 				return err
 			}
-			if (len(args) == 1) == (in.ProjectID != "") {
-				return invalidProjectSelectionError(errors.New("give a project name or --project-id"),
-					"As in: safedep project policy show acme/payments-api")
+			if err := requireOneProject(args, in.ProjectID, "As in: safedep project policy show acme/payments-api"); err != nil {
+				return err
 			}
 			return cloudpolicy.ValidateFieldPaths(in.Fields)
 		},

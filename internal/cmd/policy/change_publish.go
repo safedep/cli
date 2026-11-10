@@ -46,7 +46,9 @@ func changePublishCmd(a *app.App) *cobra.Command {
 				return err
 			}
 			rev, err := runChangePublish(cmd.Context(), cloudpolicy.NewPolicyClient(client.Connection()),
-				args[0], message, publishConfirm(yes, clitui.IsInteractive()))
+				args[0], message, publishConfirm(yes, clitui.IsInteractive(),
+					"the change loosens the policy, and no terminal is present to confirm it",
+					"Review it with safedep policy change show, then pass --yes to publish it"))
 			if errors.Is(err, errPublishCancelled) {
 				tui.Info("Nothing is published")
 				return nil
@@ -65,15 +67,13 @@ func changePublishCmd(a *app.App) *cobra.Command {
 
 // publishConfirm asks in a terminal. With no terminal it needs --yes, so a
 // script never loosens the policy by accident.
-func publishConfirm(yes, interactive bool) confirmFunc {
+func publishConfirm(yes, interactive bool, noTerminal, help string) confirmFunc {
 	return func(question string) (bool, error) {
 		if yes {
 			return true, nil
 		}
 		if !interactive {
-			cause := errors.New("the change loosens the policy, and no terminal is present to confirm it")
-			return false, newPolicyError(usefulerror.ErrBadRequest, cause.Error(),
-				"Review it with safedep policy change show, then pass --yes to publish it", cause)
+			return false, newPolicyError(usefulerror.ErrBadRequest, noTerminal, help, errors.New(noTerminal))
 		}
 		return prompt.Confirm(question, false)
 	}

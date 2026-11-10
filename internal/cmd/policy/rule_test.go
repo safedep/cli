@@ -412,14 +412,45 @@ func TestRunRuleUpdateAndDelete(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, uint64(50), res.GetRevision().GetRevision())
 
+	trust := &policyv1.GetPackageRuleResponse{}
+	trust.SetRule(ruleWithAttributes("r_80b", corev1.Effect_EFFECT_TRUST, ""))
+	client.EXPECT().GetPackageRule(mock.Anything, mock.Anything).Return(trust, nil)
 	del := &policyv1.DeletePackageRuleResponse{}
 	del.SetRevision(revision(51, ""))
 	client.EXPECT().DeletePackageRule(mock.Anything, mock.MatchedBy(func(r *policyv1.DeletePackageRuleRequest) bool {
 		return r.GetDelete().GetRuleId() == "r_80b" && r.GetDelete().GetReason() == "no longer needed"
 	})).Return(del, nil)
-	rev, err := runRuleDelete(context.Background(), client, "r_80b", "no longer needed", "")
+	noPrompt := func(string) (bool, error) {
+		t.Fatal("the delete of a trust entry must not ask")
+		return false, nil
+	}
+	rev, err := runRuleDelete(context.Background(), client, "r_80b", "no longer needed", "", noPrompt)
 	require.NoError(t, err)
 	assert.Equal(t, uint64(51), rev)
+}
+
+func TestRunRuleDelete_BlockNeedsAConfirmation(t *testing.T) {
+	client := mocks.NewPolicyServiceClientMock(t)
+	block := &policyv1.GetPackageRuleResponse{}
+	block.SetRule(ruleWithAttributes("r_77e", corev1.Effect_EFFECT_BLOCK, ""))
+	client.EXPECT().GetPackageRule(mock.Anything, mock.Anything).Return(block, nil)
+
+	var question string
+	refuse := func(q string) (bool, error) {
+		question = q
+		return false, nil
+	}
+	_, err := runRuleDelete(context.Background(), client, "r_77e", "no longer needed", "", refuse)
+	require.ErrorIs(t, err, errPublishCancelled)
+	assert.Equal(t, "Rule r_77e blocks pkg:npm/leftpad. The delete loosens the policy. Delete it?", question)
+
+	// With --yes the command does not read the rule.
+	del := &policyv1.DeletePackageRuleResponse{}
+	del.SetRevision(revision(52, ""))
+	client.EXPECT().DeletePackageRule(mock.Anything, mock.Anything).Return(del, nil)
+	rev, err := runRuleDelete(context.Background(), client, "r_77e", "no longer needed", "", nil)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(52), rev)
 }
 
 func TestExpandScopes_AllMixedWithANamedScope(t *testing.T) {

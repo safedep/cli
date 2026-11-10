@@ -18,6 +18,7 @@ import (
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/duration"
 	"github.com/safedep/cli/internal/paging"
+	clitui "github.com/safedep/cli/internal/tui"
 )
 
 const resultPrefix = "AUDIT_RESULT_"
@@ -154,13 +155,31 @@ func runList(ctx context.Context, client eventLister, in listInput, now time.Tim
 	return out, nil
 }
 
+// serviceFailedPrefix is the text that the server puts before the message of
+// a service error. It names no filter and no fix.
+const serviceFailedPrefix = "service execution failed: "
+
 func mapListError(err error) error {
 	cause := fmt.Errorf("audit event list: %w", err)
-	if st, ok := status.FromError(err); ok && st.Code() == codes.PermissionDenied {
+	st, ok := status.FromError(err)
+	if !ok {
+		return cause
+	}
+	switch st.Code() {
+	case codes.PermissionDenied:
 		return usefulerror.NewUsefulError().
 			WithCode(usefulerror.ErrAuthorizationFailed).
 			WithHumanError("Only an Admin can read the audit log").
 			WithHelp("Ask an Admin of the tenant to run the command").
+			Wrap(cause)
+	case codes.InvalidArgument:
+		// The generic conversion shows only "Invalid request", and the user
+		// cannot find the flag to fix.
+		reason := strings.TrimPrefix(st.Message(), serviceFailedPrefix)
+		return usefulerror.NewUsefulError().
+			WithCode(usefulerror.ErrBadRequest).
+			WithHumanError("The server refused the request: " + clitui.EscapeLine(reason)).
+			WithHelp("Correct the flag that the message names. See the flags: safedep audit event list --help").
 			Wrap(cause)
 	}
 	return cause

@@ -268,7 +268,7 @@ func TestResolveProjectNames_RejectsAmbiguousName(t *testing.T) {
 		err,
 		usefulerror.ErrBadRequest,
 		"Project name is ambiguous",
-		"Retry with one of these project IDs: id-github (github, https://github.com/acme/shared), "+
+		"Retry with --project-id and one of these project IDs: id-github (github, https://github.com/acme/shared), "+
 			"id-gitlab (gitlab, https://gitlab.com/acme/shared).",
 	)
 }

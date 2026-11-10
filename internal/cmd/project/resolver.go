@@ -229,7 +229,7 @@ func ambiguousProjectNameError(op, name string, byID map[string]projectMatch) er
 	return newProjectError(
 		usefulerror.ErrBadRequest,
 		"Project name is ambiguous",
-		"Retry with one of these project IDs: "+strings.Join(labels, ", ")+".",
+		"Retry with --project-id and one of these project IDs: "+strings.Join(labels, ", ")+".",
 		cause,
 	)
 }

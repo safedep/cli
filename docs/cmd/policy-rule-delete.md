@@ -6,7 +6,7 @@ The rule stays in the history of the revisions.
 ## Synopsis
 
 ```
-safedep policy rule delete RULE --reason TEXT [-m MESSAGE]
+safedep policy rule delete RULE --reason TEXT [-m MESSAGE] [--yes]
 ```
 
 ## Flags
@@ -15,6 +15,7 @@ safedep policy rule delete RULE --reason TEXT [-m MESSAGE]
 |------|-------------|
 | `--reason <text>` | Why the rule goes. Required. |
 | `-m`, `--message <text>` | The publish message. |
+| `-y`, `--yes` | Delete a block entry with no prompt. |
 
 ## Examples
 
@@ -26,7 +27,12 @@ safedep policy rule delete r_80b --reason "no longer needed"
 ✓ rule r_80b deleted · revision 51 published
 ```
 
-The delete of a block entry loosens the policy.
+The delete of a block entry loosens the policy, so the command asks first. With no
+terminal, pass `--yes`. The delete of a trust entry does not ask.
+
+```
+Rule r_77e blocks pkg:npm/left-pad. The delete loosens the policy. Delete it? [y/N]:
+```
 
 ## Authentication
 

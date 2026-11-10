@@ -287,7 +287,7 @@ func mapChangeError(op, changeID string, err error) error {
 				"Ask an Admin of the tenant to do it",
 				cause)
 		case codes.FailedPrecondition:
-			return failedPreconditionError(err, changePreconditionHelp(changeID), cause)
+			return failedPreconditionError(err, changePreconditionHelp(op, changeID), cause)
 		case codes.InvalidArgument:
 			return invalidArgumentError(err, "Correct the values and run the command again", cause)
 		case codes.AlreadyExists:
@@ -300,7 +300,11 @@ func mapChangeError(op, changeID string, err error) error {
 // changePreconditionHelp covers the refusals of a change: a change that is
 // not open, and a change that removes a policy override that package rules
 // still use.
-func changePreconditionHelp(changeID string) string {
+func changePreconditionHelp(op, changeID string) string {
+	// A delete has one refusal: the change is not open.
+	if op == "delete" {
+		return "List the open changes: safedep policy change list --state open"
+	}
 	review := "Review the change: safedep policy change show"
 	if changeID != "" {
 		review += " " + changeID
@@ -317,12 +321,26 @@ func mapRestoreError(fromRevision uint64, err error) error {
 	missing := ok && (st.Code() == codes.NotFound ||
 		(st.Code() == codes.InvalidArgument && violatesField(err, "restore.from_revision")))
 	if missing {
-		return newPolicyError(usefulerror.ErrNotFound,
-			fmt.Sprintf("Policy revision %d does not exist", fromRevision),
-			"List the revisions: safedep policy revision list",
-			fmt.Errorf("policy change create: %w", err))
+		return revisionNotFoundError(fromRevision, fmt.Errorf("policy change create: %w", err))
 	}
 	return mapChangeError("create", "", err)
+}
+
+// mapRevisionError gives the recovery for a read of a policy revision that
+// does not exist.
+func mapRevisionError(op string, revision uint64, err error) error {
+	cause := fmt.Errorf("%s: %w", op, err)
+	if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
+		return revisionNotFoundError(revision, cause)
+	}
+	return cause
+}
+
+func revisionNotFoundError(revision uint64, cause error) error {
+	return newPolicyError(usefulerror.ErrNotFound,
+		fmt.Sprintf("Policy revision %d does not exist", revision),
+		"List the revisions: safedep policy revision list",
+		cause)
 }
 
 // mapRuleError gives the recovery for the errors of a package rule RPC.

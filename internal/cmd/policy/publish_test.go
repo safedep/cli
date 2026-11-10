@@ -102,11 +102,11 @@ func TestRunChangePublish_LooseningThatTheUserRefuses(t *testing.T) {
 }
 
 func TestPublishConfirm(t *testing.T) {
-	ok, err := publishConfirm(true, false)("q")
+	ok, err := publishConfirm(true, false, "", "")("q")
 	require.NoError(t, err)
 	assert.True(t, ok, "--yes confirms with no terminal")
 
-	_, err = publishConfirm(false, false)("q")
+	_, err = publishConfirm(false, false, "no terminal is present to confirm it", "pass --yes")("q")
 	require.Error(t, err)
 	ue, isUseful := usefulerror.AsUsefulError(err)
 	require.True(t, isUseful)

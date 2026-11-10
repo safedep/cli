@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/safedep/cli/internal/cloudpolicy"
 	"github.com/safedep/cli/internal/cloudpolicy/mocks"
 )
 
@@ -122,7 +123,7 @@ func TestRunShow_ProjectWithPolicy(t *testing.T) {
 		), nil
 	}}
 	policies := &fakeSubjectPolicyClient{}
-	got, err := runShow(context.Background(), client, policies, "PAY/settlement")
+	got, err := runShow(context.Background(), client, policies, showInput{Name: "PAY/settlement"})
 	require.NoError(t, err)
 	assert.Equal(t, "p_9", policies.req.GetSubject().GetId())
 	assert.Equal(t, specv1.SubjectKind_SUBJECT_KIND_PROJECT, policies.req.GetSubject().GetKind())
@@ -140,7 +141,7 @@ func TestRunShow_PolicyUnavailableStillShowsTheProject(t *testing.T) {
 	client := &fakeListProjectsClient{listFn: func(*controltowerv1.ListProjectsRequest) (*controltowerv1.ListProjectsResponse, error) {
 		return projectsResponse(labeledProject("p_9", "x", messagescontroltowerv1.Project_SOURCE_GITHUB, nil)), nil
 	}}
-	got, err := runShow(context.Background(), client, &fakeSubjectPolicyClient{err: errors.New("unimplemented")}, "x")
+	got, err := runShow(context.Background(), client, &fakeSubjectPolicyClient{err: errors.New("unimplemented")}, showInput{Name: "x"})
 	require.NoError(t, err)
 	assert.Contains(t, got.RenderTable(), "unknown: the policy service did not answer")
 }
@@ -161,6 +162,33 @@ func TestFindProject(t *testing.T) {
 	_, err = findProject(context.Background(), two, "project show", "shared")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `project show: project name "shared" is ambiguous`)
+}
+
+func TestRunShow_ByProjectID(t *testing.T) {
+	client := &fakeListProjectsClient{listFn: func(req *controltowerv1.ListProjectsRequest) (*controltowerv1.ListProjectsResponse, error) {
+		assert.Empty(t, req.GetFilterV2().GetProjectNames())
+		assert.Equal(t, "safedep.io/project-id=p_2", cloudpolicy.FormatSelector(req.GetFilterV2().GetLabelSelector()))
+		return projectsResponse(labeledProject("p_2", "shared", messagescontroltowerv1.Project_SOURCE_BITBUCKET, nil)), nil
+	}}
+	policies := &fakeSubjectPolicyClient{}
+	got, err := runShow(context.Background(), client, policies, showInput{ProjectID: "p_2"})
+	require.NoError(t, err)
+	assert.Equal(t, "p_2", policies.req.GetSubject().GetId())
+	assert.Equal(t, "shared", got.Project.Name)
+	assert.Contains(t, got.RenderTable(), "safedep project policy show --project-id p_2")
+
+	empty := &fakeListProjectsClient{listFn: func(*controltowerv1.ListProjectsRequest) (*controltowerv1.ListProjectsResponse, error) {
+		return projectsResponse(), nil
+	}}
+	_, err = runShow(context.Background(), empty, policies, showInput{ProjectID: "p_missing"})
+	requireUsefulError(t, err, "not_found", "Project not found", "Find the project ID with: safedep project list")
+}
+
+func TestRequireOneProject(t *testing.T) {
+	assert.NoError(t, requireOneProject([]string{"a"}, "", "help"))
+	assert.NoError(t, requireOneProject(nil, "p_1", "help"))
+	assert.Error(t, requireOneProject(nil, "", "help"))
+	assert.Error(t, requireOneProject([]string{"a"}, "p_1", "help"))
 }
 
 func TestRunPolicyShow(t *testing.T) {

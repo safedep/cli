@@ -5,9 +5,12 @@ import (
 	"testing"
 
 	policyv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/policy/v1"
+	"github.com/safedep/dry/usefulerror"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/safedep/cli/internal/cloudpolicy/mocks"
 )
@@ -46,6 +49,23 @@ func TestRunRevisionShow(t *testing.T) {
 	b, err := got.RenderJSON()
 	require.NoError(t, err)
 	assert.Contains(t, string(b), `"change_id": "18"`)
+}
+
+func TestReadRevision_NotFound(t *testing.T) {
+	client := mocks.NewPolicyServiceClientMock(t)
+	client.EXPECT().GetPolicyRevision(mock.Anything, mock.Anything).
+		Return(nil, status.Error(codes.NotFound, "policy revision 99 not found"))
+
+	_, err := runRevisionShow(context.Background(), client, 99)
+	ue, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Equal(t, "Policy revision 99 does not exist", ue.HumanError())
+	assert.Equal(t, "List the revisions: safedep policy revision list", ue.Help())
+
+	_, err = runGet(context.Background(), client, getInput{Revision: 99}, "")
+	ue, ok = usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Equal(t, "Policy revision 99 does not exist", ue.HumanError())
 }
 
 func TestParseRevision(t *testing.T) {

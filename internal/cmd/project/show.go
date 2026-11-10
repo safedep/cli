@@ -3,6 +3,7 @@ package project
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -22,28 +23,86 @@ import (
 type projectShowResult struct {
 	Project projectView                `json:"project"`
 	Policy  *cloudpolicy.SubjectPolicy `json:"-"`
+	// byID is true for a read with --project-id. The name can be ambiguous
+	// then, so the footer gives the ID.
+	byID bool
+}
+
+type showInput struct {
+	Name      string
+	ProjectID string
 }
 
 func showCmd(a *app.App) *cobra.Command {
-	return &cobra.Command{
-		Use:   "show PROJECT_NAME",
+	var in showInput
+	cmd := &cobra.Command{
+		Use:   "show [PROJECT_NAME]",
 		Short: "Show one project with its labels and policy",
-		Long: "Show one project by its exact name: its source, its labels from every source, and the " +
-			"policy revision and policy overrides that apply to it. A repository is a project.",
-		Args: cobra.ExactArgs(1),
+		Long: "Show one project by its exact name, or by --project-id when two projects have the name: " +
+			"its source, its labels from every source, and the policy revision and policy overrides " +
+			"that apply to it. A repository is a project.",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {
+				return err
+			}
+			return requireOneProject(args, in.ProjectID, "As in: safedep project show acme/payments-api")
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 {
+				in.Name = args[0]
+			}
 			client, err := a.ControlPlane()
 			if err != nil {
 				return err
 			}
 			conn := client.Connection()
-			res, err := runShow(cmd.Context(), newListProjectsClient(conn), cloudpolicy.NewPolicyClient(conn), args[0])
+			res, err := runShow(cmd.Context(), newListProjectsClient(conn), cloudpolicy.NewPolicyClient(conn), in)
 			if err != nil {
 				return err
 			}
 			return a.Output.Print(res)
 		},
 	}
+	cmd.Flags().StringVar(&in.ProjectID, "project-id", "", "the project ID instead of a name")
+	return cmd
+}
+
+// requireOneProject checks that the command line names one project, by a
+// name or by --project-id.
+func requireOneProject(args []string, projectID, help string) error {
+	if (len(args) == 1) == (projectID != "") {
+		return invalidProjectSelectionError(errors.New("give a project name or --project-id"), help)
+	}
+	return nil
+}
+
+// projectIDLabel is the label that the server sets on each project. The
+// ListProjects filter has no project ID field, so a read by ID selects on it.
+const projectIDLabel = "safedep.io/project-id"
+
+// findProjectByID reads one project by its ID.
+func findProjectByID(ctx context.Context, client listProjectsClient, op, id string) (*controltowerv1.ProjectWithAttributes, error) {
+	notFound := newProjectError(usefulerror.ErrNotFound, "Project not found",
+		"Find the project ID with: safedep project list",
+		fmt.Errorf("%s: project ID %q not found", op, id))
+	selector, err := cloudpolicy.ParseSelector(projectIDLabel + "=" + id)
+	if err != nil {
+		return nil, notFound
+	}
+	filter := &controltowerv1.ListProjectsRequest_Filter{}
+	filter.SetLabelSelector(selector)
+	req := &controltowerv1.ListProjectsRequest{}
+	req.SetFilterV2(filter)
+	res, err := client.ListProjects(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+	for _, p := range res.GetProjects() {
+		if p.GetProject().GetProjectId() == id {
+			return p, nil
+		}
+	}
+	return nil, notFound
 }
 
 // findProject reads one project by its exact name.
@@ -81,13 +140,20 @@ func runShow(
 	ctx context.Context,
 	projects listProjectsClient,
 	policies cloudpolicy.SubjectPolicyClient,
-	name string,
+	in showInput,
 ) (*projectShowResult, error) {
-	project, err := findProject(ctx, projects, "project show", name)
+	var project *controltowerv1.ProjectWithAttributes
+	var err error
+	if in.ProjectID != "" {
+		project, err = findProjectByID(ctx, projects, "project show", in.ProjectID)
+	} else {
+		project, err = findProject(ctx, projects, "project show", in.Name)
+	}
 	if err != nil {
 		return nil, err
 	}
-	out := &projectShowResult{Project: newProjectView(project)}
+	out := &projectShowResult{Project: newProjectView(project), byID: in.ProjectID != ""}
+	name := out.Project.Name
 	subject := cloudpolicy.NewSubject(specv1.SubjectKind_SUBJECT_KIND_PROJECT, out.Project.ID)
 	policy, err := cloudpolicy.GetSubjectPolicy(ctx, policies, subject, name, nil)
 	if err != nil {
@@ -159,7 +225,11 @@ func (r *projectShowResult) RenderTable() string {
 		{"Violations", countCell(p.PolicyViolations)},
 		{"Created", created},
 	}...)
-	return cloudpolicy.KeyValues(rows) + "\n\nPolicy of each field: safedep project policy show " + clitui.EscapeLine(p.Name)
+	selection := p.Name
+	if r.byID {
+		selection = "--project-id " + p.ID
+	}
+	return cloudpolicy.KeyValues(rows) + "\n\nPolicy of each field: safedep project policy show " + clitui.EscapeLine(selection)
 }
 
 func (r *projectShowResult) RenderPlain() string {

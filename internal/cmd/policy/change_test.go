@@ -293,6 +293,53 @@ func TestRunChangeShow_PublishedChangeHasNoPreview(t *testing.T) {
 	assert.Contains(t, got.RenderTable(), "published as rev 47")
 }
 
+func TestRunChangeShow_ClosedChangeThatEditedTheSettings(t *testing.T) {
+	tests := []struct {
+		name      string
+		state     policyv1.PolicyChangeState
+		published uint64
+		settings  bool
+		rules     bool
+		want      string
+	}{
+		{"published", policyv1.PolicyChangeState_POLICY_CHANGE_STATE_PUBLISHED, 47, true, false,
+			"The change edited the policy settings. See them: safedep policy revision show 47"},
+		{"published with rule operations", policyv1.PolicyChangeState_POLICY_CHANGE_STATE_PUBLISHED, 47, true, true,
+			"The change edited the policy settings. See them: safedep policy revision show 47"},
+		{"deleted", policyv1.PolicyChangeState_POLICY_CHANGE_STATE_DELETED, 0, true, false,
+			"Only an open change has a preview of them."},
+		{"no edit", policyv1.PolicyChangeState_POLICY_CHANGE_STATE_DELETED, 0, false, false,
+			"The change edits nothing."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := mocks.NewPolicyServiceClientMock(t)
+			c := openChange("17")
+			c.SetState(tt.state)
+			c.SetPublishedRevision(tt.published)
+			if tt.settings {
+				c.SetSettings(headPolicy())
+			}
+			if tt.rules {
+				del := &policyv1.PackageRuleDelete{}
+				del.SetRuleId("r_80b")
+				op := &policyv1.PackageRuleOperation{}
+				op.SetDelete(del)
+				c.SetPackageRuleOperations([]*policyv1.PackageRuleOperation{op})
+			}
+			client.EXPECT().GetPolicyChange(mock.Anything, mock.Anything).Return(changeResponse(c), nil)
+
+			got, err := runChangeShow(context.Background(), client, "17")
+			require.NoError(t, err)
+			table := got.RenderTable()
+			assert.Contains(t, table, tt.want)
+			if tt.rules {
+				assert.Contains(t, table, "r_80b")
+			}
+		})
+	}
+}
+
 func TestRunChangePublish_Errors(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -378,6 +425,17 @@ func TestRunChangeDelete(t *testing.T) {
 		return r.GetChangeId() == "19"
 	})).Return(&policyv1.DeletePolicyChangeResponse{}, nil)
 	require.NoError(t, runChangeDelete(context.Background(), client, "19"))
+}
+
+func TestRunChangeDelete_ChangeThatIsNotOpen(t *testing.T) {
+	client := mocks.NewPolicyServiceClientMock(t)
+	client.EXPECT().DeletePolicyChange(mock.Anything, mock.Anything).
+		Return(nil, status.Error(codes.FailedPrecondition, "policy change 19 is not open"))
+	err := runChangeDelete(context.Background(), client, "19")
+	ue, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Equal(t, "The server refused the request: policy change 19 is not open", ue.HumanError())
+	assert.Equal(t, "List the open changes: safedep policy change list --state open", ue.Help())
 }
 
 func TestRunChangeEdit_UpdatesWithTheEtag(t *testing.T) {

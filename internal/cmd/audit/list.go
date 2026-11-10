@@ -174,12 +174,12 @@ func mapListError(err error) error {
 			Wrap(cause)
 	case codes.InvalidArgument:
 		// The generic conversion shows only "Invalid request", and the user
-		// cannot find the filter or the page token to fix.
+		// cannot find the flag to fix.
 		reason := strings.TrimPrefix(st.Message(), serviceFailedPrefix)
 		return usefulerror.NewUsefulError().
 			WithCode(usefulerror.ErrBadRequest).
 			WithHumanError("The server refused the request: " + clitui.EscapeLine(reason)).
-			WithHelp("See the filters: safedep audit event list --help").
+			WithHelp("Correct the flag that the message names. See the flags: safedep audit event list --help").
 			Wrap(cause)
 	}
 	return cause

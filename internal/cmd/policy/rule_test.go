@@ -443,6 +443,14 @@ func TestRunRuleDelete_BlockNeedsAConfirmation(t *testing.T) {
 	_, err := runRuleDelete(context.Background(), client, "r_77e", "no longer needed", "", refuse)
 	require.ErrorIs(t, err, errPublishCancelled)
 	assert.Equal(t, "Rule r_77e blocks pkg:npm/leftpad. The delete loosens the policy. Delete it?", question)
+
+	// With --yes the command does not read the rule.
+	del := &policyv1.DeletePackageRuleResponse{}
+	del.SetRevision(revision(52, ""))
+	client.EXPECT().DeletePackageRule(mock.Anything, mock.Anything).Return(del, nil)
+	rev, err := runRuleDelete(context.Background(), client, "r_77e", "no longer needed", "", nil)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(52), rev)
 }
 
 func TestExpandScopes_AllMixedWithANamedScope(t *testing.T) {

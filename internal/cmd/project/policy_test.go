@@ -175,6 +175,7 @@ func TestRunShow_ByProjectID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "p_2", policies.req.GetSubject().GetId())
 	assert.Equal(t, "shared", got.Project.Name)
+	assert.Contains(t, got.RenderTable(), "safedep project policy show --project-id p_2")
 
 	empty := &fakeListProjectsClient{listFn: func(*controltowerv1.ListProjectsRequest) (*controltowerv1.ListProjectsResponse, error) {
 		return projectsResponse(), nil

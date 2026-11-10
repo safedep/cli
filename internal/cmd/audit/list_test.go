@@ -150,7 +150,7 @@ func TestRunList_ShowsWhyTheServerRefusedTheRequest(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, usefulerror.ErrBadRequest, ue.Code())
 	assert.Equal(t, `The server refused the request: invalid audit event list request: audit: unknown resource kind: "bogus"`, ue.HumanError())
-	assert.Equal(t, "See the filters: safedep audit event list --help", ue.Help())
+	assert.Equal(t, "Correct the flag that the message names. See the flags: safedep audit event list --help", ue.Help())
 }
 
 func TestRender_EscapesServerText(t *testing.T) {

@@ -23,6 +23,9 @@ import (
 type projectShowResult struct {
 	Project projectView                `json:"project"`
 	Policy  *cloudpolicy.SubjectPolicy `json:"-"`
+	// byID is true for a read with --project-id. The name can be ambiguous
+	// then, so the footer gives the ID.
+	byID bool
 }
 
 type showInput struct {
@@ -149,7 +152,7 @@ func runShow(
 	if err != nil {
 		return nil, err
 	}
-	out := &projectShowResult{Project: newProjectView(project)}
+	out := &projectShowResult{Project: newProjectView(project), byID: in.ProjectID != ""}
 	name := out.Project.Name
 	subject := cloudpolicy.NewSubject(specv1.SubjectKind_SUBJECT_KIND_PROJECT, out.Project.ID)
 	policy, err := cloudpolicy.GetSubjectPolicy(ctx, policies, subject, name, nil)
@@ -222,7 +225,11 @@ func (r *projectShowResult) RenderTable() string {
 		{"Violations", countCell(p.PolicyViolations)},
 		{"Created", created},
 	}...)
-	return cloudpolicy.KeyValues(rows) + "\n\nPolicy of each field: safedep project policy show " + clitui.EscapeLine(p.Name)
+	selection := p.Name
+	if r.byID {
+		selection = "--project-id " + p.ID
+	}
+	return cloudpolicy.KeyValues(rows) + "\n\nPolicy of each field: safedep project policy show " + clitui.EscapeLine(selection)
 }
 
 func (r *projectShowResult) RenderPlain() string {

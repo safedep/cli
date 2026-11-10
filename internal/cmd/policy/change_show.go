@@ -132,13 +132,13 @@ func (r *changeShowResult) headline() string {
 	return strings.Join(parts, sep)
 }
 
-// emptyChangesMessage says why the table of changes has no row. The server
-// previews only an open change, so a closed change that edited the settings
-// has no field rows.
-func (r *changeShowResult) emptyChangesMessage() string {
+// settingsNote says where the edits of the settings are. The server previews
+// only an open change, so a closed change that edited the settings has no
+// field rows. It is empty when the rows show the edits.
+func (r *changeShowResult) settingsNote() string {
 	c := r.Change
 	if r.Preview != nil || !c.EditsSettings {
-		return "The change edits nothing."
+		return ""
 	}
 	if c.PublishedRevision > 0 {
 		return fmt.Sprintf("The change edited the policy settings. See them: safedep policy revision show %d", c.PublishedRevision)
@@ -163,12 +163,20 @@ func (r *changeShowResult) RenderTable() string {
 	for _, it := range items {
 		rows = append(rows, []string{it.Where, it.whatCell(), it.changeCell(), cloudpolicy.EmptyDash(it.Direction)})
 	}
+	note := r.settingsNote()
+	empty := note
+	if empty == "" {
+		empty = "The change edits nothing."
+	}
 	sections = append(sections, table.New().
 		Title("What changes").
 		Headers("WHERE", "WHAT", "OLD -> NEW", "DIRECTION").
 		Rows(tui.EscapeCells(rows)...).
-		EmptyMessage(r.emptyChangesMessage()).
+		EmptyMessage(empty).
 		Render())
+	if note != "" && len(rows) > 0 {
+		sections = append(sections, note)
+	}
 
 	if p := r.Preview; p != nil {
 		sections = append(sections, r.impactTable(p), r.warningTable(p),

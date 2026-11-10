@@ -299,13 +299,16 @@ func TestRunChangeShow_ClosedChangeThatEditedTheSettings(t *testing.T) {
 		state     policyv1.PolicyChangeState
 		published uint64
 		settings  bool
+		rules     bool
 		want      string
 	}{
-		{"published", policyv1.PolicyChangeState_POLICY_CHANGE_STATE_PUBLISHED, 47, true,
+		{"published", policyv1.PolicyChangeState_POLICY_CHANGE_STATE_PUBLISHED, 47, true, false,
 			"The change edited the policy settings. See them: safedep policy revision show 47"},
-		{"deleted", policyv1.PolicyChangeState_POLICY_CHANGE_STATE_DELETED, 0, true,
+		{"published with rule operations", policyv1.PolicyChangeState_POLICY_CHANGE_STATE_PUBLISHED, 47, true, true,
+			"The change edited the policy settings. See them: safedep policy revision show 47"},
+		{"deleted", policyv1.PolicyChangeState_POLICY_CHANGE_STATE_DELETED, 0, true, false,
 			"Only an open change has a preview of them."},
-		{"no edit", policyv1.PolicyChangeState_POLICY_CHANGE_STATE_DELETED, 0, false,
+		{"no edit", policyv1.PolicyChangeState_POLICY_CHANGE_STATE_DELETED, 0, false, false,
 			"The change edits nothing."},
 	}
 	for _, tt := range tests {
@@ -317,11 +320,22 @@ func TestRunChangeShow_ClosedChangeThatEditedTheSettings(t *testing.T) {
 			if tt.settings {
 				c.SetSettings(headPolicy())
 			}
+			if tt.rules {
+				del := &policyv1.PackageRuleDelete{}
+				del.SetRuleId("r_80b")
+				op := &policyv1.PackageRuleOperation{}
+				op.SetDelete(del)
+				c.SetPackageRuleOperations([]*policyv1.PackageRuleOperation{op})
+			}
 			client.EXPECT().GetPolicyChange(mock.Anything, mock.Anything).Return(changeResponse(c), nil)
 
 			got, err := runChangeShow(context.Background(), client, "17")
 			require.NoError(t, err)
-			assert.Contains(t, got.RenderTable(), tt.want)
+			table := got.RenderTable()
+			assert.Contains(t, table, tt.want)
+			if tt.rules {
+				assert.Contains(t, table, "r_80b")
+			}
 		})
 	}
 }

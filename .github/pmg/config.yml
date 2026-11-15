@@ -1,6 +1,6 @@
-# PMG settings for the CI jobs of this repository. ci.yml and goreleaser.yml
-# pass this file to safedep/pmg as config-file. PMG reads the keys that this
-# file does not set from its own template.
+# PMG settings for the CI jobs of this repository. setup-pmg passes this file
+# to safedep/pmg as config-file. PMG reads the keys that this file does not set
+# from its own template.
 dependency_cooldown:
   enabled: true
   days: 2

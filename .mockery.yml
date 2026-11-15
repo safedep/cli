@@ -10,3 +10,14 @@ packages:
       filename: "{{.InterfaceName}}_mock.go"
     interfaces:
       CredentialStore:
+  buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/policy/v1/policyv1grpc:
+    config:
+      # The gRPC clients are generated code, which mockery skips by default.
+      include-auto-generated: true
+      dir: "internal/cloudpolicy/mocks"
+      pkgname: "mocks"
+      structname: "{{.InterfaceName}}Mock"
+      filename: "{{.InterfaceName}}_mock.go"
+    interfaces:
+      PolicyServiceClient:
+      LabelServiceClient:

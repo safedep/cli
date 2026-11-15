@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 
 	"github.com/spf13/viper"
 )
@@ -54,6 +56,20 @@ type Config struct {
 // if unset. Centralises os.Getenv usage per the project lint rule.
 func EnvVar(key string) string {
 	return os.Getenv(key)
+}
+
+// Editor returns the editor command of the user: VISUAL, then EDITOR, then
+// vi, or notepad on Windows.
+func Editor() string {
+	for _, key := range []string{"VISUAL", "EDITOR"} {
+		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+			return v
+		}
+	}
+	if runtime.GOOS == "windows" {
+		return "notepad"
+	}
+	return "vi"
 }
 
 // Load reads the config file into a Config. A missing file is not an

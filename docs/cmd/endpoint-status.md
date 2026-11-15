@@ -18,7 +18,7 @@ The response includes total registered endpoints, those that have synced at leas
 
 | Flag | Default | Description |
 |---|---|---|
-| `--since` | `24h` | Trailing window length parsed as a Go duration string (e.g. `24h`, `168h`, `30m`). A non-positive value lets the server apply its own default window. |
+| `--since` | `168h` | Trailing window length, a number and a unit, as `7d`, `24h` or `30m`. A non-positive value lets the server apply its own default window. |
 | `--output` | `table` | Output format: `table`, `plain`, or `json`. Inherited from the root command. |
 | `--profile` | `default` | Credential profile to use. Inherited from the root command. |
 | `--insecure-keychain-fallback` | `false` | Allow falling back to an unencrypted credential store. Inherited from the root command. |

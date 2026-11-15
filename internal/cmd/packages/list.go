@@ -49,7 +49,7 @@ func listCmd(a *app.App) *cobra.Command {
 	f.StringVar(&flags.Ecosystem, "ecosystem", "", "filter: package ecosystem (requires --name and --version)")
 	f.StringVar(&flags.Name, "name", "", "filter: package name")
 	f.StringVar(&flags.Version, "version", "", "filter: package version")
-	f.Uint32Var(&pageSize, "limit", 0, "page size; server default when 0")
+	f.Uint32Var(&pageSize, "limit", 0, "page size, or the server default when 0")
 	f.StringVar(&pageToken, "page-token", "", "continuation token from a prior response")
 	return cmd
 }

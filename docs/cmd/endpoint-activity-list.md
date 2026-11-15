@@ -39,7 +39,7 @@ Guard events carry one of the following actions:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--type` | `guard` | Activity type: `all`, `guard`, or `inventory` |
-| `--since` | `168h` | Trailing time window length, e.g. `24h`, `168h`, `30m` |
+| `--since` | `168h` | Trailing time window length, as `7d`, `24h` or `30m` |
 | `--endpoint` | _(none)_ | Filter by endpoint ULID or cached hostname; repeatable |
 | `--action` | `blocked,cooldown-blocked` (when type includes guard) | Package action filter for guard events: `blocked`, `confirmed`, `trusted`, `cooldown-blocked`; repeatable |
 | `--tool` | _(none)_ | Client-side filter by tool name (e.g. `claude-code`) |

@@ -42,6 +42,7 @@ type App struct {
 
 	dataPlane    *cloud.Client
 	controlPlane *cloud.Client
+	tenant       string
 	github       *adapters.GithubClient
 
 	storage storage.Storage
@@ -240,8 +241,25 @@ func (a *App) ControlPlane() (*cloud.Client, error) {
 		return nil, fmt.Errorf("app: control plane client: %w", err)
 	}
 
+	// The tenant domain only labels output, so a credential without one
+	// does not stop the command.
+	if tenant, terr := creds.GetTenantDomain(); terr == nil {
+		a.tenant = tenant
+	} else {
+		log.Debugf("app: control plane tenant domain: %v", terr)
+	}
+
 	a.controlPlane = client
 	return a.controlPlane, nil
+}
+
+// Tenant returns the tenant domain of the control plane credentials, as in
+// "platform-eng.acme.safedep.io". It is empty until ControlPlane succeeds, or
+// when the credentials carry no tenant domain.
+func (a *App) Tenant() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.tenant
 }
 
 // ControlPlaneToken returns a valid OAuth access token for the active profile,

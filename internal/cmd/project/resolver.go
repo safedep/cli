@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
+	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/safedep/dry/usefulerror"
 	"google.golang.org/grpc"
@@ -32,6 +34,7 @@ type projectMatch struct {
 	id        string
 	source    string
 	originURL string
+	createdAt time.Time
 }
 
 func newListProjectsClient(conn grpc.ClientConnInterface) listProjectsClient {
@@ -78,6 +81,17 @@ func resolveProjectNames(
 	client listProjectsClient,
 	projectNames []string,
 ) ([]string, error) {
+	return resolveProjectNamesFor(ctx, client, "project scan create", projectNames)
+}
+
+// resolveProjectNamesFor resolves exact project names to project IDs. op
+// names the command in errors, as in "project label set".
+func resolveProjectNamesFor(
+	ctx context.Context,
+	client listProjectsClient,
+	op string,
+	projectNames []string,
+) ([]string, error) {
 	if len(projectNames) == 0 {
 		return nil, nil
 	}
@@ -85,7 +99,7 @@ func resolveProjectNames(
 	matches := make(map[string]map[string]projectMatch, len(projectNames))
 	for start := 0; start < len(projectNames); start += projectLookupChunkSize {
 		end := min(start+projectLookupChunkSize, len(projectNames))
-		if err := resolveProjectNameChunk(ctx, client, projectNames[start:end], matches); err != nil {
+		if err := resolveProjectNameChunk(ctx, client, op, projectNames[start:end], matches); err != nil {
 			return nil, err
 		}
 	}
@@ -95,7 +109,7 @@ func resolveProjectNames(
 		byID := matches[name]
 		switch len(byID) {
 		case 0:
-			cause := fmt.Errorf("project scan create: project %q not found", name)
+			cause := fmt.Errorf("%s: project %q not found", op, name)
 			return nil, newProjectError(
 				usefulerror.ErrNotFound,
 				"Project not found",
@@ -107,7 +121,7 @@ func resolveProjectNames(
 				resolved = append(resolved, id)
 			}
 		default:
-			return nil, ambiguousProjectNameError(name, byID)
+			return nil, ambiguousProjectNameError(op, name, byID)
 		}
 	}
 	return resolved, nil
@@ -116,6 +130,7 @@ func resolveProjectNames(
 func resolveProjectNameChunk(
 	ctx context.Context,
 	client listProjectsClient,
+	op string,
 	names []string,
 	matches map[string]map[string]projectMatch,
 ) error {
@@ -124,13 +139,13 @@ func resolveProjectNameChunk(
 		requested[name] = struct{}{}
 	}
 
-	const label = "project scan create: resolve projects"
+	label := op + ": resolve projects"
 	return paging.Paginate(ctx, label, func(ctx context.Context, pageToken string) (string, error) {
 		res, err := client.ListProjects(ctx, newListProjectsRequest(names, pageToken))
 		if err != nil {
 			return "", fmt.Errorf("%s: %w", label, err)
 		}
-		if err := collectProjectMatches(res, requested, matches); err != nil {
+		if err := collectProjectMatches(label, res, requested, matches); err != nil {
 			return "", err
 		}
 		return res.GetPagination().GetNextPageToken(), nil
@@ -147,6 +162,7 @@ func newListProjectsRequest(names []string, pageToken string) *controltowerv1.Li
 }
 
 func collectProjectMatches(
+	label string,
 	res *controltowerv1.ListProjectsResponse,
 	requested map[string]struct{},
 	matches map[string]map[string]projectMatch,
@@ -154,31 +170,35 @@ func collectProjectMatches(
 	for i, item := range res.GetProjects() {
 		project := item.GetProject()
 		if project == nil || project.GetProjectId() == "" || project.GetName() == "" {
-			return fmt.Errorf(
-				"project scan create: resolve projects: invalid response: project %d is missing identity",
-				i+1,
-			)
+			return fmt.Errorf("%s: invalid response: project %d is missing identity", label, i+1)
 		}
 		name := project.GetName()
 		if _, ok := requested[name]; !ok {
-			return fmt.Errorf(
-				"project scan create: resolve projects: invalid response: unexpected project name %q",
-				name,
-			)
+			return fmt.Errorf("%s: invalid response: unexpected project name %q", label, name)
 		}
 		if matches[name] == nil {
 			matches[name] = make(map[string]projectMatch)
 		}
-		matches[name][project.GetProjectId()] = projectMatch{
-			id:        project.GetProjectId(),
-			source:    tui.EnumToken(project.GetSource().String(), "SOURCE_"),
-			originURL: project.GetOriginUrl(),
-		}
+		matches[name][project.GetProjectId()] = newProjectMatch(project)
 	}
 	return nil
 }
 
-func ambiguousProjectNameError(name string, byID map[string]projectMatch) error {
+// newProjectMatch is one project of an ambiguous name. Each lookup by name
+// builds its matches here, so every command shows the same details.
+func newProjectMatch(project *messagescontroltowerv1.Project) projectMatch {
+	match := projectMatch{
+		id:        project.GetProjectId(),
+		source:    tui.EnumToken(project.GetSource().String(), projectSourcePrefix),
+		originURL: project.GetOriginUrl(),
+	}
+	if ts := project.GetCreatedAt(); ts != nil {
+		match.createdAt = ts.AsTime().UTC()
+	}
+	return match
+}
+
+func ambiguousProjectNameError(op, name string, byID map[string]projectMatch) error {
 	items := make([]projectMatch, 0, len(byID))
 	for _, match := range byID {
 		items = append(items, match)
@@ -193,17 +213,23 @@ func ambiguousProjectNameError(name string, byID map[string]projectMatch) error 
 		if item.originURL != "" {
 			details += ", " + item.originURL
 		}
+		// Two projects of one name can have the same source and URL. The
+		// creation time tells them apart.
+		if !item.createdAt.IsZero() {
+			details += ", created " + item.createdAt.Format(time.RFC3339)
+		}
 		labels = append(labels, fmt.Sprintf("%s (%s)", item.id, details))
 	}
 	cause := fmt.Errorf(
-		"project scan create: project name %q is ambiguous: %s; use a project ID",
+		"%s: project name %q is ambiguous: %s. Use a project ID",
+		op,
 		name,
 		strings.Join(labels, ", "),
 	)
 	return newProjectError(
 		usefulerror.ErrBadRequest,
 		"Project name is ambiguous",
-		"Retry with one of these project IDs: "+strings.Join(labels, ", ")+".",
+		"Retry with --project-id and one of these project IDs: "+strings.Join(labels, ", ")+".",
 		cause,
 	)
 }

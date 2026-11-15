@@ -122,7 +122,7 @@ func listCmd(a *app.App) *cobra.Command {
 		"filter: scan status ("+strings.Join(scanStatusTokens(), ", ")+")")
 	f.StringVar(&in.Trigger, "trigger", "",
 		"filter: scan trigger ("+strings.Join(scanTriggerTokens(), ", ")+")")
-	f.Uint32Var(&in.PageSize, "limit", 0, "page size; server default when 0")
+	f.Uint32Var(&in.PageSize, "limit", 0, "page size, or the server default when 0")
 	f.StringVar(&in.PageToken, "page-token", "", "continuation token from a prior response")
 	return cmd
 }

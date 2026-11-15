@@ -1,0 +1,54 @@
+# safedep project show
+
+Show one project by its exact name or by its ID: its source, its labels from every
+source, and the policy revision and policy overrides that apply to it.
+
+## Synopsis
+
+```
+safedep project show (PROJECT_NAME | --project-id ID) [--output table|plain|json]
+```
+
+## Flags
+
+| Flag | Description |
+|------|-------------|
+| `--project-id <id>` | The project ID instead of a name. Use it when two projects have the same name. |
+
+## Examples
+
+```bash
+safedep project show PAY/settlement
+```
+
+```
+Project          PAY/settlement
+ID               01K88WX3G9RGAK8T3N5YJMFQN1
+Source           bitbucket · https://bitbucket.org/acme/settlement
+Labels           safedep.io/project-id=01K88WX3G9RGAK8T3N5YJMFQN1
+                 safedep.io/project-source=bitbucket
+                 scm/forge=bitbucket
+                 scm/owner=acme
+                 scm/repo=settlement
+Policy           revision 46 · no override matches · base only
+Vulnerabilities  0
+Violations       -
+Created          3d ago
+
+Policy of each field: safedep project policy show PAY/settlement
+```
+
+When the policy service does not answer, the command warns and shows the rest.
+When two projects have the name, the command lists their IDs. Run it again with
+`--project-id` and one of them.
+
+## Authentication
+
+Requires a control-plane OAuth session. Run `safedep auth login` first.
+
+## Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | The project was read. |
+| non-zero | The project does not exist, the name is ambiguous, or the request failed. |

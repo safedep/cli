@@ -24,7 +24,7 @@ The `<endpoint>` argument is resolved as follows: if it is a ULID it is used dir
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--since DURATION` | `168h` | Trailing window length used for per-tool event volumes and recent block lookup. Accepts Go duration strings, e.g. `24h`, `168h`, `720h`. |
+| `--since DURATION` | `168h` | Trailing window length used for per-tool event volumes and recent block lookup. Accepts a number and a unit, as `7d`, `24h` or `30d`. |
 
 ## Examples
 

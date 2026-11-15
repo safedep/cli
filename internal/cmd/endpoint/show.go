@@ -9,6 +9,7 @@ import (
 
 	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	"github.com/safedep/cli/internal/app"
+	"github.com/safedep/cli/internal/duration"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/tui/humanize"
 	"github.com/safedep/dry/tui/panel"
@@ -86,7 +87,7 @@ func showCmd(a *app.App) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.DurationVar(&since, "since", 7*24*time.Hour, "trailing window length for per-tool counts and guard events, e.g. 168h, 24h")
+	f.Var(duration.NewValue(&since, 7*24*time.Hour), "since", "trailing window length for per-tool counts and guard events, as in 7d or 24h")
 	f.Uint32Var(&blocks, "blocks", defaultGuardPageSize, "max guard events to fetch in the window (server caps page size)")
 	f.StringSliceVar(&actionsRaw, "actions", nil, "guard event actions to render: blocked|cooldown-blocked|confirmed|trusted|all (default: blocked,cooldown-blocked)")
 	f.BoolVar(&inventoryFlag, "inventory", false, "render the inventory item list, not just the count")

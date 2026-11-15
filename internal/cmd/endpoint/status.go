@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/safedep/cli/internal/app"
+	"github.com/safedep/cli/internal/duration"
 	"github.com/safedep/dry/tui/stat"
 	"github.com/safedep/dry/tui/theme"
 	"github.com/spf13/cobra"
@@ -35,7 +36,7 @@ func statusCmd(a *app.App) *cobra.Command {
 			return a.Output.Print(res)
 		},
 	}
-	cmd.Flags().DurationVar(&since, "since", 7*24*time.Hour, "trailing window length, e.g. 168h, 24h, 30m")
+	cmd.Flags().Var(duration.NewValue(&since, 7*24*time.Hour), "since", "trailing window length, as in 7d, 24h or 30m")
 	return cmd
 }
 

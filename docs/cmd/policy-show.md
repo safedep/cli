@@ -4,13 +4,29 @@ Show a summary of the policy of the tenant: the head policy revision, the open
 policy changes, the package rules, the policy settings and the policy overrides
 in priority order.
 
-The settings section lists one setting on each row, grouped by the parent of
-its path, as `scan_gate.licenses`. Each row shows the value that every subject
-gets and the layer that sets it: `base`, `default policy` (the SafeDep default
-policy), or `-` when no layer sets it. Below the row, each policy override that
-sets the field shows its value, from the highest priority to the lowest. An
-override value applies only to the subjects that its selector matches. A long
-value, such as a license list, wraps to the terminal width.
+The settings section lists every setting of the policy contract on one row,
+grouped by the parent of its path, as `scan_gate.licenses`. Each row shows the
+value that every subject gets and the layer that sets it:
+
+- `base`: the base of the tenant policy.
+- `default policy`: the SafeDep default policy, below the base.
+- `-` with the value `not set, each tool uses its local value`, when neither
+  layer sets it.
+
+Below the row, each policy override that sets the field shows its source, as
+`override "ci" (300)`, and its value, from the highest priority to the lowest.
+An override value applies only to the subjects that its selector matches. An
+override past its expiry keeps its row, with `, expired` after its source. An
+override source wider than a third of the terminal takes a line of its own,
+with the value on the next line.
+
+On a terminal, a long value wraps to the terminal width: a list wraps after an
+item, and other text wraps at spaces. A single long word, such as a long
+override name, can still pass the terminal edge. When stdout is not a terminal,
+as in `safedep policy show > policy.txt`, nothing wraps.
+
+If the policy holds settings that this CLI does not know, the section says so.
+Update the CLI to see them.
 
 ## Synopsis
 
@@ -39,6 +55,10 @@ Default policy  revision 2
 
 Settings
 SETTING            SOURCE                     VALUE
+package_admission.cooldown
+  min_age          -                          not set, each tool uses its local
+                                              value
+                   override "ci" (300)        7d
 scan_gate
   fail_on          base                       medium
                    override "ci" (300)        critical
@@ -50,14 +70,19 @@ scan_gate.licenses
                                               GPL-3.0-only, GPL-3.0-or-later,
                                               AGPL-3.0, AGPL-3.0-only,
                                               AGPL-3.0-or-later
+  allow            -                          not set, each tool uses its local
+                                              value
   unknown          default policy             allow
 An override sets its value only for the subjects that its selector matches.
 See the settings document: safedep policy get
 
 Overrides (priority, highest first)
-PRIORITY  NAME      SELECTOR                 EXPIRES  DESCRIPTION
-300       ci        custom/environment=ci    -        -
-200       payments  custom/criticality=high  -        -
+╭──────────┬──────────┬─────────────────────────┬─────────┬─────────────╮
+│ PRIORITY │ NAME     │ SELECTOR                │ EXPIRES │ DESCRIPTION │
+├──────────┼──────────┼─────────────────────────┼─────────┼─────────────┤
+│ 300      │ ci       │ custom/environment=ci   │ -       │ -           │
+│ 200      │ payments │ custom/criticality=high │ -       │ -           │
+╰──────────┴──────────┴─────────────────────────┴─────────┴─────────────╯
 ```
 
 Read the policy settings document as JSON:

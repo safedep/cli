@@ -8,7 +8,6 @@ import (
 	"time"
 
 	policyv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/policy/v1/policyv1grpc"
-	"github.com/safedep/dry/tui/output"
 	"github.com/spf13/cobra"
 
 	"github.com/safedep/cli/internal/app"
@@ -23,6 +22,10 @@ type showResult struct {
 	DefaultRevision uint64
 	DefaultFields   []cloudpolicy.FieldValue
 	BaseFields      []cloudpolicy.FieldValue
+	// UnknownSettings is true when the policy or the default policy holds
+	// fields that the SDK of this CLI does not know. The settings section
+	// cannot show them, so it says so.
+	UnknownSettings bool
 	OpenChanges     uint32
 	TrustRules      uint32
 	BlockRules      uint32
@@ -84,6 +87,8 @@ func runShow(ctx context.Context, client policyv1grpc.PolicyServiceClient, tenan
 		DefaultRevision: res.GetDefaultPolicy().GetRevision(),
 		DefaultFields:   cloudpolicy.Fields(res.GetDefaultPolicy().GetSpec()),
 		BaseFields:      cloudpolicy.Fields(res.GetPolicy().GetBase()),
+		UnknownSettings: cloudpolicy.CheckKnownFields(res.GetPolicy()) != nil ||
+			cloudpolicy.CheckKnownFields(res.GetDefaultPolicy().GetSpec()) != nil,
 		OpenChanges:     res.GetOpenChangeCount(),
 		TrustRules:      counts.GetTrustCount(),
 		BlockRules:      counts.GetBlockCount(),
@@ -147,10 +152,11 @@ func (r *showResult) rulesLine() string {
 	return line
 }
 
-// RenderTable fits the view to the terminal width, so a long value, such as
-// a license list or a publish message, wraps instead of running off the line.
+// RenderTable fits the view to the width of the terminal on stdout, so a long
+// value, such as a license list or a publish message, wraps instead of
+// running off the line. Output to a file or a pipe does not wrap.
 func (r *showResult) RenderTable() string {
-	return r.render(time.Now(), output.Width())
+	return r.render(time.Now(), clitui.StdoutWidth())
 }
 
 func (r *showResult) render(now time.Time, width int) string {
@@ -167,7 +173,7 @@ func (r *showResult) render(now time.Time, width int) string {
 	}, width)
 	return strings.Join([]string{
 		cloudpolicy.KeyValues(summary),
-		r.settingsSection(width),
+		r.settingsSection(now, width),
 		r.overridesTable(now, width),
 	}, "\n\n")
 }

@@ -336,7 +336,7 @@ func (w *templateWriter) commentedLeaf(
 	if len(first)+len("  # ")+len(text) <= templateWidth {
 		w.lines = append(w.lines, first+"  # "+text)
 	} else {
-		for _, line := range wrapWords(text, templateWidth-indent-len("# ")) {
+		for _, line := range WrapWords(text, templateWidth-indent-len("# ")) {
 			w.comment(indent, line)
 		}
 		w.lines = append(w.lines, first)
@@ -345,28 +345,6 @@ func (w *templateWriter) commentedLeaf(
 		w.comment(indent, line)
 	}
 	return nil
-}
-
-// wrapWords splits text into lines of at most width bytes, at spaces. A word
-// longer than width gets a line of its own.
-func wrapWords(text string, width int) []string {
-	var lines []string
-	line := ""
-	for _, word := range strings.Fields(text) {
-		switch {
-		case line == "":
-			line = word
-		case len(line)+1+len(word) <= width:
-			line += " " + word
-		default:
-			lines = append(lines, line)
-			line = word
-		}
-	}
-	if line != "" {
-		lines = append(lines, line)
-	}
-	return lines
 }
 
 // overrideExample writes a commented policy override after the base, for a

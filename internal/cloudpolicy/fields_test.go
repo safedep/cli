@@ -4,9 +4,11 @@ import (
 	"testing"
 	"time"
 
+	optionsv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/options/v1"
 	scangatev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/scangate/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestFields(t *testing.T) {
@@ -87,5 +89,41 @@ func TestFormatJSONValue(t *testing.T) {
 		value, human := FormatJSONValue(tt.path, tt.raw)
 		assert.Equal(t, tt.value, value, tt.raw)
 		assert.Equal(t, tt.human, human, tt.raw)
+	}
+}
+
+// TestLeafPathsMergeByReplace guards the source of a value in `safedep policy
+// show`, which takes the value of the nearest layer that sets the path. A
+// path that merges by union or by key gets items from more than one layer,
+// so a new such path must change that view first.
+func TestLeafPathsMergeByReplace(t *testing.T) {
+	paths := LeafPaths()
+	require.NotEmpty(t, paths)
+	for _, path := range paths {
+		fd := fieldByPath(path)
+		require.NotNil(t, fd, path)
+		contract, ok := proto.GetExtension(fd.Options(), optionsv1.E_Field).(*optionsv1.FieldContract)
+		require.True(t, ok, path)
+		assert.Equal(t, optionsv1.Merge_MERGE_REPLACE, contract.GetMerge(), path)
+	}
+}
+
+func TestWrapWords(t *testing.T) {
+	tests := []struct {
+		name  string
+		text  string
+		width int
+		want  []string
+	}{
+		{name: "fits", text: "one two", width: 7, want: []string{"one two"}},
+		{name: "breaks at spaces", text: "one two three", width: 7, want: []string{"one two", "three"}},
+		{name: "long word keeps its own line", text: "a verylongword b", width: 5, want: []string{"a", "verylongword", "b"}},
+		{name: "counts display columns, not bytes", text: "ab · cd · ef", width: 7, want: []string{"ab · cd", "· ef"}},
+		{name: "empty", text: "", width: 5, want: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, WrapWords(tt.text, tt.width))
+		})
 	}
 }

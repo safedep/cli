@@ -29,11 +29,38 @@ func KeyValues(rows [][2]string) string {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		b.WriteString(r[0])
-		b.WriteString(strings.Repeat(" ", width-lipgloss.Width(r[0])+2))
+		b.WriteString(PadRight(r[0], width) + "  ")
 		b.WriteString(tui.EscapeLine(r[1]))
 	}
 	return b.String()
+}
+
+// PadRight pads s with spaces to width display columns.
+func PadRight(s string, width int) string {
+	return s + strings.Repeat(" ", max(width-lipgloss.Width(s), 0))
+}
+
+// WrapWords splits text into lines of at most width display columns, at
+// spaces. A word wider than width gets a line of its own, because a broken
+// word reads as two values.
+func WrapWords(text string, width int) []string {
+	var lines []string
+	line := ""
+	for _, word := range strings.Fields(text) {
+		switch {
+		case line == "":
+			line = word
+		case lipgloss.Width(line)+1+lipgloss.Width(word) <= width:
+			line += " " + word
+		default:
+			lines = append(lines, line)
+			line = word
+		}
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 // EmptyDash keeps a table cell readable when a value is absent.

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	policyv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/policy/v1/policyv1grpc"
-	"github.com/safedep/dry/tui/table"
+	"github.com/safedep/dry/tui/output"
 	"github.com/spf13/cobra"
 
 	"github.com/safedep/cli/internal/app"
@@ -22,6 +22,7 @@ type showResult struct {
 	Head            *revisionView
 	DefaultRevision uint64
 	DefaultFields   []cloudpolicy.FieldValue
+	BaseFields      []cloudpolicy.FieldValue
 	OpenChanges     uint32
 	TrustRules      uint32
 	BlockRules      uint32
@@ -48,8 +49,9 @@ func showCmd(a *app.App) *cobra.Command {
 		Use:   "show",
 		Short: "Show a summary of the tenant policy",
 		Long: "Show the head policy revision, the open policy changes, the package rule counts, the " +
-			"SafeDep default policy and the policy overrides in priority order. With --output json, the " +
-			"output also holds the policy settings document.",
+			"policy settings and the policy overrides in priority order. Each setting shows its value, " +
+			"the layer that sets it (the base or the SafeDep default policy) and the value of each policy " +
+			"override that sets it. With --output json, the output also holds the policy settings document.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, err := a.ControlPlane()
@@ -81,6 +83,7 @@ func runShow(ctx context.Context, client policyv1grpc.PolicyServiceClient, tenan
 		Head:            newRevisionView(res.GetHead()),
 		DefaultRevision: res.GetDefaultPolicy().GetRevision(),
 		DefaultFields:   cloudpolicy.Fields(res.GetDefaultPolicy().GetSpec()),
+		BaseFields:      cloudpolicy.Fields(res.GetPolicy().GetBase()),
 		OpenChanges:     res.GetOpenChangeCount(),
 		TrustRules:      counts.GetTrustCount(),
 		BlockRules:      counts.GetBlockCount(),
@@ -133,55 +136,40 @@ func (r *showResult) openLine() string {
 }
 
 func (r *showResult) rulesLine() string {
-	line := fmt.Sprintf("%d (%d trust, %d block)", r.TrustRules+r.BlockRules, r.TrustRules, r.BlockRules)
+	total := r.TrustRules + r.BlockRules
+	line := fmt.Sprintf("%d (%d trust, %d block)", total, r.TrustRules, r.BlockRules)
 	if r.ExpiringSoon > 0 {
 		line += fmt.Sprintf("%s%d expire in 7d", sep, r.ExpiringSoon)
+	}
+	if total > 0 {
+		line += sep + "safedep policy rule list"
 	}
 	return line
 }
 
-func (r *showResult) defaultLine() string {
-	parts := []string{fmt.Sprintf("revision %d", r.DefaultRevision)}
-	for _, f := range r.DefaultFields {
-		parts = append(parts, f.Path+": "+f.Human)
-	}
-	return strings.Join(parts, sep)
+// RenderTable fits the view to the terminal width, so a long value, such as
+// a license list or a publish message, wraps instead of running off the line.
+func (r *showResult) RenderTable() string {
+	return r.render(time.Now(), output.Width())
 }
 
-func (r *showResult) RenderTable() string {
-	now := time.Now()
+func (r *showResult) render(now time.Time, width int) string {
 	tenant := r.Tenant
 	if tenant == "" {
 		tenant = "(this tenant)"
 	}
-	rows := [][2]string{
+	summary := wrapRows([][2]string{
 		{"Policy", tenant},
 		{"Head revision", r.headLine(now)},
 		{"Open changes", r.openLine()},
 		{"Package rules", r.rulesLine()},
-		{"Default policy", r.defaultLine()},
-	}
-	if r.BaseDescription != "" {
-		rows = append(rows, [2]string{"Base", r.BaseDescription})
-	}
-
-	overrideRows := make([][]string, 0, len(r.Overrides))
-	for _, o := range r.Overrides {
-		expires := "-"
-		if o.expires != nil {
-			expires = humanTimeCell(o.expires, now)
-		}
-		overrideRows = append(overrideRows, []string{
-			fmt.Sprintf("%d", o.Priority), o.Name, o.Selector, expires, cloudpolicy.EmptyDash(o.Description),
-		})
-	}
-	overrides := table.New().
-		Title("Overrides (priority, highest first)").
-		Headers("PRIORITY", "NAME", "SELECTOR", "EXPIRES", "DESCRIPTION").
-		Rows(clitui.EscapeCells(overrideRows)...).
-		EmptyMessage("No policy overrides. The policy base applies to every subject. Add one with: safedep policy edit").
-		Render()
-	return cloudpolicy.KeyValues(rows) + "\n\n" + overrides
+		{"Default policy", fmt.Sprintf("revision %d", r.DefaultRevision)},
+	}, width)
+	return strings.Join([]string{
+		cloudpolicy.KeyValues(summary),
+		r.settingsSection(width),
+		r.overridesTable(now, width),
+	}, "\n\n")
 }
 
 func (r *showResult) RenderPlain() string {

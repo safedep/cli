@@ -87,7 +87,8 @@ func humanTimeCell(t *time.Time, now time.Time) string {
 	return humanize.Time(*t, now)
 }
 
-// overrideView is a policy override without its values.
+// overrideView is a policy override. Its JSON form has no values: the
+// settings document of the JSON output holds them.
 type overrideView struct {
 	ID          string `json:"override_id"`
 	Name        string `json:"name"`
@@ -96,6 +97,7 @@ type overrideView struct {
 	Description string `json:"description,omitempty"`
 	ExpiresAt   string `json:"expires_at,omitempty"`
 	expires     *time.Time
+	settings    []cloudpolicy.FieldValue
 }
 
 // overrideViews lists the policy overrides from the highest priority to the
@@ -112,6 +114,7 @@ func overrideViews(p *policyv1.Policy) []overrideView {
 			Description: o.GetDescription(),
 			ExpiresAt:   cloudpolicy.RFC3339(expires),
 			expires:     expires,
+			settings:    cloudpolicy.Fields(o.GetSpec()),
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Priority > out[j].Priority })

@@ -1,8 +1,32 @@
 # safedep policy show
 
 Show a summary of the policy of the tenant: the head policy revision, the open
-policy changes, the package rules, the SafeDep default policy and the policy
-overrides in priority order.
+policy changes, the package rules, the policy settings and the policy overrides
+in priority order.
+
+The settings section lists every setting of the policy contract on one row,
+grouped by the parent of its path, as `scan_gate.licenses`. Each row shows the
+value that every subject gets and the layer that sets it:
+
+- `base`: the base of the tenant policy.
+- `default policy`: the SafeDep default policy, below the base.
+- `-` with the value `not set, each tool uses its local value`, when neither
+  layer sets it.
+
+Below the row, each policy override that sets the field shows its source, as
+`override "ci" (300)`, and its value, from the highest priority to the lowest.
+An override value applies only to the subjects that its selector matches. An
+override past its expiry keeps its row, with `, expired` after its source. An
+override source wider than a third of the terminal takes a line of its own,
+with the value on the next line.
+
+On a terminal, a long value wraps to the terminal width: a list wraps after an
+item, and other text wraps at spaces. A single long word, such as a long
+override name, can still pass the terminal edge. When stdout is not a terminal,
+as in `safedep policy show > policy.txt`, nothing wraps.
+
+If the policy holds settings that this CLI does not know, the section says so.
+Update the CLI to see them.
 
 ## Synopsis
 
@@ -25,13 +49,40 @@ safedep policy show
 Policy          platform-eng.acme.safedep.io
 Head revision   46 · published 2d ago by alice · "cooldown 5d for laptops"
 Open changes    none
-Package rules   211 (184 trust, 27 block) · 23 expire in 7d
-Default policy  revision 1 · scan_gate.fail_on: high · scan_gate.fail_on_attacks: fail
+Package rules   211 (184 trust, 27 block) · 23 expire in 7d ·
+                safedep policy rule list
+Default policy  revision 2
+
+Settings
+SETTING            SOURCE                     VALUE
+package_admission.cooldown
+  min_age          -                          not set, each tool uses its local
+                                              value
+                   override "ci" (300)        7d
+scan_gate
+  fail_on          base                       medium
+                   override "ci" (300)        critical
+                   override "payments" (200)  high
+  fail_on_attacks  default policy             fail
+scan_gate.licenses
+  deny             default policy             GPL-2.0, GPL-2.0-only,
+                                              GPL-2.0-or-later, GPL-3.0,
+                                              GPL-3.0-only, GPL-3.0-or-later,
+                                              AGPL-3.0, AGPL-3.0-only,
+                                              AGPL-3.0-or-later
+  allow            -                          not set, each tool uses its local
+                                              value
+  unknown          default policy             allow
+An override sets its value only for the subjects that its selector matches.
+See the settings document: safedep policy get
 
 Overrides (priority, highest first)
-PRIORITY  NAME      SELECTOR                 EXPIRES  DESCRIPTION
-300       ci        custom/environment=ci    -        -
-200       payments  custom/criticality=high  -        -
+╭──────────┬──────────┬─────────────────────────┬─────────┬─────────────╮
+│ PRIORITY │ NAME     │ SELECTOR                │ EXPIRES │ DESCRIPTION │
+├──────────┼──────────┼─────────────────────────┼─────────┼─────────────┤
+│ 300      │ ci       │ custom/environment=ci   │ -       │ -           │
+│ 200      │ payments │ custom/criticality=high │ -       │ -           │
+╰──────────┴──────────┴─────────────────────────┴─────────┴─────────────╯
 ```
 
 Read the policy settings document as JSON:

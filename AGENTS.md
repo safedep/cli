@@ -33,6 +33,26 @@ make release-snapshot # Local release build via goreleaser
 - Re-use existing patterns. Prefer refactoring over copying
 - `dry/log` for internal logging (`log.Warnf` for soft failures)
 - Humanize table cells with `dry/tui/humanize` (`Time`, `Duration`). Never a local formatter. New value shapes extend the dry package. See DEVGUIDE Output section
+- Comments explain the current behaviour and its reason. No past-facing wording such as "keep the old behaviour". State the actual constraint instead
+- DO NOT leak our conversation, prompt, or iteration history into code comments, pull request descriptions, or other maintainer-facing prose. Write for readers who have not seen our conversation
+
+## Engineering principles
+
+- Reuse before you build: the Go standard library, this repository, then modules already in `go.mod` (`safedep/dry`, cobra, testify). Grep for a helper before you write one
+- New dependencies must be well known and maintained. Propose one before adding it when it overlaps an existing one. Bump one module with `go get <module>@<version>`, never `go get -u ./...`
+- SOLID, DRY by the rule of three, KISS, YAGNI. No options, wrappers or config for a single caller
+- Prefer guard clauses and early returns. Use the same name for the same concept everywhere
+- Export the smallest surface. Define an interface where it is consumed, with only the methods that caller uses
+
+## Tests
+
+- Every test guards a behaviour a regression could break, or a bug that already happened. No smoke tests, no tests that restate the implementation, no tests that only raise coverage
+- Test through the entry point a caller uses (the cobra command, the orchestration function) and assert outcomes, not the calls made inside
+- Fake a dependency at its port: a small fake of the interface, or an `httptest` server for a remote API. A mock that returns fixed values for every call proves nothing
+- A new test must fail when you remove the code it guards. Check that once before you commit
+- Before adding a test, check that no existing test covers the behaviour. Extend an existing test before creating a new one
+- For a parser or a mapping over free-form input, add a native `Fuzz` test with seeds. CI replays the seeds. Run `go test -fuzz` locally for a while before you commit
+- Do not assume a failure is pre-existing. Reproduce it on `main` before calling it flaky, and file an issue
 
 For any changes in `.github/workflows/`:
 

@@ -20,6 +20,7 @@ const (
 type createInput struct {
 	ProjectIDs   []string
 	ProjectNames []string
+	Refs         refFlags
 }
 
 type createdScan struct {
@@ -52,9 +53,11 @@ func createCmd(a *app.App) *cobra.Command {
 		Short: "Submit project scans to SafeDep Cloud-hosted scanners",
 		Long: "Atomically submit on-demand scans for one to 100 SafeDep projects by exact name or ID " +
 			"to SafeDep Cloud-hosted scanners. The command returns after cloud admission while scan " +
-			"execution continues asynchronously in SafeDep Cloud.",
-		Args: func(_ *cobra.Command, args []string) error {
+			"execution continues asynchronously in SafeDep Cloud. Each project scans its default branch, " +
+			"or the branch or tag that --branch, --tag or --ref names.",
+		Args: func(cmd *cobra.Command, args []string) error {
 			in.ProjectNames = args
+			in.Refs.Set = changedFlags(cmd, refFlag, branchFlag, tagFlag)
 			return validateCreateInput(in)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -82,6 +85,14 @@ func createCmd(a *app.App) *cobra.Command {
 		nil,
 		"project ID to scan instead of a name; repeat for multiple projects",
 	)
+	cmd.Flags().StringVar(&in.Refs.Branch, branchFlag, "", "branch to scan in every selected project")
+	cmd.Flags().StringVar(&in.Refs.Tag, tagFlag, "", "tag to scan in every selected project")
+	cmd.Flags().StringVar(
+		&in.Refs.Ref,
+		refFlag,
+		"",
+		"full ref to scan in every selected project, such as refs/tags/v1.2.0; a plain name is a branch",
+	)
 	return cmd
 }
 
@@ -97,7 +108,21 @@ func validateCreateInput(in createInput) error {
 	if err := validateUniqueValues(in.ProjectIDs, "project ID"); err != nil {
 		return err
 	}
-	return validateUniqueValues(in.ProjectNames, "project name")
+	if err := validateUniqueValues(in.ProjectNames, "project name"); err != nil {
+		return err
+	}
+	_, err := in.Refs.qualified()
+	return err
+}
+
+func changedFlags(cmd *cobra.Command, names ...string) []string {
+	var changed []string
+	for _, name := range names {
+		if cmd.Flags().Changed(name) {
+			changed = append(changed, name)
+		}
+	}
+	return changed
 }
 
 func validateProjectIDs(projectIDs []string) error {

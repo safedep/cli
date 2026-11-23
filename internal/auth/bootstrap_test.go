@@ -283,20 +283,34 @@ func TestPostOAuthBootstrap_DecideAPIKey(t *testing.T) {
 // A login must not lose its OAuth tokens because the create failed while the
 // stored key still works, for example for a user who cannot create keys.
 func TestPostOAuthBootstrap_CreateFails(t *testing.T) {
-	expiresAt := time.Date(2026, 11, 30, 0, 0, 0, 0, time.UTC)
+	expiresAt := time.Now().Add(72 * time.Hour).UTC().Truncate(time.Second)
 
 	tests := []struct {
-		name     string
-		decision APIKeyDecision
-		wantErr  bool
+		name         string
+		decision     APIKeyDecision
+		wantErr      bool
+		wantWarnings []string
 	}{
 		{
-			name:     "a stored key that still works is kept",
-			decision: APIKeyDecision{Reason: "the stored API key expires on 2026-11-30", Fallback: true, ExpiresAt: expiresAt},
+			name:         "a stored key that still works is kept",
+			decision:     APIKeyDecision{Reason: "the stored API key expires soon", Fallback: true, ExpiresAt: expiresAt},
+			wantWarnings: []string{"could not create a new API key"},
+		},
+		{
+			name: "both warnings reach the user",
+			decision: APIKeyDecision{Reason: "the stored API key expires soon", Fallback: true, ExpiresAt: expiresAt,
+				Warning: "could not verify the stored API key: no route"},
+			wantWarnings: []string{"could not verify the stored API key", "could not create a new API key"},
+		},
+		{
+			name: "a fallback that expired during the create fails the login",
+			decision: APIKeyDecision{Reason: "the stored API key expires soon", Fallback: true,
+				ExpiresAt: time.Now().Add(-time.Second)},
+			wantErr: true,
 		},
 		{
 			name:     "no usable stored key fails the login",
-			decision: APIKeyDecision{Reason: "the stored API key expired on 2026-11-20"},
+			decision: APIKeyDecision{Reason: "the stored API key expired"},
 			wantErr:  true,
 		},
 	}
@@ -324,7 +338,9 @@ func TestPostOAuthBootstrap_CreateFails(t *testing.T) {
 			require.NoError(t, err)
 			assert.True(t, res.APIKeyDecision.Keep)
 			assert.True(t, expiresAt.Equal(res.APIKeyDecision.ExpiresAt))
-			assert.Contains(t, res.APIKeyDecision.Warning, "could not create a new API key")
+			for _, w := range tc.wantWarnings {
+				assert.Contains(t, res.APIKeyDecision.Warning, w)
+			}
 			assert.Empty(t, res.APIKey)
 		})
 	}

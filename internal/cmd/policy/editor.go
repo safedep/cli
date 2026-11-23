@@ -15,6 +15,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
+
+	"github.com/safedep/cli/internal/rpcerror"
 )
 
 const (
@@ -48,13 +50,13 @@ func isRetryable(err error) bool {
 	if errors.As(err, &r) {
 		return true
 	}
-	st, ok := innerStatus(err)
+	st, ok := rpcerror.InnerStatus(err)
 	if !ok || st.Code() != codes.InvalidArgument {
 		return false
 	}
 	if bad, ok := usefulerror.DetailAs[*errdetails.BadRequest](err); ok && len(bad.GetFieldViolations()) > 0 {
 		for _, v := range bad.GetFieldViolations() {
-			if isDocumentField(violationField(v)) {
+			if isDocumentField(rpcerror.ViolationField(v)) {
 				return true
 			}
 		}
@@ -62,7 +64,7 @@ func isRetryable(err error) bool {
 	}
 	// With no field detail, the message starts with the field, as in
 	// "title: must be at most 200 characters".
-	field, _, found := strings.Cut(stripServicePrefix(st.Message()), ":")
+	field, _, found := strings.Cut(rpcerror.StripServicePrefix(st.Message()), ":")
 	return !found || strings.ContainsAny(field, " ") || isDocumentField(field)
 }
 

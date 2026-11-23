@@ -5,6 +5,7 @@
 package mocks
 
 import (
+	"github.com/safedep/dry/cloud"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -176,6 +177,69 @@ func (_c *CredentialStoreMock_SaveAPIKeyCredential_Call) Return(err error) *Cred
 }
 
 func (_c *CredentialStoreMock_SaveAPIKeyCredential_Call) RunAndReturn(run func(apiKey string, tenantDomain string) error) *CredentialStoreMock_SaveAPIKeyCredential_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SaveAPIKeyCredentialWithMetadata provides a mock function for the type CredentialStoreMock
+func (_mock *CredentialStoreMock) SaveAPIKeyCredentialWithMetadata(apiKey string, tenantDomain string, meta cloud.APIKeyMetadata) error {
+	ret := _mock.Called(apiKey, tenantDomain, meta)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SaveAPIKeyCredentialWithMetadata")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(string, string, cloud.APIKeyMetadata) error); ok {
+		r0 = returnFunc(apiKey, tenantDomain, meta)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// CredentialStoreMock_SaveAPIKeyCredentialWithMetadata_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SaveAPIKeyCredentialWithMetadata'
+type CredentialStoreMock_SaveAPIKeyCredentialWithMetadata_Call struct {
+	*mock.Call
+}
+
+// SaveAPIKeyCredentialWithMetadata is a helper method to define mock.On call
+//   - apiKey string
+//   - tenantDomain string
+//   - meta cloud.APIKeyMetadata
+func (_e *CredentialStoreMock_Expecter) SaveAPIKeyCredentialWithMetadata(apiKey interface{}, tenantDomain interface{}, meta interface{}) *CredentialStoreMock_SaveAPIKeyCredentialWithMetadata_Call {
+	return &CredentialStoreMock_SaveAPIKeyCredentialWithMetadata_Call{Call: _e.mock.On("SaveAPIKeyCredentialWithMetadata", apiKey, tenantDomain, meta)}
+}
+
+func (_c *CredentialStoreMock_SaveAPIKeyCredentialWithMetadata_Call) Run(run func(apiKey string, tenantDomain string, meta cloud.APIKeyMetadata)) *CredentialStoreMock_SaveAPIKeyCredentialWithMetadata_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 string
+		if args[0] != nil {
+			arg0 = args[0].(string)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 cloud.APIKeyMetadata
+		if args[2] != nil {
+			arg2 = args[2].(cloud.APIKeyMetadata)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *CredentialStoreMock_SaveAPIKeyCredentialWithMetadata_Call) Return(err error) *CredentialStoreMock_SaveAPIKeyCredentialWithMetadata_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *CredentialStoreMock_SaveAPIKeyCredentialWithMetadata_Call) RunAndReturn(run func(apiKey string, tenantDomain string, meta cloud.APIKeyMetadata) error) *CredentialStoreMock_SaveAPIKeyCredentialWithMetadata_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -218,7 +218,7 @@ func TestStoredAPIKeyIgnoresTheEnvironment(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 	expired := time.Now().Add(-24 * time.Hour).UTC().Truncate(time.Second)
-	require.NoError(t, store.(cloud.APIKeyMetadataStore).SaveAPIKeyCredentialWithMetadata(
+	require.NoError(t, store.SaveAPIKeyCredentialWithMetadata(
 		"sk-keychain", "acme.safedep.io", cloud.APIKeyMetadata{KeyID: "key-1", ExpiresAt: expired}))
 
 	creds, err := StoredAPIKey(opts)

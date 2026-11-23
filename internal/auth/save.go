@@ -9,8 +9,7 @@ import (
 // SaveBootstrapResult persists the access token, refresh token, and (if present)
 // API key from a completed bootstrap to the credential store. The key is saved
 // with its id and expiry, so that the next login and auth status can tell an
-// expired key from a valid one. A store that cannot hold metadata gets the key
-// alone.
+// expired key from a valid one.
 func SaveBootstrapResult(store cloud.CredentialStore, accessToken, refreshToken string, b *BootstrapResult) error {
 	if err := store.SaveTokenCredential(accessToken, refreshToken, b.Tenant); err != nil {
 		return fmt.Errorf("save token credential: %w", err)
@@ -20,15 +19,10 @@ func SaveBootstrapResult(store cloud.CredentialStore, accessToken, refreshToken 
 		return nil
 	}
 
-	var err error
-	if metaStore, ok := store.(cloud.APIKeyMetadataStore); ok {
-		err = metaStore.SaveAPIKeyCredentialWithMetadata(b.APIKey, b.Tenant, cloud.APIKeyMetadata{
-			KeyID:     b.APIKeyID,
-			ExpiresAt: b.APIKeyExpiresAt,
-		})
-	} else {
-		err = store.SaveAPIKeyCredential(b.APIKey, b.Tenant)
-	}
+	err := store.SaveAPIKeyCredentialWithMetadata(b.APIKey, b.Tenant, cloud.APIKeyMetadata{
+		KeyID:     b.APIKeyID,
+		ExpiresAt: b.APIKeyExpiresAt,
+	})
 	if err != nil {
 		return fmt.Errorf("save api key credential: %w", err)
 	}

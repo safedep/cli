@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"testing"
+	"time"
 
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
 	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
@@ -14,6 +15,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // fakeUserServer is a configurable UserServiceServer that returns a
@@ -49,6 +51,24 @@ func (f *fakeUserServer) GetUserInfo(_ context.Context, _ *controltowerv1.GetUse
 type bootstrapTestServer struct {
 	user       *fakeUserServer
 	onboarding *fakeOnboardingServer
+	apiKeys    *fakeAPIKeyServer
+}
+
+// fakeAPIKeyServer creates one API key per call and counts the calls.
+type fakeAPIKeyServer struct {
+	controltowerv1grpc.UnimplementedApiKeyServiceServer
+	creates   int
+	expiresAt time.Time
+}
+
+func (f *fakeAPIKeyServer) CreateApiKey(_ context.Context, req *controltowerv1.CreateApiKeyRequest,
+) (*controltowerv1.CreateApiKeyResponse, error) {
+	f.creates++
+	return &controltowerv1.CreateApiKeyResponse{
+		Key:       "sk-new",
+		KeyId:     "key-new",
+		ExpiresAt: timestamppb.New(f.expiresAt),
+	}, nil
 }
 
 func newBootstrapTestServer(t *testing.T, bts bootstrapTestServer) ControlPlaneConnFunc {
@@ -57,6 +77,9 @@ func newBootstrapTestServer(t *testing.T, bts bootstrapTestServer) ControlPlaneC
 	srv := grpc.NewServer()
 	controltowerv1grpc.RegisterUserServiceServer(srv, bts.user)
 	controltowerv1grpc.RegisterOnboardingServiceServer(srv, bts.onboarding)
+	if bts.apiKeys != nil {
+		controltowerv1grpc.RegisterApiKeyServiceServer(srv, bts.apiKeys)
+	}
 	go func() { _ = srv.Serve(lis) }()
 	t.Cleanup(func() {
 		srv.Stop()
@@ -175,4 +198,64 @@ func TestPostOAuthBootstrap_ZeroTenants_PrompterReturnsError_PropagatesError(t *
 
 	require.Error(t, err)
 	assert.Equal(t, promptErr, err)
+}
+
+// The decision on the stored key runs on the tenant that the user picked, so
+// a key of the previous tenant is replaced. A kept key means no new key.
+func TestPostOAuthBootstrap_DecideAPIKey(t *testing.T) {
+	expiresAt := time.Date(2027, 2, 20, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name        string
+		decision    APIKeyDecision
+		wantCreates int
+		wantKey     string
+	}{
+		{
+			name:        "a kept key creates no key",
+			decision:    APIKeyDecision{Keep: true, ExpiresAt: expiresAt},
+			wantCreates: 0,
+		},
+		{
+			name:        "a replaced key creates a key with its id and expiry",
+			decision:    APIKeyDecision{Reason: "the stored API key expired on 2026-11-20"},
+			wantCreates: 1,
+			wantKey:     "sk-new",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			apiKeys := &fakeAPIKeyServer{expiresAt: expiresAt}
+			connFor := newBootstrapTestServer(t, bootstrapTestServer{
+				user:       &fakeUserServer{responses: [][]string{{"old.safedep.io", "new.safedep.io"}}},
+				onboarding: &fakeOnboardingServer{},
+				apiKeys:    apiKeys,
+			})
+
+			var decidedFor string
+			res, err := PostOAuthBootstrap(context.Background(), BootstrapInput{
+				AccessToken:      "token-123",
+				PreferredTenant:  "old.safedep.io-gone",
+				CreateAPIKey:     true,
+				APIKeyExpiryDays: 90,
+				Picker:           func([]string) (string, error) { return "new.safedep.io", nil },
+				DecideAPIKey: func(_ context.Context, tenant string) APIKeyDecision {
+					decidedFor = tenant
+					return tc.decision
+				},
+				ConnFor: connFor,
+			})
+			require.NoError(t, err)
+
+			assert.Equal(t, "new.safedep.io", decidedFor, "the decision must see the picked tenant")
+			assert.Equal(t, tc.wantCreates, apiKeys.creates)
+			assert.Equal(t, tc.decision, res.APIKeyDecision)
+			assert.Equal(t, tc.wantKey, res.APIKey)
+			if tc.wantKey != "" {
+				assert.Equal(t, "key-new", res.APIKeyID)
+				assert.True(t, expiresAt.Equal(res.APIKeyExpiresAt))
+			}
+		})
+	}
 }

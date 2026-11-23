@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -104,7 +105,15 @@ func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 		}
 	}
 
-	createKey, name := apiKeyCreationPlan(a, preferredTenant, flags)
+	createKey := !flags.noAPIKey
+	var name string
+	var decideAPIKey func(context.Context, string) cliauth.APIKeyDecision
+	if createKey {
+		name = cliauth.APIKeyName(cliauth.Hostname(), time.Now())
+		if !flags.rotateAPIKey {
+			decideAPIKey = storedAPIKeyDecider(a)
+		}
+	}
 
 	var registrationPrompter func() (*cliauth.RegistrationInput, error)
 	if flags.noAPIKey {
@@ -121,6 +130,7 @@ func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 		CreateAPIKey:         createKey,
 		APIKeyName:           name,
 		APIKeyExpiryDays:     flags.apiKeyExpiryDays,
+		DecideAPIKey:         decideAPIKey,
 		Picker:               cliauth.PromptTenantPicker,
 		RegistrationPrompter: registrationPrompter,
 	})
@@ -137,10 +147,21 @@ func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 		return err
 	}
 
+	decision := bootstrap.APIKeyDecision
+	if decision.Warning != "" {
+		tui.Warning("%s", decision.Warning)
+	}
+
 	switch {
 	case bootstrap.APIKey != "":
+		if decision.Reason != "" {
+			tui.Info("Created a new API key: %s.", decision.Reason)
+		}
 		tui.Success("Authenticated as %s (profile %q). API key created, expires %s.",
 			bootstrap.Tenant, a.Profile(), bootstrap.APIKeyExpiresAt.UTC().Format("2006-01-02"))
+	case decision.Keep:
+		tui.Success("Authenticated as %s (profile %q). Kept the stored API key, expires %s.",
+			bootstrap.Tenant, a.Profile(), decision.ExpiresAt.UTC().Format("2006-01-02"))
 	case createKey:
 		tui.Success("Authenticated as %s (profile %q). API key creation skipped — none in response.", bootstrap.Tenant, a.Profile())
 	default:
@@ -150,39 +171,39 @@ func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 	return nil
 }
 
-// apiKeyCreationPlan decides whether to ask the bootstrap to create an API
-// key, and what to name it. --no-api-key wins. --rotate-api-key always
-// creates. Otherwise we skip when the profile already holds a key for the
-// preferred tenant.
-func apiKeyCreationPlan(a *app.App, preferredTenant string, flags loginFlags) (bool, string) {
-	if flags.noAPIKey {
-		return false, ""
+// storedAPIKeyDecider returns the check that decides, once the tenant is
+// picked, whether login keeps the API key of the profile. It reads the
+// keychain alone: pmg and vet read the key from there, so an API key in the
+// environment must not stop login from replacing an expired keychain key.
+func storedAPIKeyDecider(a *app.App) func(context.Context, string) cliauth.APIKeyDecision {
+	return func(ctx context.Context, tenant string) cliauth.APIKeyDecision {
+		return cliauth.DecideStoredAPIKey(ctx, storedAPIKey(a), tenant, time.Now(), cliauth.VerifyAPIKey)
 	}
-	if !flags.rotateAPIKey && hasAPIKeyForTenant(a, preferredTenant) {
-		log.Warnf("auth login: existing API key kept; use --rotate-api-key to create a new one")
-		return false, ""
-	}
-	return true, cliauth.APIKeyName(cliauth.Hostname(), time.Now())
 }
 
-func hasAPIKeyForTenant(a *app.App, tenant string) bool {
-	if tenant == "" {
-		return false
-	}
-	resolver, err := a.APIKeyResolver()
+// storedAPIKey returns the API key credentials of the profile in the
+// keychain, or nil when there are none. A keychain that cannot be read counts
+// as no key, so login creates one.
+func storedAPIKey(a *app.App) *cloud.Credentials {
+	resolver, err := cloud.NewKeychainCredentialResolver(cloud.CredentialTypeAPIKey, a.KeychainOptions()...)
 	if err != nil {
-		log.Warnf("auth login: api-key check: %v", err)
-		return false
+		log.Warnf("auth login: stored api key: %v", err)
+		return nil
 	}
+	defer func() {
+		if err := resolver.Close(); err != nil {
+			log.Warnf("auth login: close keychain resolver: %v", err)
+		}
+	}()
+
 	creds, err := resolver.Resolve()
 	if err != nil {
-		return false
+		if !errors.Is(err, cloud.ErrMissingCredentials) {
+			log.Warnf("auth login: stored api key: %v", err)
+		}
+		return nil
 	}
-	got, err := creds.GetTenantDomain()
-	if err != nil {
-		return false
-	}
-	return got == tenant
+	return creds
 }
 
 func resolveAPIKey(flags loginFlags) (string, error) {

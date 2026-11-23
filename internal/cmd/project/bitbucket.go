@@ -2,17 +2,15 @@ package project
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"strings"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
-	"github.com/safedep/dry/tui/table"
 	"github.com/safedep/dry/usefulerror"
 	"google.golang.org/grpc"
 
 	"github.com/safedep/cli/internal/bitbucketlink"
 	"github.com/safedep/cli/internal/paging"
+	"github.com/safedep/cli/internal/sourcelink"
 )
 
 type bitbucketRepositoryLister interface {
@@ -36,49 +34,35 @@ type bitbucketRepository struct {
 	fullName string
 }
 
-type syncedBitbucketProject struct {
-	RepositoryUUID string `json:"repository_uuid"`
-	RepositoryName string `json:"repository_name,omitempty"`
-	ProjectID      string `json:"project_id"`
+// bitbucketRequest is one SyncBitbucketProjects call: the link, the
+// repository UUIDs in request order, and the names the CLI resolved.
+type bitbucketRequest struct {
+	link  sourcelink.Link
+	uuids []string
+	names map[string]string
 }
 
-type bitbucketSyncResult struct {
-	linkID   string
-	projects []syncedBitbucketProject
-}
-
-type bitbucketSyncResultJSON struct {
-	LinkID   string                   `json:"link_id"`
-	Projects []syncedBitbucketProject `json:"projects"`
-}
-
-func runBitbucketSync(
+// prepareBitbucketRequest resolves the plan's names through its link. It
+// sends no write, so a run resolves every plan before it syncs any.
+func prepareBitbucketRequest(
 	ctx context.Context,
-	links bitbucketlink.Lister,
 	repositories bitbucketRepositoryLister,
-	syncer bitbucketProjectSyncer,
-	in syncInput,
-) (*bitbucketSyncResult, error) {
-	linkID := in.LinkID
-	if linkID == "" {
-		resolved, err := bitbucketlink.ResolveSingle(ctx, links, "project sync: resolve workspace link")
-		if err != nil {
-			return nil, err
-		}
-		linkID = resolved
-	}
-
-	resolved, err := resolveBitbucketRepositoryNames(ctx, repositories, linkID, in.RepositoryNames)
+	plan syncPlan,
+) (bitbucketRequest, error) {
+	resolved, err := resolveBitbucketRepositoryNames(ctx, repositories, plan.link, plan.names)
 	if err != nil {
-		return nil, err
+		return bitbucketRequest{}, err
 	}
 
 	// Flag-selected UUIDs go first, then resolved names in argument order,
 	// so the request order matches what the caller typed.
-	repositoryUUIDs := append([]string{}, in.RepositoryUUIDs...)
-	namesByUUID := make(map[string]string, len(resolved))
-	seen := make(map[string]struct{}, len(repositoryUUIDs)+len(resolved))
-	for _, repositoryUUID := range repositoryUUIDs {
+	req := bitbucketRequest{
+		link:  plan.link,
+		uuids: append([]string{}, plan.uuids...),
+		names: make(map[string]string, len(resolved)),
+	}
+	seen := make(map[string]struct{}, len(req.uuids)+len(resolved))
+	for _, repositoryUUID := range req.uuids {
 		seen[repositoryUUID] = struct{}{}
 	}
 	for _, repository := range resolved {
@@ -88,18 +72,17 @@ func runBitbucketSync(
 				repository.uuid,
 				repository.fullName,
 			)
-			return nil, invalidRepositorySelectionError(cause, fmt.Sprintf(
+			return bitbucketRequest{}, invalidRepositorySelectionError(cause, fmt.Sprintf(
 				"Repository %q resolves to repository UUID %s, which is already selected. Remove one of them and retry.",
 				repository.fullName,
 				repository.uuid,
 			))
 		}
 		seen[repository.uuid] = struct{}{}
-		namesByUUID[repository.uuid] = repository.fullName
-		repositoryUUIDs = append(repositoryUUIDs, repository.uuid)
+		req.names[repository.uuid] = repository.fullName
+		req.uuids = append(req.uuids, repository.uuid)
 	}
-
-	return syncBitbucketProjects(ctx, syncer, linkID, repositoryUUIDs, namesByUUID)
+	return req, nil
 }
 
 // resolveBitbucketRepositoryNames maps workspace/repository names to
@@ -109,7 +92,7 @@ func runBitbucketSync(
 func resolveBitbucketRepositoryNames(
 	ctx context.Context,
 	client bitbucketRepositoryLister,
-	linkID string,
+	link sourcelink.Link,
 	names []string,
 ) ([]bitbucketRepository, error) {
 	if len(names) == 0 {
@@ -125,7 +108,7 @@ func resolveBitbucketRepositoryNames(
 	matches := make(map[string]bitbucketRepository, len(names))
 	err := paging.Paginate(ctx, label, func(ctx context.Context, pageToken string) (string, error) {
 		req := &controltowerv1.ListBitbucketRepositoriesRequest{}
-		req.SetLinkId(linkID)
+		req.SetLinkId(link.ID)
 		req.SetPagination(paging.NewPaginationRequest(bitbucketlink.PageSize, pageToken))
 		res, err := client.ListBitbucketRepositories(ctx, req)
 		if err != nil {
@@ -147,7 +130,7 @@ func resolveBitbucketRepositoryNames(
 	for _, name := range names {
 		match, ok := matches[repositoryKey(name)]
 		if !ok {
-			return nil, bitbucketRepositoryNotAccessibleError(name, linkID)
+			return nil, bitbucketRepositoryNotAccessibleError(name, link)
 		}
 		resolved = append(resolved, match)
 	}
@@ -161,8 +144,8 @@ func collectBitbucketRepositoryMatches(
 	matches map[string]bitbucketRepository,
 ) error {
 	for i, repository := range res.GetRepositories() {
-		if repository.GetRepositoryUuid() == "" || repository.GetFullName() == "" {
-			return fmt.Errorf("%s: invalid response: repository %d is missing its identity", label, i+1)
+		if err := checkBitbucketRepository(repository, label, i); err != nil {
+			return err
 		}
 		key := repositoryKey(repository.GetFullName())
 		if _, ok := requested[key]; !ok {
@@ -176,16 +159,76 @@ func collectBitbucketRepositoryMatches(
 	return nil
 }
 
-func bitbucketRepositoryNotAccessibleError(name, linkID string) error {
+func checkBitbucketRepository(
+	repository *controltowerv1.ListBitbucketRepositoriesResponse_BitbucketRepository,
+	label string,
+	i int,
+) error {
+	if repository.GetRepositoryUuid() == "" || repository.GetFullName() == "" {
+		return fmt.Errorf("%s: invalid response: repository %d is missing its identity", label, i+1)
+	}
+	return nil
+}
+
+// listEnabledBitbucketRepositories walks every page of the workspace's
+// repositories and keeps those SafeDep scans. SyncBitbucketProjects refuses a
+// repository whose scan state is not enabled, so a sync of the rest would
+// fail the whole batch. It also returns how many repositories it left out.
+// A repository on two pages counts once.
+func listEnabledBitbucketRepositories(
+	ctx context.Context,
+	client bitbucketRepositoryLister,
+	linkID string,
+) ([]bitbucketRepository, int, error) {
+	const label = "project sync: list repositories"
+
+	var enabled []bitbucketRepository
+	notEnabled := 0
+	seen := map[string]struct{}{}
+	err := paging.Paginate(ctx, label, func(ctx context.Context, pageToken string) (string, error) {
+		req := &controltowerv1.ListBitbucketRepositoriesRequest{}
+		req.SetLinkId(linkID)
+		req.SetPagination(paging.NewPaginationRequest(bitbucketlink.PageSize, pageToken))
+		res, err := client.ListBitbucketRepositories(ctx, req)
+		if err != nil {
+			return "", fmt.Errorf("%s: %w", label, err)
+		}
+		for i, repository := range res.GetRepositories() {
+			if err := checkBitbucketRepository(repository, label, i); err != nil {
+				return "", err
+			}
+			if _, duplicate := seen[repository.GetRepositoryUuid()]; duplicate {
+				continue
+			}
+			seen[repository.GetRepositoryUuid()] = struct{}{}
+			if repository.GetScanState() != controltowerv1.ListBitbucketRepositoriesResponse_BitbucketRepository_SCAN_STATE_ENABLED {
+				notEnabled++
+				continue
+			}
+			enabled = append(enabled, bitbucketRepository{
+				uuid:     repository.GetRepositoryUuid(),
+				fullName: repository.GetFullName(),
+			})
+		}
+		return res.GetPagination().GetNextPageToken(), nil
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return enabled, notEnabled, nil
+}
+
+func bitbucketRepositoryNotAccessibleError(name string, link sourcelink.Link) error {
 	cause := fmt.Errorf(
 		"project sync: repository %q is not accessible through workspace link %q",
 		name,
-		linkID,
+		link.ID,
 	)
 	return newProjectError(
 		usefulerror.ErrNotFound,
 		"Bitbucket repository not accessible",
-		fmt.Sprintf("Confirm %q is in the linked workspace, or retry with --repository-uuid.", name),
+		fmt.Sprintf("Confirm %q is in the workspace of %s, or retry with --repository-uuid.",
+			name, sourcelink.Describe(link.Account, link.ID)),
 		cause,
 	)
 }
@@ -193,19 +236,13 @@ func bitbucketRepositoryNotAccessibleError(name, linkID string) error {
 func syncBitbucketProjects(
 	ctx context.Context,
 	client bitbucketProjectSyncer,
-	linkID string,
-	repositoryUUIDs []string,
-	namesByUUID map[string]string,
-) (*bitbucketSyncResult, error) {
-	res, err := client.SyncBitbucketProjects(ctx, newBitbucketSyncRequest(linkID, repositoryUUIDs))
+	req bitbucketRequest,
+) ([]syncedBitbucketProject, error) {
+	res, err := client.SyncBitbucketProjects(ctx, newBitbucketSyncRequest(req.link.ID, req.uuids))
 	if err != nil {
 		return nil, fmt.Errorf("project sync: %w", err)
 	}
-	projects, err := translateBitbucketSyncResponse(res, repositoryUUIDs, namesByUUID)
-	if err != nil {
-		return nil, err
-	}
-	return &bitbucketSyncResult{linkID: linkID, projects: projects}, nil
+	return translateBitbucketSyncResponse(res, req)
 }
 
 func newBitbucketSyncRequest(linkID string, repositoryUUIDs []string) *controltowerv1.SyncBitbucketProjectsRequest {
@@ -223,9 +260,9 @@ func newBitbucketSyncRequest(linkID string, repositoryUUIDs []string) *controlto
 
 func translateBitbucketSyncResponse(
 	res *controltowerv1.SyncBitbucketProjectsResponse,
-	repositoryUUIDs []string,
-	namesByUUID map[string]string,
+	req bitbucketRequest,
 ) ([]syncedBitbucketProject, error) {
+	repositoryUUIDs := req.uuids
 	mappings := res.GetProjects()
 	if len(mappings) != len(repositoryUUIDs) {
 		return nil, fmt.Errorf(
@@ -265,53 +302,11 @@ func translateBitbucketSyncResponse(
 		seen[repositoryUUID] = struct{}{}
 		projects = append(projects, syncedBitbucketProject{
 			RepositoryUUID: repositoryUUID,
-			RepositoryName: namesByUUID[repositoryUUID],
+			RepositoryName: req.names[repositoryUUID],
 			ProjectID:      mapping.GetProjectId(),
+			Account:        req.link.Account,
+			LinkID:         req.link.ID,
 		})
 	}
 	return projects, nil
-}
-
-func (r *bitbucketSyncResult) RenderJSON() ([]byte, error) {
-	projects := r.projects
-	if projects == nil {
-		projects = []syncedBitbucketProject{}
-	}
-	return json.MarshalIndent(bitbucketSyncResultJSON{LinkID: r.linkID, Projects: projects}, "", "  ")
-}
-
-func (r *bitbucketSyncResult) RenderPlain() string {
-	var output strings.Builder
-	output.WriteString("repository_name\trepository_uuid\tproject_id")
-	for _, project := range r.projects {
-		output.WriteByte('\n')
-		output.WriteString(strings.Join(syncedBitbucketProjectCells(project), "\t"))
-	}
-	return output.String()
-}
-
-func (r *bitbucketSyncResult) RenderTable() string {
-	rows := make([][]string, 0, len(r.projects))
-	for _, project := range r.projects {
-		rows = append(rows, syncedBitbucketProjectCells(project))
-	}
-	return table.New().
-		Title("Synced projects").
-		Headers("REPOSITORY", "REPOSITORY UUID", "PROJECT ID").
-		Rows(rows...).
-		Footer(fmt.Sprintf("%d %s synced through link %s",
-			len(rows), pluralRepositories(len(rows)), r.linkID)).
-		Render()
-}
-
-func syncedBitbucketProjectCells(project syncedBitbucketProject) []string {
-	name := project.RepositoryName
-	if name == "" {
-		name = unknownRepositoryName
-	}
-	return []string{
-		name,
-		project.RepositoryUUID,
-		project.ProjectID,
-	}
 }

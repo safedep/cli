@@ -5,6 +5,7 @@ import (
 
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
+	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 )
 
@@ -42,4 +43,15 @@ type allowlistUpdater interface {
 
 func newIntegrationClient(conn grpc.ClientConnInterface) controltowerv1grpc.IntegrationServiceClient {
 	return controltowerv1grpc.NewIntegrationServiceClient(conn)
+}
+
+// addLinkFlags wires the workspace selection every link-scoped command
+// takes. --link-id is hidden: people name a workspace by its slug, and the
+// flag stays for scripts that pass the internal link ID.
+func addLinkFlags(cmd *cobra.Command, account, linkID *string, verb string) {
+	f := cmd.Flags()
+	f.StringVar(account, "account", "",
+		"Bitbucket workspace slug of the link "+verb+"; needed when the tenant has more than one linked workspace")
+	f.StringVar(linkID, "link-id", "", "Bitbucket workspace link ID "+verb)
+	f.Lookup("link-id").Hidden = true
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/bitbucketlink"
 	"github.com/safedep/cli/internal/paging"
+	"github.com/safedep/cli/internal/sourcelink"
 	"github.com/safedep/cli/internal/tui"
 )
 
@@ -23,7 +24,8 @@ const (
 )
 
 type repositoryListInput struct {
-	LinkID string
+	Account string
+	LinkID  string
 }
 
 type listedRepository struct {
@@ -36,12 +38,14 @@ type listedRepository struct {
 
 type repositoryListResult struct {
 	linkID       string
+	account      string
 	scanScope    string
 	repositories []listedRepository
 }
 
 type repositoryListResultJSON struct {
 	LinkID       string             `json:"link_id"`
+	Account      string             `json:"account,omitempty"`
 	ScanScope    string             `json:"scan_scope"`
 	Repositories []listedRepository `json:"repositories"`
 }
@@ -69,8 +73,7 @@ func repositoryListCmd(a *app.App) *cobra.Command {
 			return a.Output.Print(result)
 		},
 	}
-	cmd.Flags().StringVar(&in.LinkID, "link-id", "",
-		"Bitbucket workspace link to list through; resolved automatically when the tenant has exactly one link")
+	addLinkFlags(cmd, &in.Account, &in.LinkID, "to list")
 	return cmd
 }
 
@@ -82,17 +85,14 @@ func runRepositoryList(
 ) (*repositoryListResult, error) {
 	const label = "integration bitbucket repository list"
 
-	linkID := in.LinkID
-	if linkID == "" {
-		resolved, err := bitbucketlink.ResolveSingle(ctx, links, label)
-		if err != nil {
-			return nil, err
-		}
-		linkID = resolved
+	link, err := bitbucketlink.Resolve(ctx, links, in.Account, in.LinkID, label)
+	if err != nil {
+		return nil, err
 	}
 
-	result := &repositoryListResult{linkID: linkID}
-	err := paging.Paginate(ctx, label, func(ctx context.Context, pageToken string) (string, error) {
+	linkID := link.ID
+	result := &repositoryListResult{linkID: linkID, account: link.WorkspaceSlug}
+	err = paging.Paginate(ctx, label, func(ctx context.Context, pageToken string) (string, error) {
 		req := &controltowerv1.ListBitbucketRepositoriesRequest{}
 		req.SetLinkId(linkID)
 		req.SetPagination(paging.NewPaginationRequest(bitbucketlink.PageSize, pageToken))
@@ -129,6 +129,7 @@ func (r *repositoryListResult) RenderJSON() ([]byte, error) {
 	}
 	return json.MarshalIndent(repositoryListResultJSON{
 		LinkID:       r.linkID,
+		Account:      r.account,
 		ScanScope:    r.scanScope,
 		Repositories: repositories,
 	}, "", "  ")
@@ -153,8 +154,8 @@ func (r *repositoryListResult) RenderTable() string {
 		Title("Bitbucket repositories").
 		Headers("FULL NAME", "REPOSITORY UUID", "VISIBILITY", "DEFAULT BRANCH", "SCAN STATE").
 		Rows(rows...).
-		Footer(fmt.Sprintf("%d %s in link %s, scan scope %s",
-			len(rows), pluralRepositories(len(rows)), r.linkID, r.scanScope)).
+		Footer(fmt.Sprintf("%d %s in %s, scan scope %s",
+			len(rows), pluralRepositories(len(rows)), sourcelink.Describe(r.account, r.linkID), r.scanScope)).
 		Render()
 }
 

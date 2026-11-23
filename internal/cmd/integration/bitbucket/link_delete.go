@@ -20,7 +20,8 @@ const linkDeleteFollowUp = "The SafeDep Forge app stays installed in the workspa
 	"To link again, run `safedep integration bitbucket link create` and redeem the code."
 
 type linkDeleteInput struct {
-	LinkID string
+	Account string
+	LinkID  string
 }
 
 type linkDeleteResult struct {
@@ -35,9 +36,9 @@ func linkDeleteCmd(a *app.App) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Unlink a Bitbucket workspace from the tenant",
 		Long: "Unlink a Bitbucket workspace from the active tenant. SafeDep revokes the link " +
-			"and discards the stored app token. With --link-id, a repeat delete succeeds. " +
-			"Without it, the command needs exactly one active link, so a repeat delete of the " +
-			"tenant's only link fails with not found. The SafeDep Forge app stays installed in the workspace until a " +
+			"and discards the stored app token. --account names the workspace by its slug. Without it, " +
+			"the command needs exactly one active link. A repeat delete fails with not found, because " +
+			"the link is no longer active. The SafeDep Forge app stays installed in the workspace until a " +
 			"workspace admin uninstalls it in Bitbucket.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, err := a.ControlPlane()
@@ -55,8 +56,7 @@ func linkDeleteCmd(a *app.App) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&in.LinkID, "link-id", "",
-		"Bitbucket workspace link to delete; resolved automatically when the tenant has exactly one link")
+	addLinkFlags(cmd, &in.Account, &in.LinkID, "to delete")
 	return cmd
 }
 
@@ -68,19 +68,11 @@ func runLinkDelete(
 ) (*linkDeleteResult, error) {
 	const label = "integration bitbucket link delete"
 
-	result := &linkDeleteResult{linkID: in.LinkID}
-	if result.linkID == "" {
-		listed, err := bitbucketlink.List(ctx, links, label)
-		if err != nil {
-			return nil, err
-		}
-		linkID, err := bitbucketlink.PickSingle(listed, label)
-		if err != nil {
-			return nil, err
-		}
-		result.linkID = linkID
-		result.workspace = workspaceLabel(listed[0])
+	link, err := bitbucketlink.Resolve(ctx, links, in.Account, in.LinkID, label)
+	if err != nil {
+		return nil, err
 	}
+	result := &linkDeleteResult{linkID: link.ID, workspace: workspaceLabel(link)}
 
 	req := &controltowerv1.DeleteBitbucketWorkspaceLinkRequest{}
 	req.SetLinkId(result.linkID)
@@ -97,6 +89,9 @@ func (r *linkDeleteResult) message() string {
 	return fmt.Sprintf("Unlinked Bitbucket workspace %s (link %s)", r.workspace, r.linkID)
 }
 
+// workspaceLabel prefers the slug and falls back to the immutable UUID,
+// because the server leaves the slug empty until its first sync. A link that
+// only --link-id named carries neither, and the message names the link.
 func workspaceLabel(link bitbucketlink.Link) string {
 	if link.WorkspaceSlug != "" {
 		return link.WorkspaceSlug

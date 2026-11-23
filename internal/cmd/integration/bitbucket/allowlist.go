@@ -12,6 +12,7 @@ import (
 
 	"github.com/safedep/cli/internal/app"
 	"github.com/safedep/cli/internal/bitbucketlink"
+	"github.com/safedep/cli/internal/sourcelink"
 	"github.com/safedep/cli/internal/tui"
 )
 
@@ -20,6 +21,7 @@ import (
 const maxAllowlistItems = 500
 
 type allowlistUpdateInput struct {
+	Account string
 	LinkID  string
 	Scope   string
 	Enable  []string
@@ -28,12 +30,14 @@ type allowlistUpdateInput struct {
 
 type allowlistUpdateResult struct {
 	linkID         string
+	account        string
 	scanScope      string
 	allowlistCount uint32
 }
 
 type allowlistUpdateResultJSON struct {
 	LinkID                     string `json:"link_id"`
+	Account                    string `json:"account,omitempty"`
 	ScanScope                  string `json:"scan_scope"`
 	AllowlistedRepositoryCount uint32 `json:"allowlisted_repository_count"`
 }
@@ -65,8 +69,7 @@ func allowlistUpdateCmd(a *app.App) *cobra.Command {
 	}
 
 	f := cmd.Flags()
-	f.StringVar(&in.LinkID, "link-id", "",
-		"Bitbucket workspace link to update; resolved automatically when the tenant has exactly one link")
+	addLinkFlags(cmd, &in.Account, &in.LinkID, "to update")
 	f.StringVar(&in.Scope, "scope", "",
 		"scan scope after the update: all or selected (omit to keep the stored scope)")
 	f.StringSliceVar(&in.Enable, "enable", nil,
@@ -98,17 +101,13 @@ func runAllowlistUpdate(
 		return nil, err
 	}
 
-	linkID := in.LinkID
-	if linkID == "" {
-		resolved, err := bitbucketlink.ResolveSingle(ctx, links, label)
-		if err != nil {
-			return nil, err
-		}
-		linkID = resolved
+	link, err := bitbucketlink.Resolve(ctx, links, in.Account, in.LinkID, label)
+	if err != nil {
+		return nil, err
 	}
 
 	req := &controltowerv1.UpdateBitbucketRepositoryAllowlistRequest{}
-	req.SetLinkId(linkID)
+	req.SetLinkId(link.ID)
 	req.SetScanScope(scope)
 	req.SetEnable(in.Enable)
 	req.SetDisable(in.Disable)
@@ -118,7 +117,8 @@ func runAllowlistUpdate(
 		return nil, fmt.Errorf("%s: %w", label, err)
 	}
 	return &allowlistUpdateResult{
-		linkID:         linkID,
+		linkID:         link.ID,
+		account:        link.WorkspaceSlug,
 		scanScope:      tui.EnumToken(res.GetScanScope().String(), scanScopePrefix),
 		allowlistCount: res.GetAllowlistedRepositoryCount(),
 	}, nil
@@ -224,27 +224,29 @@ func validateUniqueUUIDs(values []string, flag string) error {
 func (r *allowlistUpdateResult) RenderJSON() ([]byte, error) {
 	return json.MarshalIndent(allowlistUpdateResultJSON{
 		LinkID:                     r.linkID,
+		Account:                    r.account,
 		ScanScope:                  r.scanScope,
 		AllowlistedRepositoryCount: r.allowlistCount,
 	}, "", "  ")
 }
 
 func (r *allowlistUpdateResult) RenderPlain() string {
-	return "link_id\tscan_scope\tallowlisted_repository_count\n" + strings.Join(r.cells(), "\t")
+	account := r.account
+	if account == "" {
+		account = "-"
+	}
+	return "link_id\tscan_scope\tallowlisted_repository_count\taccount\n" +
+		strings.Join([]string{r.linkID, r.scanScope, r.count(), account}, "\t")
 }
 
 func (r *allowlistUpdateResult) RenderTable() string {
 	return table.New().
 		Title("Bitbucket scan allowlist").
-		Headers("LINK ID", "SCAN SCOPE", "ALLOWLISTED REPOSITORIES").
-		Rows(r.cells()).
+		Headers("ACCOUNT", "SCAN SCOPE", "ALLOWLISTED REPOSITORIES").
+		Rows([]string{sourcelink.Label(r.account, r.linkID), r.scanScope, r.count()}).
 		Render()
 }
 
-func (r *allowlistUpdateResult) cells() []string {
-	return []string{
-		r.linkID,
-		r.scanScope,
-		fmt.Sprintf("%d", r.allowlistCount),
-	}
+func (r *allowlistUpdateResult) count() string {
+	return fmt.Sprintf("%d", r.allowlistCount)
 }

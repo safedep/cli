@@ -53,6 +53,10 @@ form that pmg and vet store:
 | Go | `pkg:golang/github.com/BurntSushi/toml` | `github.com/BurntSushi/toml` |
 | Composer | `pkg:composer/laravel/framework` | `laravel/framework` |
 | PyPI | `pkg:pypi/Requests` | `Requests` |
+| GitHub Actions | `pkg:githubactions/actions/checkout` | `actions/checkout` |
+| GitHub repository | `pkg:github/safedep/vet` | `safedep/vet` |
+
+`pkg:github` names a GitHub repository. Use `pkg:githubactions` for a GitHub Action.
 
 ## Columns
 

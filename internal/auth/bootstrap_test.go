@@ -64,11 +64,11 @@ type fakeAPIKeyServer struct {
 func (f *fakeAPIKeyServer) CreateApiKey(_ context.Context, req *controltowerv1.CreateApiKeyRequest,
 ) (*controltowerv1.CreateApiKeyResponse, error) {
 	f.creates++
-	return &controltowerv1.CreateApiKeyResponse{
-		Key:       "sk-new",
-		KeyId:     "key-new",
-		ExpiresAt: timestamppb.New(f.expiresAt),
-	}, nil
+	resp := &controltowerv1.CreateApiKeyResponse{Key: "sk-new", KeyId: "key-new"}
+	if !f.expiresAt.IsZero() {
+		resp.ExpiresAt = timestamppb.New(f.expiresAt)
+	}
+	return resp, nil
 }
 
 func newBootstrapTestServer(t *testing.T, bts bootstrapTestServer) ControlPlaneConnFunc {
@@ -208,6 +208,7 @@ func TestPostOAuthBootstrap_DecideAPIKey(t *testing.T) {
 	tests := []struct {
 		name        string
 		decision    APIKeyDecision
+		noExpiry    bool
 		wantCreates int
 		wantKey     string
 	}{
@@ -222,11 +223,23 @@ func TestPostOAuthBootstrap_DecideAPIKey(t *testing.T) {
 			wantCreates: 1,
 			wantKey:     "sk-new",
 		},
+		{
+			// A missing expiry must not become 1970-01-01, which every later
+			// login would read as expired.
+			name:        "a response with no expiry records no expiry",
+			decision:    APIKeyDecision{Reason: "no API key is stored"},
+			noExpiry:    true,
+			wantCreates: 1,
+			wantKey:     "sk-new",
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			apiKeys := &fakeAPIKeyServer{expiresAt: expiresAt}
+			if tc.noExpiry {
+				apiKeys.expiresAt = time.Time{}
+			}
 			connFor := newBootstrapTestServer(t, bootstrapTestServer{
 				user:       &fakeUserServer{responses: [][]string{{"old.safedep.io", "new.safedep.io"}}},
 				onboarding: &fakeOnboardingServer{},
@@ -254,7 +267,8 @@ func TestPostOAuthBootstrap_DecideAPIKey(t *testing.T) {
 			assert.Equal(t, tc.wantKey, res.APIKey)
 			if tc.wantKey != "" {
 				assert.Equal(t, "key-new", res.APIKeyID)
-				assert.True(t, expiresAt.Equal(res.APIKeyExpiresAt))
+				assert.True(t, apiKeys.expiresAt.Equal(res.APIKeyExpiresAt),
+					"expiry %v, want %v", res.APIKeyExpiresAt, apiKeys.expiresAt)
 			}
 		})
 	}

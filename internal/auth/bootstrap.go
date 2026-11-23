@@ -112,7 +112,11 @@ func PostOAuthBootstrap(ctx context.Context, in BootstrapInput) (*BootstrapResul
 	}
 	res.APIKey = key.GetKey()
 	res.APIKeyID = key.GetKeyId()
-	res.APIKeyExpiresAt = key.GetExpiresAt().AsTime()
+	// AsTime on a missing timestamp returns 1970-01-01. Saved as the expiry,
+	// it would make every later login replace a valid key.
+	if key.GetExpiresAt() != nil {
+		res.APIKeyExpiresAt = key.GetExpiresAt().AsTime()
+	}
 	return res, nil
 }
 

@@ -201,37 +201,12 @@ func apiKeyPlan(flags loginFlags, opts []cloud.KeychainOption,
 		return true, nil
 	}
 	return true, func(ctx context.Context, tenant string) cliauth.APIKeyDecision {
-		stored, err := storedAPIKey(opts)
+		stored, err := cliauth.StoredAPIKey(opts)
 		if err != nil {
 			return cliauth.APIKeyDecision{Reason: fmt.Sprintf("the stored API key cannot be read: %v", err)}
 		}
 		return cliauth.DecideStoredAPIKey(ctx, stored, tenant, time.Now(), cliauth.VerifyAPIKey)
 	}
-}
-
-// storedAPIKey returns the API key credentials of the profile in the
-// keychain, or nil when there are none. It reads the keychain alone: pmg and
-// vet read the key from there, so an API key in the environment must not
-// stop login from replacing an expired keychain key.
-func storedAPIKey(opts []cloud.KeychainOption) (*cloud.Credentials, error) {
-	resolver, err := cloud.NewKeychainCredentialResolver(cloud.CredentialTypeAPIKey, opts...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if err := resolver.Close(); err != nil {
-			log.Warnf("auth login: close keychain resolver: %v", err)
-		}
-	}()
-
-	creds, err := resolver.Resolve()
-	if errors.Is(err, cloud.ErrMissingCredentials) && !errors.Is(err, cloud.ErrIncompleteCredentials) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return creds, nil
 }
 
 // expiryPhrase reports the expiry of a key for the login message.

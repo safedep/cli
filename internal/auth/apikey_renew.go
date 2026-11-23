@@ -2,10 +2,12 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/safedep/dry/cloud"
+	"github.com/safedep/dry/log"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -116,4 +118,29 @@ func DecideStoredAPIKey(ctx context.Context, stored *cloud.Credentials, tenant s
 
 func formatDay(t time.Time) string {
 	return t.UTC().Format("2006-01-02")
+}
+
+// StoredAPIKey returns the API key credentials of the profile in the
+// keychain, or nil when there are none. It reads the keychain alone: pmg and
+// vet read the key from there, so an API key in the environment must not
+// stop login from replacing an expired keychain key.
+func StoredAPIKey(opts []cloud.KeychainOption) (*cloud.Credentials, error) {
+	resolver, err := cloud.NewKeychainCredentialResolver(cloud.CredentialTypeAPIKey, opts...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err := resolver.Close(); err != nil {
+			log.Warnf("auth: close keychain resolver: %v", err)
+		}
+	}()
+
+	creds, err := resolver.Resolve()
+	if errors.Is(err, cloud.ErrMissingCredentials) && !errors.Is(err, cloud.ErrIncompleteCredentials) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return creds, nil
 }

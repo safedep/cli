@@ -59,7 +59,7 @@ func Describe(account, linkID string) string {
 	if account != "" {
 		return "account " + account
 	}
-	return "link " + linkID
+	return Label(account, linkID)
 }
 
 // Pick returns the one link the selection names. A link ID wins, and an
@@ -77,7 +77,7 @@ func Pick(links []Link, sel Selection) (Link, error) {
 	if sel.Account != "" {
 		matches := ofAccount(links, sel.Account)
 		if len(matches) == 0 {
-			return Link{}, notLinkedError(sel.Account, sel.Source, links)
+			return Link{}, notLinkedError(sel.Account, sel.Source, links, "")
 		}
 		return pickMatch(sel.Account, matches)
 	}
@@ -133,7 +133,25 @@ func pickOwner(links []Link, source Source, owner string) (Link, error) {
 	if len(links) == 1 {
 		return links[0], nil
 	}
-	return Link{}, notLinkedError(owner, source, links)
+	return Link{}, notLinkedError(owner, source, links, sourceFallbackHint(links))
+}
+
+// sourceFallbackHint names the --source values under which the owner's name
+// resolves. Under one source, the only link of that source serves any owner.
+func sourceFallbackHint(links []Link) string {
+	if !spansSources(links) {
+		return ""
+	}
+	var hints []string
+	for _, source := range []Source{GitHub, Bitbucket} {
+		if len(ofSource(links, source)) == 1 {
+			hints = append(hints, fmt.Sprintf("--source %s to use the only %s link", source, sourceTitle(source)))
+		}
+	}
+	if len(hints) == 0 {
+		return ""
+	}
+	return " Or retry with " + strings.Join(hints, ", or ") + "."
 }
 
 func pickByID(links []Link, sel Selection) (Link, error) {
@@ -204,7 +222,7 @@ func noLinkError(source Source) error {
 	}
 }
 
-func notLinkedError(account string, source Source, links []Link) error {
+func notLinkedError(account string, source Source, links []Link, hint string) error {
 	var addHelp string
 	switch source {
 	case GitHub:
@@ -219,7 +237,7 @@ func notLinkedError(account string, source Source, links []Link) error {
 	return usefulerror.NewUsefulError().
 		WithCode(usefulerror.ErrNotFound).
 		WithHumanError(fmt.Sprintf("No linked account named %q", account)).
-		WithHelp(fmt.Sprintf("Linked accounts: %s. %s", strings.Join(choices(links, false), ", "), addHelp)).
+		WithHelp(fmt.Sprintf("Linked accounts: %s. %s%s", strings.Join(choices(links, false), ", "), addHelp, hint)).
 		Wrap(fmt.Errorf("no %s link of the active tenant has account %q", sourceNoun(source), account))
 }
 
@@ -232,6 +250,14 @@ func ambiguousError(links []Link) error {
 }
 
 func conflictError(link Link, account string) error {
+	if link.Account == "" {
+		return usefulerror.NewUsefulError().
+			WithCode(usefulerror.ErrBadRequest).
+			WithHumanError("--account and --link-id name different links").
+			WithHelp(fmt.Sprintf("Link %s has no account name. Drop --account and retry with --link-id %s alone.",
+				link.ID, link.ID)).
+			Wrap(fmt.Errorf("link %q has no account name, not %q", link.ID, account))
+	}
 	return usefulerror.NewUsefulError().
 		WithCode(usefulerror.ErrBadRequest).
 		WithHumanError("--account and --link-id name different links").

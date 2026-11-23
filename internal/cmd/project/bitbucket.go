@@ -29,9 +29,24 @@ type bitbucketProjectSyncer interface {
 	) (*controltowerv1.SyncBitbucketProjectsResponse, error)
 }
 
+// bitbucketRepository keeps the scan state because SyncBitbucketProjects
+// refuses a repository that SafeDep does not scan, and the refusal fails the
+// whole request.
 type bitbucketRepository struct {
 	uuid     string
 	fullName string
+	enabled  bool
+}
+
+func newBitbucketRepository(
+	repository *controltowerv1.ListBitbucketRepositoriesResponse_BitbucketRepository,
+) bitbucketRepository {
+	return bitbucketRepository{
+		uuid:     repository.GetRepositoryUuid(),
+		fullName: repository.GetFullName(),
+		enabled: repository.GetScanState() ==
+			controltowerv1.ListBitbucketRepositoriesResponse_BitbucketRepository_SCAN_STATE_ENABLED,
+	}
 }
 
 // bitbucketRequest is one SyncBitbucketProjects call: the link, the
@@ -42,8 +57,9 @@ type bitbucketRequest struct {
 	names map[string]string
 }
 
-// prepareBitbucketRequest resolves the plan's names through its link. It
-// sends no write, so a run resolves every plan before it syncs any.
+// prepareBitbucketRequest resolves the plan's names through its link and
+// refuses a name whose repository SafeDep does not scan. It sends no write,
+// so a run checks every plan before it syncs any.
 func prepareBitbucketRequest(
 	ctx context.Context,
 	repositories bitbucketRepositoryLister,
@@ -66,6 +82,9 @@ func prepareBitbucketRequest(
 		seen[repositoryUUID] = struct{}{}
 	}
 	for _, repository := range resolved {
+		if !repository.enabled {
+			return bitbucketRequest{}, bitbucketRepositoryNotEnabledError(repository, plan.link)
+		}
 		if _, duplicate := seen[repository.uuid]; duplicate {
 			cause := fmt.Errorf(
 				"duplicate repository UUID %s after name resolution: %q",
@@ -151,10 +170,7 @@ func collectBitbucketRepositoryMatches(
 		if _, ok := requested[key]; !ok {
 			continue
 		}
-		matches[key] = bitbucketRepository{
-			uuid:     repository.GetRepositoryUuid(),
-			fullName: repository.GetFullName(),
-		}
+		matches[key] = newBitbucketRepository(repository)
 	}
 	return nil
 }
@@ -201,14 +217,12 @@ func listEnabledBitbucketRepositories(
 				continue
 			}
 			seen[repository.GetRepositoryUuid()] = struct{}{}
-			if repository.GetScanState() != controltowerv1.ListBitbucketRepositoriesResponse_BitbucketRepository_SCAN_STATE_ENABLED {
+			listed := newBitbucketRepository(repository)
+			if !listed.enabled {
 				notEnabled++
 				continue
 			}
-			enabled = append(enabled, bitbucketRepository{
-				uuid:     repository.GetRepositoryUuid(),
-				fullName: repository.GetFullName(),
-			})
+			enabled = append(enabled, listed)
 		}
 		return res.GetPagination().GetNextPageToken(), nil
 	})
@@ -231,6 +245,25 @@ func bitbucketRepositoryNotAccessibleError(name string, link sourcelink.Link) er
 			name, sourcelink.Describe(link.Account, link.ID)),
 		cause,
 	)
+}
+
+func bitbucketRepositoryNotEnabledError(repository bitbucketRepository, link sourcelink.Link) error {
+	return newProjectError(
+		usefulerror.ErrBadRequest,
+		fmt.Sprintf("SafeDep does not scan Bitbucket repository %q", repository.fullName),
+		fmt.Sprintf("Enable it with `%s --enable %s`, then retry.",
+			allowlistUpdateCommand(link), repository.uuid),
+		fmt.Errorf("project sync: repository %q has scan state disabled", repository.fullName),
+	)
+}
+
+// allowlistUpdateCommand is the command that enables repositories of the
+// link's workspace.
+func allowlistUpdateCommand(link sourcelink.Link) string {
+	if link.Account != "" {
+		return "safedep integration bitbucket allowlist update --account " + link.Account
+	}
+	return "safedep integration bitbucket allowlist update --link-id " + link.ID
 }
 
 func syncBitbucketProjects(

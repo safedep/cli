@@ -82,7 +82,7 @@ func syncInBatches[T, P any](
 		deps.report("Syncing repositories %d to %d of %d", len(synced)+1, len(synced)+len(batch), len(items))
 		projects, err := sync(ctx, batch)
 		if err != nil {
-			return nil, syncStoppedError(err, len(synced), len(items))
+			return nil, batchStoppedError(err, len(synced), len(items))
 		}
 		synced = append(synced, projects...)
 	}
@@ -91,10 +91,7 @@ func syncInBatches[T, P any](
 
 func noEnabledRepositoryError(link sourcelink.Link, notEnabled int) error {
 	account := sourcelink.Describe(link.Account, link.ID)
-	command := "safedep integration bitbucket allowlist update"
-	if link.Account != "" {
-		command += " --account " + link.Account
-	}
+	command := allowlistUpdateCommand(link)
 	return newProjectError(
 		usefulerror.ErrNotFound,
 		fmt.Sprintf("No repository of %s has scan state enabled", account),
@@ -110,4 +107,10 @@ func pluralRepositoriesAre(n int) string {
 		return "repository is"
 	}
 	return "repositories are"
+}
+
+func (d syncDeps) report(format string, args ...any) {
+	if d.progress != nil {
+		d.progress(format, args...)
+	}
 }

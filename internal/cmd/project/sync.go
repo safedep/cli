@@ -13,15 +13,9 @@ import (
 	"github.com/safedep/cli/internal/sourcelink"
 )
 
-const (
-	// SyncGitHubInstallationProjects accepts between one and one hundred
-	// repository selections per request.
-	maxSyncRepositories = 100
-
-	// unknownRepositoryName marks a project materialized from a repository ID
-	// the caller supplied directly, so the CLI never resolved its name.
-	unknownRepositoryName = "-"
-)
+// SyncGitHubInstallationProjects accepts between one and one hundred
+// repository selections per request.
+const maxSyncRepositories = 100
 
 type syncInput struct {
 	Source          string
@@ -79,11 +73,11 @@ func syncCmd(a *app.App) *cobra.Command {
 	f.StringVar(&in.Source, "source", "",
 		"repository source: github or bitbucket (inferred from the account of each name, or from --repository-id and --repository-uuid, when omitted)")
 	f.StringVar(&in.Account, "account", "",
-		"GitHub organization or user, or Bitbucket workspace, to sync through; needed with --all, and with "+
-			"--repository-id or --repository-uuid when the tenant has more than one link of that source")
+		"GitHub organization or user, or Bitbucket workspace, to sync through. Needed with --all, and with "+
+			"--repository-id or --repository-uuid when the tenant has more than one link of that source.")
 	f.BoolVar(&in.All, "all", false,
-		"sync every repository the account can read and create a project for every repository not yet synced; "+
-			"on Bitbucket, only repositories with scan state enabled")
+		"sync every repository the account can read and create a project for every repository not yet synced. "+
+			"On Bitbucket, only repositories with scan state enabled.")
 	// --link-id is hidden: people name a link by its account, and the flag
 	// stays for scripts that pass the internal link ID.
 	f.StringVar(&in.LinkID, "link-id", "", "source link ID to sync through")

@@ -46,7 +46,9 @@ the first request, so a name that no link can reach syncs nothing.
   of the allowed sources, that link serves the name. This covers a link whose
   account name is missing, or stale after a rename.
 - When no link has the owner's account and the tenant has more links, the
-  command fails and lists the linked accounts.
+  command fails and lists the linked accounts. When the links span both
+  sources, it also names the `--source` value under which one link serves
+  the name.
 - When the owner names a GitHub account and a Bitbucket workspace, the
   command fails and asks for `--source`.
 - One invocation serves one source. Names whose owners resolve to GitHub and
@@ -54,7 +56,9 @@ the first request, so a name that no link can reach syncs nothing.
 
 `--account` picks the link and every name resolves through it. You need it
 with `--all`, and with `--repository-id` or `--repository-uuid` when the
-tenant has more than one link of that source. Those selectors carry no owner.
+tenant has more than one link of that source. Those selectors carry no owner,
+so when you pass them, the names also resolve through the one link that the
+selection picks.
 
 `--link-id <id>` still selects a link by its internal ID. It is hidden from
 the help and stays for scripts. With `--link-id` and a known source, the
@@ -87,10 +91,12 @@ it left out. When no repository is enabled, the command fails and points to
 `safedep integration bitbucket allowlist update`.
 
 When a request fails after earlier requests wrote projects, the command stops,
-exits non-zero, and reports how many repositories it synced. The error shows
-the server message. When the failure is temporary (unavailable, timeout or
-rate limit), it says to rerun the same command. A rerun is safe because the
-sync is idempotent.
+exits non-zero, and reports that projects exist for at least the first N
+repositories. The failed request can be written too, for example when the
+server commits it and then times out. The error shows the server message.
+When the failure is temporary (unavailable, timeout or rate limit), it says to
+rerun the same command. A rerun is safe because the sync is idempotent. An
+expired session shows the login guidance instead.
 
 ## Flags
 
@@ -202,11 +208,15 @@ for Bitbucket. Both immutable selectors skip name resolution.
 
 After resolution, each request carries the immutable selector values first,
 followed by resolved names in argument order. A name that resolves to an
-already selected repository is rejected locally.
+already selected repository is rejected locally. A Bitbucket name whose scan
+state is not `enabled` fails before any write, because the server refuses it.
+The error gives the `safedep integration bitbucket allowlist update` command
+that enables it.
 
 Control Tower validates every repository against the link before it writes, so
-a failed request materializes no projects. Earlier requests of the same run
-keep their projects. Installation, repository access, and suspension failures
+a refused request materializes no projects. With names of several accounts,
+the CLI sends one request per account. When a later request fails, the error
+names the accounts whose projects exist and the account whose request failed. Installation, repository access, and suspension failures
 preserve their gRPC status details internally. The CLI prints a concise
 message, a stable error code, and recovery guidance instead of raw nested gRPC
 text.

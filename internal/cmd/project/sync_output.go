@@ -9,6 +9,7 @@ import (
 	"github.com/safedep/dry/tui/table"
 
 	"github.com/safedep/cli/internal/sourcelink"
+	"github.com/safedep/cli/internal/tui"
 )
 
 // syncedProject carries its own JSON tags because the wire shape and the
@@ -73,10 +74,10 @@ func (r *syncResult) RenderPlain() string {
 	rows := make([][]string, 0, len(r.projects))
 	for _, project := range r.projects {
 		rows = append(rows, []string{
-			repositoryNameCell(project.RepositoryName),
+			orEmptyCell(project.RepositoryName),
 			strconv.FormatInt(project.RepositoryID, 10),
 			project.ProjectID,
-			plainAccountCell(project.Account),
+			orEmptyCell(project.Account),
 		})
 	}
 	return plainRows("repository_name\trepository_id\tproject_id\taccount", rows)
@@ -86,7 +87,7 @@ func (r *syncResult) RenderTable() string {
 	rows := make([][]string, 0, len(r.projects))
 	for _, project := range r.projects {
 		rows = append(rows, []string{
-			repositoryNameCell(project.RepositoryName),
+			orEmptyCell(project.RepositoryName),
 			strconv.FormatInt(project.RepositoryID, 10),
 			project.ProjectID,
 			sourcelink.Label(project.Account, project.LinkID),
@@ -108,10 +109,10 @@ func (r *bitbucketSyncResult) RenderPlain() string {
 	rows := make([][]string, 0, len(r.projects))
 	for _, project := range r.projects {
 		rows = append(rows, []string{
-			repositoryNameCell(project.RepositoryName),
+			orEmptyCell(project.RepositoryName),
 			project.RepositoryUUID,
 			project.ProjectID,
-			plainAccountCell(project.Account),
+			orEmptyCell(project.Account),
 		})
 	}
 	return plainRows("repository_name\trepository_uuid\tproject_id\taccount", rows)
@@ -121,7 +122,7 @@ func (r *bitbucketSyncResult) RenderTable() string {
 	rows := make([][]string, 0, len(r.projects))
 	for _, project := range r.projects {
 		rows = append(rows, []string{
-			repositoryNameCell(project.RepositoryName),
+			orEmptyCell(project.RepositoryName),
 			project.RepositoryUUID,
 			project.ProjectID,
 			sourcelink.Label(project.Account, project.LinkID),
@@ -147,22 +148,13 @@ func plainRows(header string, rows [][]string) string {
 	return output.String()
 }
 
-func repositoryNameCell(name string) string {
-	if name == "" {
-		return unknownRepositoryName
+// orEmptyCell fills the name of a repository selected by ID or UUID, which
+// the CLI never resolved, and the account of a link without an account name.
+func orEmptyCell(value string) string {
+	if value == "" {
+		return tui.EmptyCell
 	}
-	return name
-}
-
-// unknownAccount marks a project synced through a link that has no account
-// name, in plain output where a pipeline expects a value in every column.
-const unknownAccount = "-"
-
-func plainAccountCell(account string) string {
-	if account == "" {
-		return unknownAccount
-	}
-	return account
+	return value
 }
 
 func syncFooter(synced int, links []sourcelink.Link, all bool, notEnabled int) string {

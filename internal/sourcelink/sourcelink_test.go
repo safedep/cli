@@ -83,6 +83,11 @@ func TestPick(t *testing.T) {
 			wantHelp: []string{"Drop --link-id and retry with --account acme."},
 		},
 		{
+			name: "a link ID without an account name and an --account conflict", links: []Link{ghNoName},
+			sel: Selection{LinkID: "gh-3", Account: "acme"}, wantCode: usefulerror.ErrBadRequest,
+			wantHelp: []string{"Link gh-3 has no account name. Drop --account and retry with --link-id gh-3 alone."},
+		},
+		{
 			name: "an unknown link ID", links: []Link{ghSafedep},
 			sel: Selection{LinkID: "missing"}, wantCode: usefulerror.ErrNotFound,
 		},
@@ -154,6 +159,12 @@ func TestGroupByOwner(t *testing.T) {
 			wantErr: `no GitHub or Bitbucket link of the active tenant has account "nope"`,
 		},
 		{
+			name:    "an unknown owner across both sources points to the one-link source",
+			links:   []Link{ghSafedep, ghAcme, bbFoo},
+			names:   []string{"nope/b"},
+			wantErr: "Or retry with --source bitbucket to use the only Bitbucket link.",
+		},
+		{
 			name:  "an account serves every name",
 			links: []Link{ghSafedep, ghAcme},
 			sel:   Selection{Account: "acme"},
@@ -173,7 +184,10 @@ func TestGroupByOwner(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := GroupByOwner(tc.links, tc.sel, tc.names)
 			if tc.wantErr != "" {
-				require.ErrorContains(t, err, tc.wantErr)
+				require.Error(t, err)
+				usefulErr, ok := usefulerror.AsUsefulError(err)
+				require.True(t, ok)
+				assert.Contains(t, err.Error()+"\n"+usefulErr.Help(), tc.wantErr)
 				return
 			}
 			require.NoError(t, err)

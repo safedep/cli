@@ -51,7 +51,7 @@ func newIntegrationClient(conn grpc.ClientConnInterface) controltowerv1grpc.Inte
 func addLinkFlags(cmd *cobra.Command, account, linkID *string, verb string) {
 	f := cmd.Flags()
 	f.StringVar(account, "account", "",
-		"Bitbucket workspace slug of the link "+verb+"; needed when the tenant has more than one linked workspace")
+		"Bitbucket workspace slug of the link "+verb+". Needed when the tenant has more than one linked workspace.")
 	f.StringVar(linkID, "link-id", "", "Bitbucket workspace link ID "+verb)
 	f.Lookup("link-id").Hidden = true
 }

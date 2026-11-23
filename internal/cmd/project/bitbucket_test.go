@@ -58,13 +58,15 @@ func (f *fakeBitbucketRepositoryLister) ListBitbucketRepositories(
 }
 
 // fakeBitbucketProjectSyncer answers each request with one project per
-// requested repository, unless res fixes the response.
+// requested repository, unless res fixes the response. err fails every call,
+// or only call failOnCall when that is set.
 type fakeBitbucketProjectSyncer struct {
-	calls int
-	req   *controltowerv1.SyncBitbucketProjectsRequest
-	reqs  []*controltowerv1.SyncBitbucketProjectsRequest
-	res   *controltowerv1.SyncBitbucketProjectsResponse
-	err   error
+	calls      int
+	req        *controltowerv1.SyncBitbucketProjectsRequest
+	reqs       []*controltowerv1.SyncBitbucketProjectsRequest
+	res        *controltowerv1.SyncBitbucketProjectsResponse
+	err        error
+	failOnCall int
 }
 
 func (f *fakeBitbucketProjectSyncer) SyncBitbucketProjects(
@@ -75,7 +77,7 @@ func (f *fakeBitbucketProjectSyncer) SyncBitbucketProjects(
 	f.calls++
 	f.req = req
 	f.reqs = append(f.reqs, req)
-	if f.err != nil {
+	if f.err != nil && (f.failOnCall == 0 || f.failOnCall == f.calls) {
 		return nil, f.err
 	}
 	if f.res != nil {
@@ -130,6 +132,7 @@ func bitbucketListedRepository(uuid, fullName string) *controltowerv1.ListBitbuc
 	repository := &controltowerv1.ListBitbucketRepositoriesResponse_BitbucketRepository{}
 	repository.SetRepositoryUuid(uuid)
 	repository.SetFullName(fullName)
+	repository.SetScanState(controltowerv1.ListBitbucketRepositoriesResponse_BitbucketRepository_SCAN_STATE_ENABLED)
 	return repository
 }
 

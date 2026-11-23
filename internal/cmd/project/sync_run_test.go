@@ -28,6 +28,7 @@ func TestRunSync_PicksTheLink(t *testing.T) {
 		bitbucketErr  error
 		wantGitHub    [][]int64
 		wantGitHubVia []string
+		wantListedVia []string
 		wantBitbucket []string
 		wantErr       []string
 	}{
@@ -71,6 +72,7 @@ func TestRunSync_PicksTheLink(t *testing.T) {
 			github:        githubLinks{link("gh-1", "safedep"), link("gh-2", "acme")},
 			wantGitHub:    [][]int64{{12}, {13}},
 			wantGitHubVia: []string{"gh-1", "gh-2"},
+			wantListedVia: []string{"gh-1", "gh-2"},
 		},
 		{
 			name:    "an unknown owner lists the linked accounts",
@@ -207,6 +209,16 @@ func TestRunSync_PicksTheLink(t *testing.T) {
 			assert.Equal(t, tc.wantGitHubVia, via)
 			assert.Equal(t, tc.wantGitHub, ids)
 
+			if tc.wantListedVia != nil {
+				lister, ok := deps.githubRepositories.(*fakeGitHubRepositoryLister)
+				require.True(t, ok)
+				var listedVia []string
+				for _, req := range lister.requests {
+					listedVia = append(listedVia, req.GetLinkId())
+				}
+				assert.Equal(t, tc.wantListedVia, listedVia, "each name resolves through its own link")
+			}
+
 			var bitbucketVia []string
 			for _, req := range bitbucketSyncer.reqs {
 				bitbucketVia = append(bitbucketVia, req.GetLinkId())
@@ -240,7 +252,7 @@ func TestRunSync_ResolvesEveryNameBeforeTheFirstSync(t *testing.T) {
 	assert.Zero(t, githubSyncer.calls, "a bad name in the second group must stop the first group's sync")
 }
 
-func TestRunSync_StopsAtAFailedLinkAndReportsTheSyncedCount(t *testing.T) {
+func TestRunSync_StopsAtAFailedLinkAndNamesTheAccounts(t *testing.T) {
 	deps, githubSyncer, _ := newTwoSourceDeps(
 		[]*controltowerv1.ListGitHubAppInstallationLinksResponse_IntegrationWithAttributes{
 			link("gh-1", "safedep"), link("gh-2", "acme"),
@@ -248,19 +260,72 @@ func TestRunSync_StopsAtAFailedLinkAndReportsTheSyncedCount(t *testing.T) {
 	githubSyncer.err = status.Error(codes.FailedPrecondition, "installation suspended")
 	githubSyncer.failOnCall = 2
 
-	_, err := runSync(context.Background(), deps, syncInput{RepositoryNames: []string{"safedep/cli", "acme/app"}})
+	// The names interleave the owners, so the first request carries the
+	// first and the third name.
+	_, err := runSync(context.Background(), deps,
+		syncInput{RepositoryNames: []string{"safedep/cli", "acme/app", "safedep/vet"}})
 	require.Error(t, err)
+	require.Len(t, githubSyncer.reqs, 2)
+	assert.Equal(t, []int64{12, 14}, syncedIDs(githubSyncer.reqs[0]))
+
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok)
-	assert.Equal(t, "Sync stopped after 1 of 2 repositories", usefulErr.HumanError())
-	assert.Contains(t, usefulErr.Help(), "installation suspended. Projects exist for the first 1 repositories.")
-	assert.NotContains(t, usefulErr.Help(), "Rerun", "a rerun does not fix a suspended installation")
+	assert.Equal(t, "Sync through account acme failed", usefulErr.HumanError())
+	assert.Equal(t, "Projects exist for the repositories of account safedep. "+
+		"The request for account acme failed: installation suspended.", usefulErr.Help())
 	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 }
 
+func TestRunSync_BitbucketWorkspaces(t *testing.T) {
+	bitbucketLinks := []*controltowerv1.ListBitbucketWorkspaceLinksResponse_WorkspaceLink{
+		bitbucketWorkspaceLinkOf("bb-1", "safedep"), bitbucketWorkspaceLinkOf("bb-2", "foo"),
+	}
+
+	t.Run("each workspace gets its own request", func(t *testing.T) {
+		deps, _, syncer := newTwoSourceDeps(nil, bitbucketLinks, nil)
+
+		_, err := runSync(context.Background(), deps, syncInput{RepositoryNames: []string{"foo/app", "safedep/cli"}})
+		require.NoError(t, err)
+		require.Len(t, syncer.reqs, 2)
+		assert.Equal(t, "bb-2", syncer.reqs[0].GetLinkId())
+		assert.Equal(t, []string{testBitbucketRepoUUIDb}, syncedUUIDs(syncer.reqs[0]))
+		assert.Equal(t, "bb-1", syncer.reqs[1].GetLinkId())
+	})
+
+	t.Run("a failed workspace names the written one", func(t *testing.T) {
+		deps, _, syncer := newTwoSourceDeps(nil, bitbucketLinks, nil)
+		syncer.err = status.Error(codes.Unavailable, "bitbucket unavailable")
+		syncer.failOnCall = 2
+
+		_, err := runSync(context.Background(), deps, syncInput{RepositoryNames: []string{"safedep/cli", "foo/app"}})
+		require.Error(t, err)
+		usefulErr, ok := usefulerror.AsUsefulError(err)
+		require.True(t, ok)
+		assert.Equal(t, "Sync through account foo failed", usefulErr.HumanError())
+		assert.Contains(t, usefulErr.Help(), "Projects exist for the repositories of account safedep.")
+		assert.Contains(t, usefulErr.Help(), "Rerun the same command")
+	})
+
+	t.Run("a name that SafeDep does not scan fails before any write", func(t *testing.T) {
+		deps, _, syncer := newTwoSourceDeps(nil, bitbucketLinks, nil)
+		disabled := bitbucketListedRepository(testBitbucketRepoUUIDb, "foo/app")
+		disabled.SetScanState(controltowerv1.ListBitbucketRepositoriesResponse_BitbucketRepository_SCAN_STATE_DISABLED)
+		deps.bitbucketRepositories = &fakeBitbucketRepositoryLister{pages: []*controltowerv1.ListBitbucketRepositoriesResponse{
+			bitbucketRepositoriesPage(bitbucketListedRepository(testBitbucketRepoUUIDa, "safedep/cli"), disabled),
+		}}
+
+		_, err := runSync(context.Background(), deps, syncInput{RepositoryNames: []string{"safedep/cli", "foo/app"}})
+		require.Error(t, err)
+		text := errorText(err)
+		assert.Contains(t, text, `SafeDep does not scan Bitbucket repository "foo/app"`)
+		assert.Contains(t, text, "safedep integration bitbucket allowlist update --account foo --enable "+testBitbucketRepoUUIDb)
+		assert.Zero(t, syncer.calls, "the enabled workspace must not be written either")
+	})
+}
+
 // newTwoSourceDeps fakes a tenant with the given links on both sources. Each
-// source lists the same repositories for every link: GitHub safedep/cli (12)
-// and acme/app (13), Bitbucket safedep/cli and foo/app.
+// source lists the same repositories for every link: GitHub safedep/cli (12),
+// acme/app (13) and safedep/vet (14), Bitbucket safedep/cli and foo/app.
 func newTwoSourceDeps(
 	github []*controltowerv1.ListGitHubAppInstallationLinksResponse_IntegrationWithAttributes,
 	bitbucket []*controltowerv1.ListBitbucketWorkspaceLinksResponse_WorkspaceLink,
@@ -273,7 +338,7 @@ func newTwoSourceDeps(
 			linksResponse("", github...),
 		}},
 		githubRepositories: &fakeGitHubRepositoryLister{pages: []*controltowerv1.ListGitHubInstallationRepositoriesResponse{
-			repositoriesResponse("", repository(12, "safedep/cli"), repository(13, "acme/app")),
+			repositoriesResponse("", repository(12, "safedep/cli"), repository(13, "acme/app"), repository(14, "safedep/vet")),
 		}},
 		githubSyncer: githubSyncer,
 		bitbucketLinks: &fakeBitbucketLinkLister{

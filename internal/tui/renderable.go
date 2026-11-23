@@ -16,3 +16,7 @@ type Renderable interface {
 	RenderTable() string
 	RenderPlain() string
 }
+
+// EmptyCell fills a table or plain cell that has no value, so every plain
+// row keeps the same field count for pipelines that cut by column.
+const EmptyCell = "-"

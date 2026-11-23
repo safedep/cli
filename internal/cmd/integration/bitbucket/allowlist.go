@@ -233,7 +233,7 @@ func (r *allowlistUpdateResult) RenderJSON() ([]byte, error) {
 func (r *allowlistUpdateResult) RenderPlain() string {
 	account := r.account
 	if account == "" {
-		account = "-"
+		account = tui.EmptyCell
 	}
 	return "link_id\tscan_scope\tallowlisted_repository_count\taccount\n" +
 		strings.Join([]string{r.linkID, r.scanScope, r.count(), account}, "\t")

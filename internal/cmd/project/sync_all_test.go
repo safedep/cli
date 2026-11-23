@@ -2,10 +2,12 @@ package project
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
+	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/stretchr/testify/assert"
@@ -104,6 +106,18 @@ func TestRunSync_AllGitHub(t *testing.T) {
 			wantCode:  usefulerror.ErrServiceUnavailable,
 			wantRerun: true,
 		},
+		{
+			name:      "a timeout stops the run with rerun advice",
+			err:       status.Error(codes.DeadlineExceeded, "deadline exceeded"),
+			wantCode:  usefulerror.ErrGatewayTimeout,
+			wantRerun: true,
+		},
+		{
+			name:      "a rate limit stops the run with rerun advice",
+			err:       status.Error(codes.ResourceExhausted, "too many requests"),
+			wantCode:  usefulerror.ErrQuotaExceeded,
+			wantRerun: true,
+		},
 	}
 	for _, tc := range failures {
 		t.Run(tc.name, func(t *testing.T) {
@@ -123,11 +137,48 @@ func TestRunSync_AllGitHub(t *testing.T) {
 			require.True(t, ok)
 			assert.Equal(t, "Sync stopped after 100 of 240 repositories", usefulErr.HumanError())
 			assert.Equal(t, tc.wantCode, usefulErr.Code())
-			assert.Contains(t, usefulErr.Help(), status.Convert(tc.err).Message())
+			assert.Equal(t, status.Convert(tc.err).Message()+". Projects exist for at least the first 100 repositories.",
+				strings.TrimSuffix(usefulErr.Help(), " Rerun the same command to sync the rest. The sync is idempotent."))
 			assert.Equal(t, tc.wantRerun, strings.Contains(usefulErr.Help(), "Rerun the same command"))
 			assert.Equal(t, status.Code(tc.err), status.Code(err))
 		})
 	}
+}
+
+func TestRunSync_AllKeepsAnExpiredSessionForTheLoginGuidance(t *testing.T) {
+	syncer := &fakeGitHubProjectSyncer{err: status.Error(codes.Unauthenticated, "token expired"), failOnCall: 2}
+
+	_, err := runSync(context.Background(), syncDeps{
+		githubRepositories: &fakeGitHubRepositoryLister{pages: []*controltowerv1.ListGitHubInstallationRepositoriesResponse{
+			repositoriesResponse("", githubRepositoryRange(1, 240)...),
+		}},
+		githubSyncer: syncer,
+	}, syncInput{Source: "github", LinkID: "gh-1", All: true})
+	require.Error(t, err)
+	assert.Equal(t, codes.Unauthenticated, status.Code(err))
+	var stopped usefulerror.UsefulError
+	assert.False(t, errors.As(err, &stopped),
+		"the entry point turns Unauthenticated into the login guidance, which a wrapped error would hide")
+}
+
+func TestRunSync_AllThroughAHiddenLinkID(t *testing.T) {
+	links := &fakeGitHubLinkLister{}
+	syncer := &fakeGitHubProjectSyncer{}
+
+	got, err := runSync(context.Background(), syncDeps{
+		githubLinks: links,
+		githubRepositories: &fakeGitHubRepositoryLister{pages: []*controltowerv1.ListGitHubInstallationRepositoriesResponse{
+			repositoriesResponse("", githubRepositoryRange(1, 3)...),
+		}},
+		githubSyncer: syncer,
+	}, syncInput{Source: "github", LinkID: "gh-9", All: true})
+	require.NoError(t, err)
+	assert.Zero(t, links.calls)
+	require.Equal(t, 1, syncer.calls)
+	assert.Equal(t, "gh-9", syncer.req.GetLinkId())
+	result, ok := got.(*syncResult)
+	require.True(t, ok)
+	assert.Contains(t, result.RenderTable(), "Synced 3 repositories through link gh-9")
 }
 
 func TestRunSync_AllBitbucket(t *testing.T) {
@@ -164,6 +215,25 @@ func TestRunSync_AllBitbucket(t *testing.T) {
 		result, ok := got.(*bitbucketSyncResult)
 		require.True(t, ok)
 		assert.Contains(t, result.RenderTable(), "Synced 2 of 4 repositories through account safedep, 2 not enabled")
+	})
+
+	t.Run("a repository on two pages syncs once", func(t *testing.T) {
+		page1 := bitbucketRepositoriesPage(listed(testBitbucketRepoUUIDa, enabled))
+		next := &messagescontroltowerv1.PaginationResponse{}
+		next.SetNextPageToken("p2")
+		page1.SetPagination(next)
+		syncer := &fakeBitbucketProjectSyncer{}
+
+		_, err := runSync(context.Background(), syncDeps{
+			bitbucketRepositories: &fakeBitbucketRepositoryLister{pages: []*controltowerv1.ListBitbucketRepositoriesResponse{
+				page1,
+				bitbucketRepositoriesPage(listed(testBitbucketRepoUUIDa, enabled), listed(testBitbucketRepoUUIDb, enabled)),
+			}},
+			bitbucketSyncer: syncer,
+		}, syncInput{Source: "bitbucket", LinkID: "bb-1", All: true})
+		require.NoError(t, err)
+		require.Equal(t, 1, syncer.calls)
+		assert.Equal(t, []string{testBitbucketRepoUUIDa, testBitbucketRepoUUIDb}, syncedUUIDs(syncer.req))
 	})
 
 	t.Run("a workspace with no enabled repository fails with the allowlist command", func(t *testing.T) {

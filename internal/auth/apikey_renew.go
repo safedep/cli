@@ -89,12 +89,9 @@ func DecideStoredAPIKey(ctx context.Context, stored *cloud.Credentials, tenant s
 	}
 
 	expiresAt, _ := stored.APIKeyExpiresAt()
-	switch APIKeyStateAt(true, expiresAt, now) {
-	case APIKeyExpired:
+	state := APIKeyStateAt(true, expiresAt, now)
+	if state == APIKeyExpired {
 		return APIKeyDecision{Reason: "the stored API key expired on " + formatDay(expiresAt)}
-	case APIKeyExpiring:
-		return APIKeyDecision{Reason: "the stored API key expires on " + formatDay(expiresAt),
-			Fallback: true, ExpiresAt: expiresAt}
 	}
 
 	key, err := stored.GetAPIKey()
@@ -102,6 +99,9 @@ func DecideStoredAPIKey(ctx context.Context, stored *cloud.Credentials, tenant s
 		return APIKeyDecision{Reason: "the stored API key cannot be read"}
 	}
 
+	// A key inside the renewal window is checked too: login falls back to it
+	// when it cannot create a new key, and a revoked key must not be kept.
+	warning := ""
 	if err := verify(ctx, APIKeyInput{APIKey: key, Tenant: tenant}); err != nil {
 		// The gateway answers Unauthenticated for an expired key and
 		// PermissionDenied for a key that it does not know, such as a
@@ -109,11 +109,15 @@ func DecideStoredAPIKey(ctx context.Context, stored *cloud.Credentials, tenant s
 		if code := status.Code(err); code == codes.Unauthenticated || code == codes.PermissionDenied {
 			return APIKeyDecision{Reason: "SafeDep Cloud rejected the stored API key"}
 		}
-		return APIKeyDecision{Keep: true, ExpiresAt: expiresAt,
-			Warning: fmt.Sprintf("could not verify the stored API key: %v", err)}
+		warning = fmt.Sprintf("could not verify the stored API key: %v", err)
 	}
 
-	return APIKeyDecision{Keep: true, ExpiresAt: expiresAt}
+	if state == APIKeyExpiring {
+		return APIKeyDecision{Reason: "the stored API key expires on " + formatDay(expiresAt),
+			Fallback: true, ExpiresAt: expiresAt, Warning: warning}
+	}
+
+	return APIKeyDecision{Keep: true, ExpiresAt: expiresAt, Warning: warning}
 }
 
 func formatDay(t time.Time) string {

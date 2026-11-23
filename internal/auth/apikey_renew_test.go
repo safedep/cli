@@ -74,13 +74,26 @@ func TestDecideStoredAPIKey(t *testing.T) {
 			wantReason: "expired on 2026-11-21",
 		},
 		{
-			name: "a key inside the renewal window",
+			name: "a key inside the renewal window that SafeDep Cloud accepts",
 			stored: func(t *testing.T) *cloud.Credentials {
 				return keychainCredentials(t, "sk-1", "acme.safedep.io",
 					cloud.APIKeyMetadata{KeyID: "key-1", ExpiresAt: now.Add(3 * 24 * time.Hour)})
 			},
 			wantReason:   "expires on 2026-11-25",
 			wantFallback: true,
+			wantVerified: true,
+		},
+		{
+			// A revoked key inside the window must not become the fallback
+			// that login keeps when it cannot create a new key.
+			name: "a key inside the renewal window that SafeDep Cloud rejects",
+			stored: func(t *testing.T) *cloud.Credentials {
+				return keychainCredentials(t, "sk-1", "acme.safedep.io",
+					cloud.APIKeyMetadata{KeyID: "key-1", ExpiresAt: now.Add(3 * 24 * time.Hour)})
+			},
+			verifyErr:    fmt.Errorf("auth: data plane ping: %w", status.Error(codes.PermissionDenied, "revoked")),
+			wantReason:   "SafeDep Cloud rejected the stored API key",
+			wantVerified: true,
 		},
 		{
 			name: "a key with no recorded expiry that SafeDep Cloud accepts",

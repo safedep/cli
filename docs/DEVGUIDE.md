@@ -67,7 +67,7 @@ Exceptions live in `rootLevelExceptions` in `internal/cmd/conventions_test.go`. 
 
 Two distinct concerns:
 
-**Messaging** (Info / Success / Warning / Error). For both humans and AI agents. Commands call `dry/tui.Info / Success / Warning / Error` directly. dry/tui auto-detects its mode (rich, plain, agent) from TTY state, env vars (`CLAUDE_CODE`, `ANTHROPIC_AGENT`, `CI`, `TERM=dumb`), and `SAFEDEP_OUTPUT`. Human users get colour and unicode; agents get terse, token-optimised text. The `--output` flag does **not** influence messaging.
+**Messaging** (Info / Success / Warning / Error). For both humans and AI agents. Commands call `dry/tui.Info / Success / Warning / Error` directly. dry/tui auto-detects its mode (rich, plain, agent) from TTY state, env vars (`CLAUDE_CODE`, `ANTHROPIC_AGENT`, `CLAUDECODE`, `AI_AGENT`, `CI`, `TERM=dumb`), and `SAFEDEP_OUTPUT`. Human users get colour and unicode; agents get terse, token-optimised text. The `--output` flag does **not** influence messaging.
 
 **Renderable** (data presentation). Data commands implement `tui.Renderable`:
 

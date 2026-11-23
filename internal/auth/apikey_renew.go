@@ -62,13 +62,18 @@ type APIKeyDecision struct {
 	// Warning reports a check that could not finish. Login keeps the key,
 	// because a network failure says nothing about the key.
 	Warning string
+
+	// Fallback means that the stored key still works for the tenant, so
+	// login keeps it when it cannot create a new key. ExpiresAt is set.
+	Fallback bool
 }
 
 // DecideStoredAPIKey decides whether login keeps the API key that the
 // keychain holds for the profile. stored is nil when the keychain holds no
-// key. The key stays only when it belongs to tenant, its recorded expiry is
-// outside APIKeyRenewWindow, and SafeDep Cloud accepts it. A key with no
-// recorded expiry is replaced once, so that its expiry gets recorded.
+// key. The key stays only when it belongs to tenant, it does not expire
+// within APIKeyRenewWindow, and SafeDep Cloud accepts it. A key with no
+// recorded expiry, such as a pasted key, stays when SafeDep Cloud accepts it:
+// an expired key fails that check.
 func DecideStoredAPIKey(ctx context.Context, stored *cloud.Credentials, tenant string, now time.Time,
 	verify APIKeyVerifier,
 ) APIKeyDecision {
@@ -86,9 +91,8 @@ func DecideStoredAPIKey(ctx context.Context, stored *cloud.Credentials, tenant s
 	case APIKeyExpired:
 		return APIKeyDecision{Reason: "the stored API key expired on " + formatDay(expiresAt)}
 	case APIKeyExpiring:
-		return APIKeyDecision{Reason: "the stored API key expires on " + formatDay(expiresAt)}
-	case APIKeyExpiryUnknown:
-		return APIKeyDecision{Reason: "the expiry of the stored API key is not recorded"}
+		return APIKeyDecision{Reason: "the stored API key expires on " + formatDay(expiresAt),
+			Fallback: true, ExpiresAt: expiresAt}
 	}
 
 	key, err := stored.GetAPIKey()
@@ -97,6 +101,9 @@ func DecideStoredAPIKey(ctx context.Context, stored *cloud.Credentials, tenant s
 	}
 
 	if err := verify(ctx, APIKeyInput{APIKey: key, Tenant: tenant}); err != nil {
+		// The gateway answers Unauthenticated for an expired key and
+		// PermissionDenied for a key that it does not know, such as a
+		// revoked one. Both mean that a new key is needed.
 		if code := status.Code(err); code == codes.Unauthenticated || code == codes.PermissionDenied {
 			return APIKeyDecision{Reason: "SafeDep Cloud rejected the stored API key"}
 		}

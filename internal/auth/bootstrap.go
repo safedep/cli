@@ -107,6 +107,16 @@ func PostOAuthBootstrap(ctx context.Context, in BootstrapInput) (*BootstrapResul
 	}
 
 	key, err := createAPIKey(ctx, in.ConnFor, in.AccessToken, tenant, in.APIKeyName, in.APIKeyExpiryDays)
+	if err != nil && res.APIKeyDecision.Fallback {
+		// The stored key still works, so a failed create must not cost the
+		// user the OAuth tokens of this login. A Viewer cannot create keys.
+		res.APIKeyDecision = APIKeyDecision{
+			Keep:      true,
+			ExpiresAt: res.APIKeyDecision.ExpiresAt,
+			Warning:   fmt.Sprintf("could not create a new API key, so the stored key stays: %v", err),
+		}
+		return res, nil
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -89,6 +89,18 @@ func runAPIKeyLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 }
 
 func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
+	if err := validateAPIKeyExpiryDays(flags); err != nil {
+		return err
+	}
+
+	// Open the keychain before the browser flow. A machine with no usable
+	// keychain then fails before SafeDep Cloud creates a key that login
+	// could not store.
+	store, err := a.CredentialStore()
+	if err != nil {
+		return err
+	}
+
 	tui.Info("Starting OAuth2 device login…")
 
 	res, err := cliauth.RunDeviceFlow(cmd.Context(), cliauth.PrintVerification,
@@ -105,14 +117,10 @@ func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 		}
 	}
 
-	createKey := !flags.noAPIKey
+	createKey, decideAPIKey := apiKeyPlan(flags, a.KeychainOptions())
 	var name string
-	var decideAPIKey func(context.Context, string) cliauth.APIKeyDecision
 	if createKey {
 		name = cliauth.APIKeyName(cliauth.Hostname(), time.Now())
-		if !flags.rotateAPIKey {
-			decideAPIKey = storedAPIKeyDecider(a)
-		}
 	}
 
 	var registrationPrompter func() (*cliauth.RegistrationInput, error)
@@ -138,11 +146,6 @@ func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 		return err
 	}
 
-	store, err := a.CredentialStore()
-	if err != nil {
-		return err
-	}
-
 	if err := cliauth.SaveBootstrapResult(store, res.AccessToken, res.RefreshToken, bootstrap); err != nil {
 		return err
 	}
@@ -157,11 +160,11 @@ func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 		if decision.Reason != "" {
 			tui.Info("Created a new API key: %s.", decision.Reason)
 		}
-		tui.Success("Authenticated as %s (profile %q). API key created, expires %s.",
-			bootstrap.Tenant, a.Profile(), bootstrap.APIKeyExpiresAt.UTC().Format("2006-01-02"))
+		tui.Success("Authenticated as %s (profile %q). API key created, %s.",
+			bootstrap.Tenant, a.Profile(), expiryPhrase(bootstrap.APIKeyExpiresAt))
 	case decision.Keep:
-		tui.Success("Authenticated as %s (profile %q). Kept the stored API key, expires %s.",
-			bootstrap.Tenant, a.Profile(), decision.ExpiresAt.UTC().Format("2006-01-02"))
+		tui.Success("Authenticated as %s (profile %q). Kept the stored API key, %s.",
+			bootstrap.Tenant, a.Profile(), expiryPhrase(decision.ExpiresAt))
 	case createKey:
 		tui.Success("Authenticated as %s (profile %q). API key creation skipped — none in response.", bootstrap.Tenant, a.Profile())
 	default:
@@ -171,24 +174,49 @@ func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 	return nil
 }
 
-// storedAPIKeyDecider returns the check that decides, once the tenant is
-// picked, whether login keeps the API key of the profile. It reads the
-// keychain alone: pmg and vet read the key from there, so an API key in the
-// environment must not stop login from replacing an expired keychain key.
-func storedAPIKeyDecider(a *app.App) func(context.Context, string) cliauth.APIKeyDecision {
-	return func(ctx context.Context, tenant string) cliauth.APIKeyDecision {
-		return cliauth.DecideStoredAPIKey(ctx, storedAPIKey(a), tenant, time.Now(), cliauth.VerifyAPIKey)
+// validateAPIKeyExpiryDays refuses a lifetime inside the renewal window.
+// Login replaces a key that expires within the window, so such a key would be
+// replaced on every login.
+func validateAPIKeyExpiryDays(flags loginFlags) error {
+	if flags.noAPIKey {
+		return nil
+	}
+	windowDays := int(cliauth.APIKeyRenewWindow.Hours() / 24)
+	if flags.apiKeyExpiryDays <= windowDays {
+		return fmt.Errorf("--api-key-expiry-days must be more than %d: login replaces a key that expires within %d days",
+			windowDays, windowDays)
+	}
+	return nil
+}
+
+// apiKeyPlan returns whether login creates or checks an API key, and the
+// check that decides on the stored key once the tenant is picked. The check
+// is nil when login always creates a key.
+func apiKeyPlan(flags loginFlags, opts []cloud.KeychainOption,
+) (bool, func(context.Context, string) cliauth.APIKeyDecision) {
+	if flags.noAPIKey {
+		return false, nil
+	}
+	if flags.rotateAPIKey {
+		return true, nil
+	}
+	return true, func(ctx context.Context, tenant string) cliauth.APIKeyDecision {
+		stored, err := storedAPIKey(opts)
+		if err != nil {
+			return cliauth.APIKeyDecision{Reason: fmt.Sprintf("the stored API key cannot be read: %v", err)}
+		}
+		return cliauth.DecideStoredAPIKey(ctx, stored, tenant, time.Now(), cliauth.VerifyAPIKey)
 	}
 }
 
 // storedAPIKey returns the API key credentials of the profile in the
-// keychain, or nil when there are none. A keychain that cannot be read counts
-// as no key, so login creates one.
-func storedAPIKey(a *app.App) *cloud.Credentials {
-	resolver, err := cloud.NewKeychainCredentialResolver(cloud.CredentialTypeAPIKey, a.KeychainOptions()...)
+// keychain, or nil when there are none. It reads the keychain alone: pmg and
+// vet read the key from there, so an API key in the environment must not
+// stop login from replacing an expired keychain key.
+func storedAPIKey(opts []cloud.KeychainOption) (*cloud.Credentials, error) {
+	resolver, err := cloud.NewKeychainCredentialResolver(cloud.CredentialTypeAPIKey, opts...)
 	if err != nil {
-		log.Warnf("auth login: stored api key: %v", err)
-		return nil
+		return nil, err
 	}
 	defer func() {
 		if err := resolver.Close(); err != nil {
@@ -197,13 +225,21 @@ func storedAPIKey(a *app.App) *cloud.Credentials {
 	}()
 
 	creds, err := resolver.Resolve()
-	if err != nil {
-		if !errors.Is(err, cloud.ErrMissingCredentials) {
-			log.Warnf("auth login: stored api key: %v", err)
-		}
-		return nil
+	if errors.Is(err, cloud.ErrMissingCredentials) && !errors.Is(err, cloud.ErrIncompleteCredentials) {
+		return nil, nil
 	}
-	return creds
+	if err != nil {
+		return nil, err
+	}
+	return creds, nil
+}
+
+// expiryPhrase reports the expiry of a key for the login message.
+func expiryPhrase(expiresAt time.Time) string {
+	if expiresAt.IsZero() {
+		return "expiry not recorded"
+	}
+	return "expires " + expiresAt.UTC().Format("2006-01-02")
 }
 
 func resolveAPIKey(flags loginFlags) (string, error) {

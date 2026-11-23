@@ -51,6 +51,7 @@ func TestDecideStoredAPIKey(t *testing.T) {
 		wantReason   string
 		wantVerified bool
 		wantWarning  bool
+		wantFallback bool
 	}{
 		{
 			name:       "no stored key",
@@ -78,14 +79,25 @@ func TestDecideStoredAPIKey(t *testing.T) {
 				return keychainCredentials(t, "sk-1", "acme.safedep.io",
 					cloud.APIKeyMetadata{KeyID: "key-1", ExpiresAt: now.Add(3 * 24 * time.Hour)})
 			},
-			wantReason: "expires on 2026-11-25",
+			wantReason:   "expires on 2026-11-25",
+			wantFallback: true,
 		},
 		{
-			name: "a key with no recorded expiry",
+			name: "a key with no recorded expiry that SafeDep Cloud accepts",
 			stored: func(t *testing.T) *cloud.Credentials {
 				return keychainCredentials(t, "sk-1", "acme.safedep.io", cloud.APIKeyMetadata{})
 			},
-			wantReason: "expiry of the stored API key is not recorded",
+			wantKeep:     true,
+			wantVerified: true,
+		},
+		{
+			name: "a key with no recorded expiry that SafeDep Cloud rejects",
+			stored: func(t *testing.T) *cloud.Credentials {
+				return keychainCredentials(t, "sk-1", "acme.safedep.io", cloud.APIKeyMetadata{})
+			},
+			verifyErr:    fmt.Errorf("auth: data plane ping: %w", status.Error(codes.Unauthenticated, "key expired")),
+			wantReason:   "SafeDep Cloud rejected the stored API key",
+			wantVerified: true,
 		},
 		{
 			name: "a valid key that SafeDep Cloud accepts",
@@ -142,14 +154,39 @@ func TestDecideStoredAPIKey(t *testing.T) {
 				assert.Contains(t, got.Reason, tc.wantReason)
 			}
 			assert.Equal(t, tc.wantWarning, got.Warning != "", "warning %q", got.Warning)
+			assert.Equal(t, tc.wantFallback, got.Fallback)
 			if tc.wantVerified {
 				assert.Equal(t, APIKeyInput{APIKey: "sk-1", Tenant: "acme.safedep.io"}, verified)
 			} else {
 				assert.Empty(t, verified, "the key must not be sent to SafeDep Cloud")
 			}
 			if got.Keep {
-				assert.True(t, valid.ExpiresAt.Equal(got.ExpiresAt))
+				if exp, ok := tc.stored(t).APIKeyExpiresAt(); ok {
+					assert.True(t, exp.Equal(got.ExpiresAt))
+				} else {
+					assert.True(t, got.ExpiresAt.IsZero())
+				}
 			}
 		})
 	}
+}
+
+func TestBuildStatusReadsAPIKeyExpiry(t *testing.T) {
+	expiresAt := time.Date(2027, 2, 20, 0, 0, 0, 0, time.UTC)
+	opts := []cloud.KeychainOption{
+		cloud.WithAppName("safedep-cli-test-" + t.Name()),
+		cloud.WithInsecureFileFallbackPath(t.TempDir() + "/creds.json"),
+	}
+	store, err := cloud.NewKeychainCredentialStore(opts...)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	require.NoError(t, SaveBootstrapResult(store, "access", "refresh", &BootstrapResult{
+		Tenant: "acme.safedep.io", APIKey: "sk-1", APIKeyID: "key-1", APIKeyExpiresAt: expiresAt,
+	}))
+
+	st, err := BuildStatus(context.Background(), "default", opts)
+	require.NoError(t, err)
+
+	assert.True(t, st.APIKey)
+	assert.True(t, expiresAt.Equal(st.APIKeyExpiresAt), "expiry %v", st.APIKeyExpiresAt)
 }

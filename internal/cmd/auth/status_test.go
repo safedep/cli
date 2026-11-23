@@ -45,7 +45,7 @@ func TestNextStepHint(t *testing.T) {
 		{
 			"api key with no recorded expiry",
 			cliauth.Status{APIKey: true, OAuth: true},
-			"API key expiry is not recorded",
+			"--rotate-api-key",
 		},
 	}
 
@@ -170,4 +170,12 @@ func TestStatusResultRenderPlainUnchangedShape(t *testing.T) {
 	assert.Equal(t, "Profile:        default", lines[0])
 	assert.Contains(t, plain, "OAuth expires:  2026-08-01T00:00:00Z")
 	assert.NotContains(t, plain, "Status:", "plain output must not gain the table-only status row")
+}
+
+func TestStatusResultRenderPlainExpiredAPIKey(t *testing.T) {
+	expiresAt := time.Now().Add(-48 * time.Hour).UTC().Truncate(time.Second)
+	r := &statusResult{st: cliauth.Status{Profile: "default", APIKey: true, APIKeyExpiresAt: expiresAt}}
+	plain := r.RenderPlain()
+	assert.Contains(t, plain, "API key state:  expired")
+	assert.Contains(t, plain, "Key expires:    "+expiresAt.Format(time.RFC3339))
 }

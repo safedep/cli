@@ -13,7 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -59,11 +61,15 @@ type fakeAPIKeyServer struct {
 	controltowerv1grpc.UnimplementedApiKeyServiceServer
 	creates   int
 	expiresAt time.Time
+	err       error
 }
 
 func (f *fakeAPIKeyServer) CreateApiKey(_ context.Context, req *controltowerv1.CreateApiKeyRequest,
 ) (*controltowerv1.CreateApiKeyResponse, error) {
 	f.creates++
+	if f.err != nil {
+		return nil, f.err
+	}
 	resp := &controltowerv1.CreateApiKeyResponse{Key: "sk-new", KeyId: "key-new"}
 	if !f.expiresAt.IsZero() {
 		resp.ExpiresAt = timestamppb.New(f.expiresAt)
@@ -270,6 +276,56 @@ func TestPostOAuthBootstrap_DecideAPIKey(t *testing.T) {
 				assert.True(t, apiKeys.expiresAt.Equal(res.APIKeyExpiresAt),
 					"expiry %v, want %v", res.APIKeyExpiresAt, apiKeys.expiresAt)
 			}
+		})
+	}
+}
+
+// A login must not lose its OAuth tokens because the create failed while the
+// stored key still works, for example for a user who cannot create keys.
+func TestPostOAuthBootstrap_CreateFails(t *testing.T) {
+	expiresAt := time.Date(2026, 11, 30, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name     string
+		decision APIKeyDecision
+		wantErr  bool
+	}{
+		{
+			name:     "a stored key that still works is kept",
+			decision: APIKeyDecision{Reason: "the stored API key expires on 2026-11-30", Fallback: true, ExpiresAt: expiresAt},
+		},
+		{
+			name:     "no usable stored key fails the login",
+			decision: APIKeyDecision{Reason: "the stored API key expired on 2026-11-20"},
+			wantErr:  true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			connFor := newBootstrapTestServer(t, bootstrapTestServer{
+				user:       &fakeUserServer{responses: [][]string{{"acme.safedep.io"}}},
+				onboarding: &fakeOnboardingServer{},
+				apiKeys:    &fakeAPIKeyServer{err: status.Error(codes.PermissionDenied, "member role required")},
+			})
+
+			res, err := PostOAuthBootstrap(context.Background(), BootstrapInput{
+				AccessToken:      "token-123",
+				CreateAPIKey:     true,
+				APIKeyExpiryDays: 90,
+				DecideAPIKey:     func(context.Context, string) APIKeyDecision { return tc.decision },
+				ConnFor:          connFor,
+			})
+
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.True(t, res.APIKeyDecision.Keep)
+			assert.True(t, expiresAt.Equal(res.APIKeyDecision.ExpiresAt))
+			assert.Contains(t, res.APIKeyDecision.Warning, "could not create a new API key")
+			assert.Empty(t, res.APIKey)
 		})
 	}
 }

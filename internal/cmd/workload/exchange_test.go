@@ -99,3 +99,55 @@ func TestExchangeView_Detail(t *testing.T) {
 		})
 	}
 }
+
+func TestRunExchangeList_RuleThatNamesNoLiveRule(t *testing.T) {
+	issued := controltowerv1.WorkloadExchange_builder{
+		ExchangeId: "x1",
+		Outcome:    controltowerv1.WorkloadExchangeOutcome_WORKLOAD_EXCHANGE_OUTCOME_ISSUED,
+		RuleId:     "r_gone",
+	}.Build()
+	tests := []struct {
+		name       string
+		rule       string
+		exchanges  []*controltowerv1.WorkloadExchange
+		wantNotice string
+		wantEmpty  string
+	}{
+		{
+			name:       "a name of no live rule and no exchange",
+			rule:       "web-old",
+			wantNotice: "No live rule has the name or id web-old. To list the exchanges of a deleted rule, pass its rule id",
+			wantEmpty:  "No workload exchanges match.",
+		},
+		{
+			name:      "the id of a deleted rule with exchanges",
+			rule:      "r_gone",
+			exchanges: []*controltowerv1.WorkloadExchange{issued},
+		},
+		{
+			name:      "a live rule with no exchange",
+			rule:      "org",
+			wantEmpty: "No workload exchanges match. Try a wider --since window.",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := mocks.NewWorkloadAdminServiceClientMock(t)
+			expectRulePages(client, []*controltowerv1.WorkloadTrustRule{trustRule("r_org", "org", nil)})
+			client.EXPECT().ListWorkloadExchanges(mock.Anything, mock.Anything).
+				Return(controltowerv1.ListWorkloadExchangesResponse_builder{Exchanges: tt.exchanges}.Build(), nil)
+
+			res, err := runExchangeList(context.Background(), client, exchangeListInput{Rule: tt.rule}, time.Now())
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantNotice, res.notice())
+			if tt.wantEmpty != "" {
+				assert.Contains(t, res.RenderTable(), tt.wantEmpty)
+			}
+			if tt.wantNotice != "" {
+				// A wider window cannot help a rule that the server does not know.
+				assert.NotContains(t, res.RenderTable(), "--since")
+			}
+		})
+	}
+}

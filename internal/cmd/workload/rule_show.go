@@ -38,7 +38,7 @@ func runRuleShow(
 	client controltowerv1grpc.WorkloadAdminServiceClient,
 	ref string,
 ) (*ruleResult, error) {
-	id, err := ruleIDOf(ctx, client, "rule show", ref)
+	id, _, err := ruleIDOf(ctx, client, "rule show", ref)
 	if err != nil {
 		return nil, err
 	}
@@ -56,16 +56,16 @@ func runRuleShow(
 }
 
 // ruleIDOf finds the id of the rule that ref names: a rule id, or else the
-// name of a live rule. A ref that names no live rule stays as it is, so the
-// server decides. ListWorkloadExchanges finds the exchanges of a deleted
-// rule by its id.
+// name of a live rule. live is false when ref names no live rule. Such a ref
+// stays as it is, so the server decides. ListWorkloadExchanges finds the
+// exchanges of a deleted rule by its id.
 func ruleIDOf(
 	ctx context.Context,
 	client controltowerv1grpc.WorkloadAdminServiceClient,
 	command, ref string,
-) (string, error) {
-	id, named := "", ""
-	err := paging.Paginate(ctx, "workload "+command, func(ctx context.Context, pageToken string) (string, error) {
+) (id string, live bool, err error) {
+	named := ""
+	err = paging.Paginate(ctx, "workload "+command, func(ctx context.Context, pageToken string) (string, error) {
 		req := &controltowerv1.ListWorkloadTrustRulesRequest{}
 		req.SetPagination(paging.NewPaginationRequest(0, pageToken))
 		res, err := client.ListWorkloadTrustRules(ctx, req)
@@ -84,13 +84,13 @@ func ruleIDOf(
 		return res.GetPagination().GetNextPageToken(), nil
 	})
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	switch {
 	case id != "":
-		return id, nil
+		return id, true, nil
 	case named != "":
-		return named, nil
+		return named, true, nil
 	}
-	return ref, nil
+	return ref, false, nil
 }

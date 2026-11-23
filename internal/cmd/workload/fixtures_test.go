@@ -2,6 +2,7 @@ package workload
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"testing"
 
@@ -9,7 +10,10 @@ import (
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/safedep/dry/tui/output"
 	"github.com/safedep/dry/usefulerror"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/safedep/cli/internal/cmd/workload/mocks"
 )
 
 const githubActions = controltowerv1.WorkloadIdentityProviderKind_WORKLOAD_IDENTITY_PROVIDER_KIND_GITHUB_ACTIONS
@@ -91,4 +95,44 @@ func captureStderr(t *testing.T) *bytes.Buffer {
 	output.SetWriters(os.Stdout, &buf)
 	t.Cleanup(func() { output.SetWriters(os.Stdout, os.Stderr) })
 	return &buf
+}
+
+// pageTokens gives the page token that asks for page i and the next page
+// token that page i returns. The first page has no token and the last page
+// has no next page token.
+func pageTokens(i, pages int) (token, next string) {
+	if i > 0 {
+		token = fmt.Sprintf("p%d", i)
+	}
+	if i < pages-1 {
+		next = fmt.Sprintf("p%d", i+1)
+	}
+	return token, next
+}
+
+// expectRulePages serves the rules in pages. A command that finds what it
+// needs on an early page may not read the later ones.
+func expectRulePages(client *mocks.WorkloadAdminServiceClientMock, pages ...[]*controltowerv1.WorkloadTrustRule) {
+	for i, page := range pages {
+		token, next := pageTokens(i, len(pages))
+		client.EXPECT().ListWorkloadTrustRules(mock.Anything, mock.MatchedBy(func(r *controltowerv1.ListWorkloadTrustRulesRequest) bool {
+			return r.GetPagination().GetPageToken() == token
+		})).Return(controltowerv1.ListWorkloadTrustRulesResponse_builder{
+			Rules:      page,
+			Pagination: messagescontroltowerv1.PaginationResponse_builder{NextPageToken: next}.Build(),
+		}.Build(), nil).Maybe()
+	}
+}
+
+// expectProviderPages serves the providers in pages.
+func expectProviderPages(client *mocks.WorkloadAdminServiceClientMock, pages ...[]*controltowerv1.WorkloadIdentityProvider) {
+	for i, page := range pages {
+		token, next := pageTokens(i, len(pages))
+		client.EXPECT().ListWorkloadIdentityProviders(mock.Anything, mock.MatchedBy(func(r *controltowerv1.ListWorkloadIdentityProvidersRequest) bool {
+			return r.GetPagination().GetPageToken() == token
+		})).Return(controltowerv1.ListWorkloadIdentityProvidersResponse_builder{
+			Providers:  page,
+			Pagination: messagescontroltowerv1.PaginationResponse_builder{NextPageToken: next}.Build(),
+		}.Build(), nil).Once()
+	}
 }

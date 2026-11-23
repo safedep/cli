@@ -3,12 +3,14 @@ package workload
 import (
 	"context"
 	"strings"
+	"time"
 
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
 	"github.com/safedep/dry/tui"
 	"github.com/spf13/cobra"
 
 	"github.com/safedep/cli/internal/app"
+	"github.com/safedep/cli/internal/duration"
 	clitui "github.com/safedep/cli/internal/tui"
 )
 
@@ -19,6 +21,11 @@ type ruleCreateInput struct {
 	Repositories []string
 	Refs         []string
 	Events       []string
+	// ProjectBinding and MaxLifetime stay unset unless the flag is given, so
+	// the server default applies.
+	ProjectBinding string
+	MaxLifetime    time.Duration
+	MaxLifetimeSet bool
 }
 
 func ruleCreateCmd(a *app.App) *cobra.Command {
@@ -34,12 +41,14 @@ func ruleCreateCmd(a *app.App) *cobra.Command {
 			"repository of the account. --ref takes a full ref, as in refs/heads/main, or a prefix that ends " +
 			"with /*, as in refs/heads/release/*. A rule with no --event covers only the default events of " +
 			"the provider. For GitHub Actions they are push, pull_request, merge_group, schedule, " +
-			"workflow_dispatch and release.",
+			"workflow_dispatch and release. --project-binding and --max-lifetime take the server default " +
+			"when you do not give them.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if err := cobra.ExactArgs(1)(cmd, args); err != nil {
 				return err
 			}
 			in.Name = args[0]
+			in.MaxLifetimeSet = cmd.Flags().Changed("max-lifetime")
 			_, err := newRuleCreateRequest(in)
 			return err
 		},
@@ -62,6 +71,10 @@ func ruleCreateCmd(a *app.App) *cobra.Command {
 	f.StringSliceVar(&in.Repositories, "repository", nil, "a repository by full name, as in acme/web. Repeat it for more repositories")
 	f.StringArrayVar(&in.Refs, "ref", nil, "a full ref, as in refs/heads/main, or a prefix, as in refs/heads/release/*. Repeat it for more refs")
 	f.StringSliceVar(&in.Events, "event", nil, "an event name, as in push or pull_request_target. Repeat it for more events")
+	f.StringVar(&in.ProjectBinding, "project-binding", "", "how a repository with no project gets a project: "+
+		strings.Join(projectBindingTokens(), " or ")+". The server default is auto for a rule with no --repository, else manual")
+	f.Var(duration.NewValue(&in.MaxLifetime, 0), "max-lifetime",
+		"the longest life of a credential that the rule gives, from 1m to 6h. The server default is 6h")
 	return cmd
 }
 

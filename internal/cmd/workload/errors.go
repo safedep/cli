@@ -102,8 +102,11 @@ func mapRuleCreateError(name, provider string, err error) error {
 			"See it with: safedep workload rule show "+tui.EscapeLine(name),
 			cause)
 	case codes.Unavailable:
+		// The server sends UNAVAILABLE when GitHub does not answer, but a
+		// transport failure or a gateway has the same code, so the text does
+		// not name the cause.
 		return newWorkloadError(usefulerror.ErrServiceUnavailable,
-			"The server could not read the repositories from GitHub: "+rpcerror.Describe(err, rpcerror.AsIs),
+			rpcerror.Describe(err, rpcerror.AsIs),
 			"Run the command again later",
 			cause)
 	}

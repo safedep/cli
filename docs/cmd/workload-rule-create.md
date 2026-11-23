@@ -9,6 +9,7 @@ Actions workflow then calls SafeDep with no API key in the CI secrets.
 ```
 safedep workload rule create NAME --provider PROVIDER --grant GRANT
                              [--repository OWNER/NAME...] [--ref REF...] [--event EVENT...]
+                             [--project-binding auto|manual] [--max-lifetime DURATION]
                              [--output table|plain|json]
 ```
 
@@ -21,9 +22,11 @@ as in `org` or `web-release`.
 |------|-------------|
 | `--provider <provider>` | The provider of the rule: a provider id or `KIND:ACCOUNT`, as in `github-actions:acme`. Required. |
 | `--grant <grant>` | The grant that the rule gives. `tool` lets the job call the RPCs that pmg, vet and the `safedep` CLI use. Required. |
-| `--repository <owner/name>` | A repository by its full name, as in `acme/web`. Repeat the flag, or separate names with commas. |
+| `--repository <owner/name>` | A repository by its full name, as in `acme/web`. Repeat the flag, or separate names with commas. At most 100 repositories. |
 | `--ref <ref>` | A full ref, as in `refs/heads/main`, or a prefix that ends with `/*`, as in `refs/heads/release/*`. Repeat the flag for more refs. |
 | `--event <event>` | An event name of the platform, as in `push` or `pull_request_target`. Repeat the flag for more events. |
+| `--project-binding <binding>` | How a repository with no project gets a project: `auto` or `manual`. See [Projects](#projects). |
+| `--max-lifetime <duration>` | The longest life of a credential that the rule gives, from `1m` to `6h`, as in `30m`. The server default is `6h`. |
 
 ## The provider is required
 
@@ -61,9 +64,16 @@ it creates such a rule.
   `workflow_dispatch` and `release`. Any other event, such as `issues` or
   `pull_request_target`, matches only a rule that lists it with `--event`.
 
-The server sets how a repository with no project gets a project. A rule with no
-repository creates the project at the first tool session of the repository
-(`auto`). A rule with repositories needs a project first (`manual`).
+## Projects
+
+`--project-binding` says how a repository with no project gets a project:
+
+- `auto`: the first tool session of the repository creates its project.
+- `manual`: a member adds the repository as a project first. A tool session
+  from a repository with no project fails. Policy fetch and event sync still work.
+
+With no `--project-binding`, the server picks: `auto` for a rule with no
+repository, and `manual` for a rule with repositories.
 
 ## Examples
 

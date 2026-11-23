@@ -4,20 +4,34 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	clitui "github.com/safedep/cli/internal/tui"
 )
 
-// The patterns match the protovalidate rules of CreateWorkloadTrustRuleRequest
-// and WorkloadClaimCondition, so a bad flag fails before any RPC with the
-// flag in the message.
+// The name, ref prefix and repository patterns and the lifetime bounds match
+// the protovalidate rules of CreateWorkloadTrustRuleRequest and
+// WorkloadClaimCondition, so a bad flag fails before any RPC with the flag in
+// the message. The event pattern is the form of a GitHub Actions event name:
+// a value of another form never matches a token.
 var (
 	ruleNamePattern  = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 	refPrefixPattern = regexp.MustCompile(`^refs/(heads|tags)/([^*]*/)?[*]$`)
 	eventPattern     = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+	// repositoryPattern holds at least one character that is not a dot in
+	// each part, so neither part is "." or "..".
+	repositoryPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]*[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_.-]*[A-Za-z0-9_-][A-Za-z0-9_.-]*$`)
+)
+
+const (
+	maxRepositoryLength = 256
+	maxRepositories     = 100
+	minMaxLifetime      = time.Minute
+	maxMaxLifetime      = 6 * time.Hour
 )
 
 func grantTokens() []string {
@@ -61,7 +75,34 @@ func newRuleCreateRequest(in ruleCreateInput) (*controltowerv1.CreateWorkloadTru
 	req.SetGrant(grant)
 	req.SetRepositories(repositories)
 	req.SetConditions(conditions)
+	if in.ProjectBinding != "" {
+		binding, err := parseProjectBinding(in.ProjectBinding)
+		if err != nil {
+			return nil, err
+		}
+		req.SetProjectBinding(binding)
+	}
+	if in.MaxLifetimeSet {
+		if in.MaxLifetime < minMaxLifetime || in.MaxLifetime > maxMaxLifetime {
+			return nil, invalidInputError(fmt.Sprintf("--max-lifetime %s: use a duration from 1m to 6h", in.MaxLifetime),
+				"As in --max-lifetime 30m or --max-lifetime 2h")
+		}
+		req.SetMaxLifetime(durationpb.New(in.MaxLifetime))
+	}
 	return req, nil
+}
+
+func projectBindingTokens() []string {
+	return clitui.EnumTokens(controltowerv1.WorkloadProjectBinding_name, projectBindingPrefix)
+}
+
+func parseProjectBinding(token string) (controltowerv1.WorkloadProjectBinding, error) {
+	n, ok := clitui.ParseEnumToken(controltowerv1.WorkloadProjectBinding_name, projectBindingPrefix, token)
+	if !ok {
+		return 0, invalidInputError(fmt.Sprintf("--project-binding %q is not a project binding", token),
+			"Pass --project-binding "+strings.Join(projectBindingTokens(), " or --project-binding "))
+	}
+	return controltowerv1.WorkloadProjectBinding(n), nil
 }
 
 func parseGrant(token string) (messagescontroltowerv1.CredentialGrant, error) {
@@ -76,22 +117,22 @@ func parseGrant(token string) (messagescontroltowerv1.CredentialGrant, error) {
 	return messagescontroltowerv1.CredentialGrant(n), nil
 }
 
-// repositoryNames checks each --repository value. An owner or a name of "."
-// or ".." is never a GitHub repository, and the server refuses it.
+// repositoryNames checks each --repository value against the protovalidate
+// rules of CreateWorkloadTrustRuleRequest.repositories.
 func repositoryNames(values []string) ([]string, error) {
 	for _, v := range values {
-		owner, name, ok := strings.Cut(v, "/")
-		if !ok || owner == "" || name == "" || strings.Contains(name, "/") ||
-			isDotSegment(owner) || isDotSegment(name) {
-			return nil, invalidInputError(fmt.Sprintf("--repository %q: write OWNER/NAME", v),
+		if len(v) > maxRepositoryLength || !repositoryPattern.MatchString(v) {
+			return nil, invalidInputError(fmt.Sprintf("--repository %q: write OWNER/NAME with letters, digits, "+
+				"'-', '_' and '.', in at most %d characters", v, maxRepositoryLength),
 				"As in --repository acme/web")
 		}
 	}
-	return unique(values), nil
-}
-
-func isDotSegment(s string) bool {
-	return s == "." || s == ".."
+	names := unique(values)
+	if len(names) > maxRepositories {
+		return nil, invalidInputError(fmt.Sprintf("--repository: a rule names at most %d repositories", maxRepositories),
+			"Split the repositories over more rules, or create a rule with no --repository for every repository")
+	}
+	return names, nil
 }
 
 // refCondition builds the condition on the claim ref. A rule has at most one

@@ -16,7 +16,10 @@ import (
 )
 
 func TestRunRuleDelete(t *testing.T) {
-	rules := rulesResponse(trustRule("r_web", "web", nil), trustRule("r_org", "org", nil))
+	pages := [][]*controltowerv1.WorkloadTrustRule{
+		{trustRule("r_web", "web", nil)},
+		{trustRule("r_org", "org", nil)},
+	}
 	tests := []struct {
 		name    string
 		ref     string
@@ -24,7 +27,7 @@ func TestRunRuleDelete(t *testing.T) {
 		delErr  error
 		wantErr *usefulErrorWant
 	}{
-		{name: "by name", ref: "org", wantID: "r_org"},
+		{name: "by name on the second page", ref: "org", wantID: "r_org"},
 		{name: "by id", ref: "r_web", wantID: "r_web"},
 		{
 			name:   "a rule that the tenant does not have",
@@ -41,12 +44,13 @@ func TestRunRuleDelete(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			client := mocks.NewWorkloadAdminServiceClientMock(t)
-			client.EXPECT().ListWorkloadTrustRules(mock.Anything, mock.Anything).Return(rules, nil)
+			expectRulePages(client, pages...)
 			client.EXPECT().DeleteWorkloadTrustRule(mock.Anything, mock.MatchedBy(func(r *controltowerv1.DeleteWorkloadTrustRuleRequest) bool {
 				return r.GetRuleId() == tt.wantID
 			})).Return(&controltowerv1.DeleteWorkloadTrustRuleResponse{}, tt.delErr)
 
-			id, err := runRuleDelete(context.Background(), client, tt.ref)
+			// A nil confirm is --yes: the command reads no rule to ask about.
+			id, err := runRuleDelete(context.Background(), client, tt.ref, nil)
 
 			if tt.wantErr != nil {
 				requireUsefulError(t, err, *tt.wantErr)
@@ -54,6 +58,79 @@ func TestRunRuleDelete(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantID, id)
+		})
+	}
+}
+
+func TestRunRuleDelete_Confirm(t *testing.T) {
+	orgWide := trustRule("r_org", "org", nil)
+	scoped := trustRule("r_web", "web", map[string]string{"acme/web": "123456"})
+	tests := []struct {
+		name         string
+		rule         *controltowerv1.WorkloadTrustRule
+		answer       bool
+		interactive  bool
+		wantQuestion string
+		wantDeleted  bool
+		wantErr      *usefulErrorWant
+	}{
+		{
+			name:        "a rule with no repository, confirmed",
+			rule:        orgWide,
+			answer:      true,
+			interactive: true,
+			wantQuestion: "Rule org covers every repository of acme. The CI jobs of every repository that it " +
+				"admits lose access to SafeDep Cloud. Delete it?",
+			wantDeleted: true,
+		},
+		{
+			name:         "a rule with a repository, refused",
+			rule:         scoped,
+			interactive:  true,
+			wantQuestion: "The CI jobs that rule web admits, in acme/web, lose access to SafeDep Cloud. Delete it?",
+		},
+		{
+			name: "no terminal",
+			rule: scoped,
+			wantErr: &usefulErrorWant{
+				code:  usefulerror.ErrBadRequest,
+				human: "the delete of a workload trust rule needs a confirmation, and no terminal is present to confirm it",
+				help:  "Review it with safedep workload rule show web, then pass --yes to delete it",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := mocks.NewWorkloadAdminServiceClientMock(t)
+			expectRulePages(client, []*controltowerv1.WorkloadTrustRule{tt.rule})
+			client.EXPECT().GetWorkloadTrustRule(mock.Anything, mock.Anything).
+				Return(controltowerv1.GetWorkloadTrustRuleResponse_builder{Rule: tt.rule}.Build(), nil)
+			client.EXPECT().ListWorkloadIdentityProviders(mock.Anything, mock.Anything).
+				Return(providersResponse(activeProvider("prov_acme", "acme")), nil)
+			if tt.wantDeleted {
+				client.EXPECT().DeleteWorkloadTrustRule(mock.Anything, mock.Anything).
+					Return(&controltowerv1.DeleteWorkloadTrustRuleResponse{}, nil)
+			}
+			question := ""
+			confirm := terminalConfirm(tt.interactive, tt.rule.GetName())
+			if tt.interactive {
+				confirm = func(q string) (bool, error) {
+					question = q
+					return tt.answer, nil
+				}
+			}
+
+			_, err := runRuleDelete(context.Background(), client, tt.rule.GetName(), confirm)
+
+			switch {
+			case tt.wantErr != nil:
+				requireUsefulError(t, err, *tt.wantErr)
+			case tt.wantDeleted:
+				require.NoError(t, err)
+			default:
+				require.ErrorIs(t, err, errDeleteCancelled)
+			}
+			assert.Equal(t, tt.wantQuestion, question)
 		})
 	}
 }
@@ -137,4 +214,18 @@ func TestRuleResult_RenderTable(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRunRuleList_ProviderID(t *testing.T) {
+	client := mocks.NewWorkloadAdminServiceClientMock(t)
+	client.EXPECT().ListWorkloadIdentityProviders(mock.Anything, mock.Anything).
+		Return(providersResponse(activeProvider("prov_acme", "acme"), activeProvider("prov_beta", "beta")), nil)
+	client.EXPECT().ListWorkloadTrustRules(mock.Anything, mock.MatchedBy(func(r *controltowerv1.ListWorkloadTrustRulesRequest) bool {
+		return r.GetFilters().GetProviderId() == "prov_beta"
+	})).Return(rulesResponse(), nil)
+
+	res, err := runRuleList(context.Background(), client, ruleListInput{Provider: "prov_beta"})
+
+	require.NoError(t, err)
+	assert.Empty(t, res.Rules)
 }

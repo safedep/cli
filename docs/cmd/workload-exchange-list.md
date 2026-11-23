@@ -40,6 +40,10 @@ The reason names the missing rule. Create a rule that covers the job with
 [`safedep workload rule create`](./workload-rule-create.md). For an issued
 exchange, `DETAIL` says when the credential expires, or when it was revoked.
 
+When `--rule` names no live rule, the CLI sends the value as a rule id. If no
+exchange matches, the command says that no live rule has that name or id. To list
+the exchanges of a deleted rule, pass its rule id.
+
 ## Output
 
 `json` holds `exchanges` (exchange id, outcome, denial reason, rule id, provider

@@ -3,9 +3,11 @@ package workload
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	messagescontroltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	errorv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/error/v1"
@@ -29,12 +31,14 @@ func TestRunRuleCreate_Provider(t *testing.T) {
 	listed := "The providers of the tenant:\n" +
 		"  github-actions:acme  id prov_acme, link active\n" +
 		"  github-actions:Beta  id prov_beta, link suspended"
+	acmeTwin := activeProvider("prov_acme2", "ACME")
 	tests := []struct {
-		name      string
-		providers []*controltowerv1.WorkloadIdentityProvider
-		provider  string
-		wantID    string
-		wantErr   usefulErrorWant
+		name       string
+		providers  []*controltowerv1.WorkloadIdentityProvider
+		secondPage []*controltowerv1.WorkloadIdentityProvider
+		provider   string
+		wantID     string
+		wantErr    usefulErrorWant
 	}{
 		{
 			name:      "no provider with one provider in the tenant",
@@ -80,6 +84,25 @@ func TestRunRuleCreate_Provider(t *testing.T) {
 			wantID:    "prov_beta",
 		},
 		{
+			name:      "KIND:ACCOUNT that names two providers",
+			providers: []*controltowerv1.WorkloadIdentityProvider{acme, acmeTwin, beta},
+			provider:  "github-actions:acme",
+			wantErr: usefulErrorWant{
+				code: usefulerror.ErrBadRequest,
+				human: "--provider github-actions:acme names more than one provider. Pass the id of one of them:\n" +
+					"  github-actions:acme  id prov_acme, link active\n" +
+					"  github-actions:ACME  id prov_acme2, link active",
+				help: "Run the command again with --provider prov_acme",
+			},
+		},
+		{
+			name:       "a provider on the second page",
+			providers:  []*controltowerv1.WorkloadIdentityProvider{acme},
+			secondPage: []*controltowerv1.WorkloadIdentityProvider{beta},
+			provider:   "github-actions:Beta",
+			wantID:     "prov_beta",
+		},
+		{
 			name:      "a provider id",
 			providers: []*controltowerv1.WorkloadIdentityProvider{acme, beta},
 			provider:  "prov_acme",
@@ -89,7 +112,11 @@ func TestRunRuleCreate_Provider(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			client := mocks.NewWorkloadAdminServiceClientMock(t)
-			client.EXPECT().ListWorkloadIdentityProviders(mock.Anything, mock.Anything).Return(providersResponse(tt.providers...), nil)
+			if tt.secondPage != nil {
+				expectProviderPages(client, tt.providers, tt.secondPage)
+			} else {
+				client.EXPECT().ListWorkloadIdentityProviders(mock.Anything, mock.Anything).Return(providersResponse(tt.providers...), nil)
+			}
 			if tt.wantID != "" {
 				client.EXPECT().CreateWorkloadTrustRule(mock.Anything, mock.MatchedBy(func(r *controltowerv1.CreateWorkloadTrustRuleRequest) bool {
 					return r.GetProviderId() == tt.wantID
@@ -218,6 +245,15 @@ func TestRunRuleCreate_ServerErrors(t *testing.T) {
 			},
 		},
 		{
+			name: "a server that does not answer",
+			err:  status.Error(codes.Unavailable, "upstream connect error"),
+			want: usefulErrorWant{
+				code:  usefulerror.ErrServiceUnavailable,
+				human: "upstream connect error",
+				help:  "Run the command again later",
+			},
+		},
+		{
 			name: "a member",
 			err:  status.Error(codes.PermissionDenied, "admin role required"),
 			want: usefulErrorWant{
@@ -254,6 +290,8 @@ func TestNewRuleCreateRequest(t *testing.T) {
 		{name: "an org-wide rule", mutate: func(*ruleCreateInput) {}, check: func(t *testing.T, r *controltowerv1.CreateWorkloadTrustRuleRequest) {
 			assert.Empty(t, r.GetRepositories())
 			assert.Empty(t, r.GetConditions())
+			assert.Equal(t, controltowerv1.WorkloadProjectBinding_WORKLOAD_PROJECT_BINDING_UNSPECIFIED, r.GetProjectBinding())
+			assert.False(t, r.HasMaxLifetime())
 		}},
 		{name: "a name in upper case", mutate: func(in *ruleCreateInput) { in.Name = "Web" }, wantErr: `rule name "Web"`},
 		{name: "a name that ends with a hyphen", mutate: func(in *ruleCreateInput) { in.Name = "web-" }, wantErr: `rule name "web-"`},
@@ -262,6 +300,35 @@ func TestNewRuleCreateRequest(t *testing.T) {
 		{name: "a repository with no owner", mutate: func(in *ruleCreateInput) { in.Repositories = []string{"web"} }, wantErr: `--repository "web": write OWNER/NAME`},
 		{name: "a repository path", mutate: func(in *ruleCreateInput) { in.Repositories = []string{"acme/web/x"} }, wantErr: "write OWNER/NAME"},
 		{name: "a dot segment", mutate: func(in *ruleCreateInput) { in.Repositories = []string{"acme/.."} }, wantErr: "write OWNER/NAME"},
+		{name: "a space in a repository", mutate: func(in *ruleCreateInput) { in.Repositories = []string{"acme/web app"} }, wantErr: `--repository "acme/web app"`},
+		{name: "a repository name over 256 characters", mutate: func(in *ruleCreateInput) {
+			in.Repositories = []string{"acme/" + strings.Repeat("a", 252)}
+		}, wantErr: "in at most 256 characters"},
+		{name: "101 repositories", mutate: func(in *ruleCreateInput) {
+			for i := range 101 {
+				in.Repositories = append(in.Repositories, fmt.Sprintf("acme/r%d", i))
+			}
+		}, wantErr: "a rule names at most 100 repositories"},
+		{name: "repository names with dots", mutate: func(in *ruleCreateInput) { in.Repositories = []string{"acme/.github", "acme/web.js"} },
+			check: func(t *testing.T, r *controltowerv1.CreateWorkloadTrustRuleRequest) {
+				assert.Equal(t, []string{"acme/.github", "acme/web.js"}, r.GetRepositories())
+			}},
+		{name: "an unknown project binding", mutate: func(in *ruleCreateInput) { in.ProjectBinding = "always" }, wantErr: `--project-binding "always"`},
+		{name: "a project binding", mutate: func(in *ruleCreateInput) { in.ProjectBinding = "manual" },
+			check: func(t *testing.T, r *controltowerv1.CreateWorkloadTrustRuleRequest) {
+				assert.Equal(t, controltowerv1.WorkloadProjectBinding_WORKLOAD_PROJECT_BINDING_MANUAL, r.GetProjectBinding())
+				assert.False(t, r.HasMaxLifetime())
+			}},
+		{name: "a lifetime under one minute", mutate: func(in *ruleCreateInput) { in.MaxLifetime, in.MaxLifetimeSet = 59*time.Second, true },
+			wantErr: "--max-lifetime 59s: use a duration from 1m to 6h"},
+		{name: "a lifetime over six hours", mutate: func(in *ruleCreateInput) { in.MaxLifetime, in.MaxLifetimeSet = 6*time.Hour+time.Second, true },
+			wantErr: "use a duration from 1m to 6h"},
+		{name: "a lifetime of zero", mutate: func(in *ruleCreateInput) { in.MaxLifetimeSet = true }, wantErr: "use a duration from 1m to 6h"},
+		{name: "a lifetime at the bounds", mutate: func(in *ruleCreateInput) { in.MaxLifetime, in.MaxLifetimeSet = 6*time.Hour, true },
+			check: func(t *testing.T, r *controltowerv1.CreateWorkloadTrustRuleRequest) {
+				assert.Equal(t, 6*time.Hour, r.GetMaxLifetime().AsDuration())
+				assert.Equal(t, controltowerv1.WorkloadProjectBinding_WORKLOAD_PROJECT_BINDING_UNSPECIFIED, r.GetProjectBinding())
+			}},
 		{name: "a short ref", mutate: func(in *ruleCreateInput) { in.Refs = []string{"main"} }, wantErr: `--ref "main": write the full ref`},
 		{name: "a prefix that ends in a name", mutate: func(in *ruleCreateInput) { in.Refs = []string{"refs/heads/main*"} }, wantErr: "a prefix is refs/heads/"},
 		{name: "a star inside a ref", mutate: func(in *ruleCreateInput) { in.Refs = []string{"refs/heads/*/x"} }, wantErr: "a prefix is refs/heads/"},

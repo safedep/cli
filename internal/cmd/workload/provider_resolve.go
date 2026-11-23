@@ -53,7 +53,7 @@ func resolveProvider(
 ) (*controltowerv1.WorkloadIdentityProvider, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
-		return nil, providerError("--provider is required. The CLI never picks a provider", providers)
+		return nil, providerError("--provider is required. The CLI never picks a provider", providers, false)
 	}
 	for _, p := range providers {
 		if p.GetProviderId() == ref {
@@ -70,23 +70,30 @@ func resolveProvider(
 	case 1:
 		return matches[0], nil
 	case 0:
-		return nil, providerError(fmt.Sprintf("--provider %s is not a provider of the tenant", tui.EscapeLine(ref)), providers)
+		return nil, providerError(fmt.Sprintf("--provider %s is not a provider of the tenant", tui.EscapeLine(ref)),
+			providers, false)
 	}
-	return nil, providerError(fmt.Sprintf("--provider %s names more than one provider. Pass the provider id",
-		tui.EscapeLine(ref)), matches)
+	return nil, providerError(fmt.Sprintf("--provider %s names more than one provider", tui.EscapeLine(ref)),
+		matches, true)
 }
 
 // providerError lists the providers that --provider can take, so the user
-// can run the command again with one of them.
-func providerError(problem string, providers []*controltowerv1.WorkloadIdentityProvider) error {
+// can run the command again with one of them. ambiguous lists the providers
+// that one KIND:ACCOUNT name matches, and suggests a provider id, because the
+// name cannot select one of them.
+func providerError(problem string, providers []*controltowerv1.WorkloadIdentityProvider, ambiguous bool) error {
 	if len(providers) == 0 {
 		return invalidInputError(problem+". The tenant has no workload identity provider", noProvidersHelp)
 	}
-	lines := []string{problem + ". The providers of the tenant:"}
+	title, suggestion := "The providers of the tenant:", providerName(providers[0])
+	if ambiguous {
+		title, suggestion = "Pass the id of one of them:", providers[0].GetProviderId()
+	}
+	lines := []string{problem + ". " + title}
 	for _, p := range providers {
 		lines = append(lines, fmt.Sprintf("  %s  id %s, link %s", tui.EscapeLine(providerName(p)),
 			tui.EscapeLine(p.GetProviderId()), tui.EnumToken(p.GetLinkState().String(), linkStatePrefix)))
 	}
 	return invalidInputError(strings.Join(lines, "\n"),
-		"Run the command again with --provider "+tui.EscapeLine(providerName(providers[0])))
+		"Run the command again with --provider "+tui.EscapeLine(suggestion))
 }

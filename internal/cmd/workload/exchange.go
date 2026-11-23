@@ -9,6 +9,7 @@ import (
 
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
+	drytui "github.com/safedep/dry/tui"
 	"github.com/safedep/dry/tui/humanize"
 	"github.com/safedep/dry/tui/table"
 	"github.com/spf13/cobra"
@@ -34,6 +35,8 @@ type exchangeListInput struct {
 type exchangeListResult struct {
 	Exchanges     []exchangeView `json:"exchanges"`
 	NextPageToken string         `json:"next_page_token,omitempty"`
+	// unknownRule is the --rule value when it names no live rule.
+	unknownRule string
 }
 
 func exchangeListCmd(a *app.App) *cobra.Command {
@@ -55,6 +58,9 @@ func exchangeListCmd(a *app.App) *cobra.Command {
 			res, err := runExchangeList(cmd.Context(), client, in, time.Now())
 			if err != nil {
 				return err
+			}
+			if notice := res.notice(); notice != "" {
+				drytui.Info("%s", notice)
 			}
 			return a.Output.Print(res)
 		},
@@ -88,10 +94,14 @@ func runExchangeList(
 		filters.SetOutcome(controltowerv1.WorkloadExchangeOutcome_WORKLOAD_EXCHANGE_OUTCOME_DENIED)
 		set = true
 	}
+	unknownRule := ""
 	if in.Rule != "" {
-		id, err := ruleIDOf(ctx, client, "exchange list", in.Rule)
+		id, live, err := ruleIDOf(ctx, client, "exchange list", in.Rule)
 		if err != nil {
 			return nil, err
+		}
+		if !live {
+			unknownRule = in.Rule
 		}
 		filters.SetRuleId(id)
 		set = true
@@ -109,11 +119,23 @@ func runExchangeList(
 	out := &exchangeListResult{
 		Exchanges:     make([]exchangeView, 0, len(res.GetExchanges())),
 		NextPageToken: res.GetPagination().GetNextPageToken(),
+		unknownRule:   unknownRule,
 	}
 	for _, e := range res.GetExchanges() {
 		out.Exchanges = append(out.Exchanges, newExchangeView(e))
 	}
 	return out, nil
+}
+
+// notice explains an empty list for a --rule that names no live rule. The
+// CLI sent such a value as a rule id, so a name of a deleted rule, or a
+// typing error, matches nothing.
+func (r *exchangeListResult) notice() string {
+	if len(r.Exchanges) > 0 || r.unknownRule == "" {
+		return ""
+	}
+	return fmt.Sprintf("No live rule has the name or id %s. To list the exchanges of a deleted rule, pass its rule id",
+		tui.EscapeLine(r.unknownRule))
 }
 
 func (r *exchangeListResult) RenderJSON() ([]byte, error) {
@@ -136,7 +158,7 @@ func (r *exchangeListResult) RenderTable() string {
 		Title("Workload exchanges").
 		Headers("WHEN", "OUTCOME", "WORKLOAD", "RULE", "DETAIL").
 		Rows(tui.EscapeCells(rows)...).
-		EmptyMessage("No workload exchanges match. Try a wider --since window.")
+		EmptyMessage(r.emptyMessage())
 	if len(rows) > 0 {
 		footer := fmt.Sprintf("%d %s", len(rows), cloudpolicy.Plural(len(rows), "exchange", "exchanges"))
 		if r.NextPageToken != "" {
@@ -145,6 +167,13 @@ func (r *exchangeListResult) RenderTable() string {
 		t = t.Footer(footer)
 	}
 	return t.Render()
+}
+
+func (r *exchangeListResult) emptyMessage() string {
+	if r.unknownRule != "" {
+		return "No workload exchanges match."
+	}
+	return "No workload exchanges match. Try a wider --since window."
 }
 
 func (r *exchangeListResult) RenderPlain() string {

@@ -1,6 +1,7 @@
 package sourcelink
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/safedep/dry/usefulerror"
@@ -194,4 +195,92 @@ func TestGroupByOwner(t *testing.T) {
 			assert.Equal(t, tc.want, got)
 		})
 	}
+}
+
+func FuzzGroupByOwner(f *testing.F) {
+	pool := []Link{ghSafedep, ghAcme, ghNoName, bbSafedep, bbFoo, {Source: GitHub, ID: "gh-4", Account: "ACME"}}
+	sources := []Source{"", GitHub, Bitbucket}
+	for _, seed := range []struct {
+		names   string
+		source  uint8
+		links   uint8
+		account string
+	}{
+		{"safedep/vet,acme/api", 0, 0b000011, ""},
+		{"SAFEDEP/vet", 1, 0b000001, ""},
+		{"safedep/vet", 0, 0b001001, ""},
+		{"safedep/vet", 2, 0b001001, ""},
+		{"stale/repo", 1, 0b000100, ""},
+		{"acme/api", 1, 0b100010, ""},
+		{"nope/x,foo/y", 2, 0b011000, ""},
+		{"a/b,c/d", 0, 0b000011, "acme"},
+		{"noslash,/x,x/", 0, 0b000001, ""},
+		{"", 0, 0, ""},
+	} {
+		f.Add(seed.names, seed.source, seed.links, seed.account)
+	}
+	f.Fuzz(func(t *testing.T, rawNames string, sourceIndex, linkBits uint8, account string) {
+		var links []Link
+		for i, link := range pool {
+			if linkBits&(1<<i) != 0 {
+				links = append(links, link)
+			}
+		}
+		source := sources[int(sourceIndex)%len(sources)]
+		names := strings.Split(rawNames, ",")
+		sel := Selection{Source: source, Account: account}
+
+		groups, err := GroupByOwner(links, sel, names)
+
+		if account != "" {
+			if err != nil {
+				return
+			}
+			require.Len(t, groups, 1)
+			assert.True(t, strings.EqualFold(groups[0].Link.Account, account))
+			assert.Equal(t, names, groups[0].Names)
+			return
+		}
+
+		allowed := ofSource(links, source)
+		expected := make(map[string]Link, len(names))
+		resolvable := true
+		for _, name := range names {
+			owner, _, _ := strings.Cut(name, "/")
+			var matches []Link
+			for _, link := range allowed {
+				if link.Account != "" && strings.EqualFold(link.Account, owner) {
+					matches = append(matches, link)
+				}
+			}
+			switch {
+			case len(matches) == 1:
+				expected[name] = matches[0]
+			case len(matches) == 0 && len(allowed) == 1:
+				expected[name] = allowed[0]
+			default:
+				resolvable = false
+			}
+		}
+		if !resolvable {
+			require.Error(t, err)
+			return
+		}
+		require.NoError(t, err)
+
+		var regrouped []string
+		seen := map[string]bool{}
+		for _, group := range groups {
+			assert.False(t, seen[group.Link.ID], "link %s has two groups", group.Link.ID)
+			seen[group.Link.ID] = true
+			if source != "" {
+				assert.Equal(t, source, group.Link.Source)
+			}
+			for _, name := range group.Names {
+				assert.Equal(t, expected[name], group.Link, name)
+			}
+			regrouped = append(regrouped, group.Names...)
+		}
+		assert.ElementsMatch(t, names, regrouped)
+	})
 }

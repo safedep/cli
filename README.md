@@ -91,6 +91,11 @@ to a project and why.
 **Audit log**: `safedep audit`
 See who changed the policy, what, and when.
 
+**Workload identity**: `safedep workload`
+Let GitHub Actions jobs call SafeDep Cloud with no API key. Create the trust rules
+that say which repositories, refs and events get a credential, and see why a job
+got none.
+
 **Security telemetry queries**: `safedep query`
 Run SQL against SafeDep Cloud's query service. Inspect packages, events, and findings
 across your entire fleet.
@@ -153,6 +158,12 @@ Push SafeDep malware findings to external security tools. JFrog XRay is supporte
 | [`safedep policy rule delete`](./docs/cmd/policy-rule-delete.md) | Delete a package rule |
 | [`safedep policy decision list`](./docs/cmd/policy-decision-list.md) | List the decisions that the policy made, and where |
 | [`safedep audit event list`](./docs/cmd/audit-event-list.md) | List audit events of the tenant |
+| [`safedep workload provider list`](./docs/cmd/workload-provider-list.md) | List the workload identity providers of the tenant |
+| [`safedep workload rule create`](./docs/cmd/workload-rule-create.md) | Create a workload trust rule |
+| [`safedep workload rule list`](./docs/cmd/workload-rule-list.md) | List workload trust rules |
+| [`safedep workload rule show`](./docs/cmd/workload-rule-show.md) | Show one workload trust rule |
+| [`safedep workload rule delete`](./docs/cmd/workload-rule-delete.md) | Delete a workload trust rule |
+| [`safedep workload exchange list`](./docs/cmd/workload-exchange-list.md) | List workload exchanges, newest first |
 | [`safedep query exec`](./docs/cmd/query-exec.md) | Execute a SQL query against SafeDep Cloud |
 | [`safedep query schema list`](./docs/cmd/query-schema-list.md) | List tables in the query schema |
 | [`safedep query schema show`](./docs/cmd/query-schema-show.md) | Show one table from the query schema |

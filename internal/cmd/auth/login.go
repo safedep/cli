@@ -88,7 +88,31 @@ func runAPIKeyLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 	return nil
 }
 
+// deviceLoginDeps holds what device login reaches outside the process:
+// the keychain, the browser flow, the control plane and the data plane.
+// runDeviceLogin fills it from App and the network. Tests fill it with fakes.
+type deviceLoginDeps struct {
+	store        func() (cloud.CredentialStore, error)
+	storedAPIKey func() (*cloud.Credentials, error)
+	deviceFlow   func(context.Context) (*cliauth.DeviceFlowResult, error)
+	bootstrap    func(context.Context, cliauth.BootstrapInput) (*cliauth.BootstrapResult, error)
+	verify       cliauth.APIKeyVerifier
+}
+
 func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
+	return deviceLogin(cmd, a, flags, deviceLoginDeps{
+		store:        a.CredentialStore,
+		storedAPIKey: a.StoredAPIKey,
+		deviceFlow: func(ctx context.Context) (*cliauth.DeviceFlowResult, error) {
+			return cliauth.RunDeviceFlow(ctx, cliauth.PrintVerification,
+				cliauth.EmailVerificationRetry(cmd.InOrStdin()))
+		},
+		bootstrap: cliauth.PostOAuthBootstrap,
+		verify:    cliauth.VerifyAPIKey,
+	})
+}
+
+func deviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags, deps deviceLoginDeps) error {
 	if err := validateAPIKeyExpiryDays(flags); err != nil {
 		return err
 	}
@@ -96,15 +120,14 @@ func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 	// Open the keychain before the browser flow. A machine with no usable
 	// keychain then fails before SafeDep Cloud creates a key that login
 	// could not store.
-	store, err := a.CredentialStore()
+	store, err := deps.store()
 	if err != nil {
 		return err
 	}
 
 	tui.Info("Starting OAuth2 device login…")
 
-	res, err := cliauth.RunDeviceFlow(cmd.Context(), cliauth.PrintVerification,
-		cliauth.EmailVerificationRetry(cmd.InOrStdin()))
+	res, err := deps.deviceFlow(cmd.Context())
 	if err != nil {
 		return err
 	}
@@ -117,7 +140,7 @@ func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 		}
 	}
 
-	createKey, decideAPIKey := apiKeyPlan(flags, a.KeychainOptions())
+	createKey, decideAPIKey := apiKeyPlan(flags, deps.storedAPIKey, deps.verify)
 	var name string
 	if createKey {
 		name = cliauth.APIKeyName(cliauth.Hostname(), time.Now())
@@ -132,7 +155,7 @@ func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 		registrationPrompter = cliauth.NewRegistrationPrompter(res.AccessToken)
 	}
 
-	bootstrap, err := cliauth.PostOAuthBootstrap(cmd.Context(), cliauth.BootstrapInput{
+	bootstrap, err := deps.bootstrap(cmd.Context(), cliauth.BootstrapInput{
 		AccessToken:          res.AccessToken,
 		PreferredTenant:      preferredTenant,
 		CreateAPIKey:         createKey,
@@ -156,6 +179,10 @@ func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 	}
 
 	switch {
+	case bootstrap.APIKeyError != nil:
+		tui.Warning("Could not create an API key: %v", bootstrap.APIKeyError)
+		tui.Success("Authenticated as %s (profile %q). OAuth tokens stored. No usable API key: %s.",
+			bootstrap.Tenant, a.Profile(), decision.Reason)
 	case bootstrap.APIKey != "":
 		if decision.Reason != "" {
 			tui.Info("Created a new API key: %s.", decision.Reason)
@@ -176,9 +203,10 @@ func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 
 // validateAPIKeyExpiryDays refuses a lifetime inside the renewal window.
 // Login replaces a key that expires within the window, so such a key would be
-// replaced on every login.
+// replaced on every login. --rotate-api-key asks for a new key in any case,
+// so it accepts a short lifetime.
 func validateAPIKeyExpiryDays(flags loginFlags) error {
-	if flags.noAPIKey {
+	if flags.noAPIKey || flags.rotateAPIKey {
 		return nil
 	}
 	windowDays := int(cliauth.APIKeyRenewWindow.Hours() / 24)
@@ -192,7 +220,7 @@ func validateAPIKeyExpiryDays(flags loginFlags) error {
 // apiKeyPlan returns whether login creates or checks an API key, and the
 // check that decides on the stored key once the tenant is picked. The check
 // is nil when login always creates a key.
-func apiKeyPlan(flags loginFlags, opts []cloud.KeychainOption,
+func apiKeyPlan(flags loginFlags, storedAPIKey func() (*cloud.Credentials, error), verify cliauth.APIKeyVerifier,
 ) (bool, func(context.Context, string) cliauth.APIKeyDecision) {
 	if flags.noAPIKey {
 		return false, nil
@@ -201,11 +229,11 @@ func apiKeyPlan(flags loginFlags, opts []cloud.KeychainOption,
 		return true, nil
 	}
 	return true, func(ctx context.Context, tenant string) cliauth.APIKeyDecision {
-		stored, err := cliauth.StoredAPIKey(opts)
+		stored, err := storedAPIKey()
 		if err != nil {
 			return cliauth.APIKeyDecision{Reason: fmt.Sprintf("the stored API key cannot be read: %v", err)}
 		}
-		return cliauth.DecideStoredAPIKey(ctx, stored, tenant, time.Now(), cliauth.VerifyAPIKey)
+		return cliauth.DecideStoredAPIKey(ctx, stored, tenant, time.Now(), verify)
 	}
 }
 

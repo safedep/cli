@@ -284,34 +284,57 @@ func TestPostOAuthBootstrap_DecideAPIKey(t *testing.T) {
 // stored key still works, for example for a user who cannot create keys.
 func TestPostOAuthBootstrap_CreateFails(t *testing.T) {
 	expiresAt := time.Now().Add(72 * time.Hour).UTC().Truncate(time.Second)
+	keep := func(d APIKeyDecision) func(context.Context, string) APIKeyDecision {
+		return func(context.Context, string) APIKeyDecision { return d }
+	}
 
 	tests := []struct {
-		name         string
-		decision     APIKeyDecision
-		wantErr      bool
-		wantWarnings []string
+		name string
+		// decide is nil for --rotate-api-key.
+		decide          func(context.Context, string) APIKeyDecision
+		wantErr         bool
+		wantKeep        bool
+		wantExpiresAt   time.Time
+		wantWarnings    []string
+		wantCreateError bool
 	}{
 		{
-			name:         "a stored key that still works is kept",
-			decision:     APIKeyDecision{Reason: "the stored API key expires soon", Fallback: true, ExpiresAt: expiresAt},
-			wantWarnings: []string{"could not create a new API key"},
+			name:          "a stored key that still works is kept",
+			decide:        keep(APIKeyDecision{Reason: "the stored API key expires soon", Fallback: true, ExpiresAt: expiresAt}),
+			wantKeep:      true,
+			wantExpiresAt: expiresAt,
+			wantWarnings:  []string{"could not create a new API key"},
 		},
 		{
 			name: "both warnings reach the user",
-			decision: APIKeyDecision{Reason: "the stored API key expires soon", Fallback: true, ExpiresAt: expiresAt,
-				Warning: "could not verify the stored API key: no route"},
-			wantWarnings: []string{"could not verify the stored API key", "could not create a new API key"},
+			decide: keep(APIKeyDecision{Reason: "the stored API key expires soon", Fallback: true, ExpiresAt: expiresAt,
+				Warning: "could not verify the stored API key: no route"}),
+			wantKeep:      true,
+			wantExpiresAt: expiresAt,
+			wantWarnings:  []string{"could not verify the stored API key", "could not create a new API key"},
 		},
 		{
-			name: "a fallback that expired during the create fails the login",
-			decision: APIKeyDecision{Reason: "the stored API key expires soon", Fallback: true,
-				ExpiresAt: time.Now().Add(-time.Second)},
+			name:         "a stored key with no recorded expiry that still works is kept",
+			decide:       keep(APIKeyDecision{Reason: "the expiry of the stored API key is not recorded", Fallback: true}),
+			wantKeep:     true,
+			wantWarnings: []string{"could not create a new API key"},
+		},
+		{
+			// The OAuth tokens of the login still work, so the caller saves
+			// them and reports the error.
+			name: "a fallback that expired during the create leaves no key",
+			decide: keep(APIKeyDecision{Reason: "the stored API key expires soon", Fallback: true,
+				ExpiresAt: time.Now().Add(-time.Second)}),
+			wantCreateError: true,
+		},
+		{
+			name:            "no usable stored key leaves no key",
+			decide:          keep(APIKeyDecision{Reason: "the stored API key expired"}),
+			wantCreateError: true,
+		},
+		{
+			name:    "--rotate-api-key fails the login",
 			wantErr: true,
-		},
-		{
-			name:     "no usable stored key fails the login",
-			decision: APIKeyDecision{Reason: "the stored API key expired"},
-			wantErr:  true,
 		},
 	}
 
@@ -327,7 +350,7 @@ func TestPostOAuthBootstrap_CreateFails(t *testing.T) {
 				AccessToken:      "token-123",
 				CreateAPIKey:     true,
 				APIKeyExpiryDays: 90,
-				DecideAPIKey:     func(context.Context, string) APIKeyDecision { return tc.decision },
+				DecideAPIKey:     tc.decide,
 				ConnFor:          connFor,
 			})
 
@@ -336,12 +359,19 @@ func TestPostOAuthBootstrap_CreateFails(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.True(t, res.APIKeyDecision.Keep)
-			assert.True(t, expiresAt.Equal(res.APIKeyDecision.ExpiresAt))
+			assert.Empty(t, res.APIKey)
+			assert.Equal(t, tc.wantKeep, res.APIKeyDecision.Keep)
+			if tc.wantKeep {
+				assert.True(t, tc.wantExpiresAt.Equal(res.APIKeyDecision.ExpiresAt))
+			}
 			for _, w := range tc.wantWarnings {
 				assert.Contains(t, res.APIKeyDecision.Warning, w)
 			}
-			assert.Empty(t, res.APIKey)
+			if tc.wantCreateError {
+				assert.Equal(t, codes.PermissionDenied, status.Code(res.APIKeyError))
+			} else {
+				assert.NoError(t, res.APIKeyError)
+			}
 		})
 	}
 }

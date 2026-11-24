@@ -45,7 +45,7 @@ func TestNextStepHint(t *testing.T) {
 		{
 			"api key with no recorded expiry",
 			cliauth.Status{APIKey: true, OAuth: true},
-			"--rotate-api-key",
+			"API key expiry is not recorded",
 		},
 	}
 

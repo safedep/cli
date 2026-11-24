@@ -66,16 +66,20 @@ type APIKeyDecision struct {
 	Warning string
 
 	// Fallback means that the stored key still works for the tenant, so
-	// login keeps it when it cannot create a new key. ExpiresAt is set.
+	// login keeps it when it cannot create a new key. ExpiresAt is zero when
+	// the expiry of the key is not recorded.
 	Fallback bool
 }
 
 // DecideStoredAPIKey decides whether login keeps the API key that the
 // keychain holds for the profile. stored is nil when the keychain holds no
-// key. The key stays only when it belongs to tenant, it does not expire
-// within APIKeyRenewWindow, and SafeDep Cloud accepts it. A key with no
-// recorded expiry, such as a pasted key, stays when SafeDep Cloud accepts it:
-// an expired key fails that check.
+// key. The key stays only when it belongs to tenant, its recorded expiry is
+// more than APIKeyRenewWindow away, and SafeDep Cloud accepts it.
+//
+// A key with no recorded expiry is replaced: every key that a CLI saved
+// before it recorded the expiry is one, and status cannot warn before such a
+// key expires. Like a key inside the window, it is the fallback when login
+// cannot create a new key.
 func DecideStoredAPIKey(ctx context.Context, stored *cloud.Credentials, tenant string, now time.Time,
 	verify APIKeyVerifier,
 ) APIKeyDecision {
@@ -99,8 +103,8 @@ func DecideStoredAPIKey(ctx context.Context, stored *cloud.Credentials, tenant s
 		return APIKeyDecision{Reason: "the stored API key cannot be read"}
 	}
 
-	// A key inside the renewal window is checked too: login falls back to it
-	// when it cannot create a new key, and a revoked key must not be kept.
+	// A key that login replaces is checked too: login falls back to it when
+	// it cannot create a new key, and a revoked key must not be kept.
 	warning := ""
 	if err := verify(ctx, APIKeyInput{APIKey: key, Tenant: tenant}); err != nil {
 		// The gateway answers Unauthenticated for an expired key and
@@ -112,9 +116,13 @@ func DecideStoredAPIKey(ctx context.Context, stored *cloud.Credentials, tenant s
 		warning = fmt.Sprintf("could not verify the stored API key: %v", err)
 	}
 
-	if state == APIKeyExpiring {
+	switch state {
+	case APIKeyExpiring:
 		return APIKeyDecision{Reason: "the stored API key expires on " + formatDay(expiresAt),
 			Fallback: true, ExpiresAt: expiresAt, Warning: warning}
+	case APIKeyExpiryUnknown:
+		return APIKeyDecision{Reason: "the expiry of the stored API key is not recorded",
+			Fallback: true, Warning: warning}
 	}
 
 	return APIKeyDecision{Keep: true, ExpiresAt: expiresAt, Warning: warning}

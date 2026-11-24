@@ -148,7 +148,7 @@ func nextStepHint(st cliauth.Status, now time.Time) string {
 		return "API key expires soon. Run 'safedep auth login' to renew it."
 	case st.APIKeyState(now) == cliauth.APIKeyExpiryUnknown:
 		return "API key expiry is not recorded, so status cannot tell whether the key has expired. " +
-			"Run 'safedep auth login --rotate-api-key' to replace it with a key whose expiry is recorded."
+			"Run 'safedep auth login' to replace it with a key whose expiry is recorded."
 	}
 	return ""
 }

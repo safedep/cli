@@ -96,11 +96,15 @@ func TestDecideStoredAPIKey(t *testing.T) {
 			wantVerified: true,
 		},
 		{
+			// Every key that a CLI saved before it recorded the expiry is one.
+			// Status cannot warn before it expires, so login replaces it and
+			// keeps it only when it cannot create a new key.
 			name: "a key with no recorded expiry that SafeDep Cloud accepts",
 			stored: func(t *testing.T) *cloud.Credentials {
 				return keychainCredentials(t, "sk-1", "acme.safedep.io", cloud.APIKeyMetadata{})
 			},
-			wantKeep:     true,
+			wantReason:   "expiry of the stored API key is not recorded",
+			wantFallback: true,
 			wantVerified: true,
 		},
 		{
@@ -111,6 +115,23 @@ func TestDecideStoredAPIKey(t *testing.T) {
 			verifyErr:    fmt.Errorf("auth: data plane ping: %w", status.Error(codes.Unauthenticated, "key expired")),
 			wantReason:   "SafeDep Cloud rejected the stored API key",
 			wantVerified: true,
+		},
+		{
+			name: "a key that expires exactly at the end of the renewal window is kept",
+			stored: func(t *testing.T) *cloud.Credentials {
+				return keychainCredentials(t, "sk-1", "acme.safedep.io",
+					cloud.APIKeyMetadata{KeyID: "key-1", ExpiresAt: now.Add(APIKeyRenewWindow)})
+			},
+			wantKeep:     true,
+			wantVerified: true,
+		},
+		{
+			name: "a key that expires now is expired",
+			stored: func(t *testing.T) *cloud.Credentials {
+				return keychainCredentials(t, "sk-1", "acme.safedep.io",
+					cloud.APIKeyMetadata{KeyID: "key-1", ExpiresAt: now})
+			},
+			wantReason: "expired on 2026-11-22",
 		},
 		{
 			name: "a valid key that SafeDep Cloud accepts",

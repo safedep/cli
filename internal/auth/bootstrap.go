@@ -61,6 +61,11 @@ type BootstrapResult struct {
 
 	// APIKeyDecision is what DecideAPIKey returned. Zero when it did not run.
 	APIKeyDecision APIKeyDecision
+
+	// APIKeyError is why login could not create a key when DecideAPIKey ran
+	// and no usable key remains. The OAuth tokens of the login still work,
+	// so the caller saves them and reports the error as a warning.
+	APIKeyError error
 }
 
 // PostOAuthBootstrap completes the work that follows a successful device
@@ -107,18 +112,20 @@ func PostOAuthBootstrap(ctx context.Context, in BootstrapInput) (*BootstrapResul
 	}
 
 	key, err := createAPIKey(ctx, in.ConnFor, in.AccessToken, tenant, in.APIKeyName, in.APIKeyExpiryDays)
-	if err != nil && res.APIKeyDecision.Fallback && time.Now().Before(res.APIKeyDecision.ExpiresAt) {
-		// The stored key still works, so a failed create must not cost the
-		// user the OAuth tokens of this login. A Viewer cannot create keys.
-		warning := fmt.Sprintf("could not create a new API key, so the stored key stays: %v", err)
-		if prev := res.APIKeyDecision.Warning; prev != "" {
-			warning = prev + ". " + warning
+	if err != nil && in.DecideAPIKey != nil {
+		// A failed create must not cost the user the OAuth tokens of this
+		// login. A Viewer cannot create keys. An explicit --rotate-api-key
+		// has no DecideAPIKey and fails instead.
+		decision := res.APIKeyDecision
+		if decision.Fallback && (decision.ExpiresAt.IsZero() || time.Now().Before(decision.ExpiresAt)) {
+			warning := fmt.Sprintf("could not create a new API key, so the stored key stays: %v", err)
+			if decision.Warning != "" {
+				warning = decision.Warning + ". " + warning
+			}
+			res.APIKeyDecision = APIKeyDecision{Keep: true, ExpiresAt: decision.ExpiresAt, Warning: warning}
+			return res, nil
 		}
-		res.APIKeyDecision = APIKeyDecision{
-			Keep:      true,
-			ExpiresAt: res.APIKeyDecision.ExpiresAt,
-			Warning:   warning,
-		}
+		res.APIKeyError = err
 		return res, nil
 	}
 	if err != nil {

@@ -19,7 +19,7 @@ The API key has one of these states:
 | `valid` | `configured` | The recorded expiry is more than 14 days away. |
 | `expiring` | `expires soon` | The key expires within 14 days. `safedep auth login` replaces it. |
 | `expired` | `expired` | The recorded expiry has passed. pmg and vet fail with this key. |
-| `expiry_unknown` | `expiry unknown` | No expiry is recorded, for example for a key saved by `--api-key` or by an earlier CLI. Status cannot tell whether it has expired. `safedep auth login --rotate-api-key` replaces it with a key whose expiry is recorded. |
+| `expiry_unknown` | `expiry unknown` | No expiry is recorded, for example for a key saved by `--api-key` or by an earlier CLI. Status cannot tell whether it has expired. `safedep auth login` replaces it with a key whose expiry is recorded. |
 | `missing` | `not configured` | The profile holds no API key. |
 
 The overall status is `authenticated` only when the OAuth token is valid and the API key has not expired.

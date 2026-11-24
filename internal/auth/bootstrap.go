@@ -114,8 +114,9 @@ func PostOAuthBootstrap(ctx context.Context, in BootstrapInput) (*BootstrapResul
 	key, err := createAPIKey(ctx, in.ConnFor, in.AccessToken, tenant, in.APIKeyName, in.APIKeyExpiryDays)
 	if err != nil && in.DecideAPIKey != nil {
 		// A failed create must not cost the user the OAuth tokens of this
-		// login. A Viewer cannot create keys. An explicit --rotate-api-key
-		// has no DecideAPIKey and fails instead.
+		// login. A Viewer cannot create keys. Login fails instead for an
+		// explicit --rotate-api-key, which has no DecideAPIKey, and when the
+		// stored key belongs to another tenant.
 		decision := res.APIKeyDecision
 		if decision.Fallback && (decision.ExpiresAt.IsZero() || time.Now().Before(decision.ExpiresAt)) {
 			warning := fmt.Sprintf("could not create a new API key, so the stored key stays: %v", err)
@@ -124,6 +125,9 @@ func PostOAuthBootstrap(ctx context.Context, in BootstrapInput) (*BootstrapResul
 			}
 			res.APIKeyDecision = APIKeyDecision{Keep: true, ExpiresAt: decision.ExpiresAt, Warning: warning}
 			return res, nil
+		}
+		if decision.OtherTenant {
+			return nil, err
 		}
 		res.APIKeyError = err
 		return res, nil

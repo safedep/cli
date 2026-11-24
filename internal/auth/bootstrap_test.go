@@ -333,6 +333,14 @@ func TestPostOAuthBootstrap_CreateFails(t *testing.T) {
 			wantCreateError: true,
 		},
 		{
+			// B's OAuth tokens next to A's key would send data plane calls
+			// to tenant A.
+			name: "a stored key of another tenant fails the login",
+			decide: keep(APIKeyDecision{Reason: `the stored API key belongs to tenant "old.safedep.io"`,
+				OtherTenant: true}),
+			wantErr: true,
+		},
+		{
 			name:    "--rotate-api-key fails the login",
 			wantErr: true,
 		},

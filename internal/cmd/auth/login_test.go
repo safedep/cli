@@ -46,6 +46,7 @@ func TestValidateAPIKeyExpiryDays(t *testing.T) {
 	assert.NoError(t, validateAPIKeyExpiryDays(loginFlags{apiKeyExpiryDays: 15}))
 	assert.NoError(t, validateAPIKeyExpiryDays(loginFlags{apiKeyExpiryDays: 1, noAPIKey: true}))
 	assert.NoError(t, validateAPIKeyExpiryDays(loginFlags{apiKeyExpiryDays: 7, rotateAPIKey: true}))
+	assert.Error(t, validateAPIKeyExpiryDays(loginFlags{apiKeyExpiryDays: 0, rotateAPIKey: true}))
 }
 
 // TestDeviceLogin runs device login against a file keychain, a fake data

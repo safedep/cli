@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strings"
 	"time"
@@ -201,12 +202,19 @@ func deviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags, deps deviceLo
 	return nil
 }
 
-// validateAPIKeyExpiryDays refuses a lifetime inside the renewal window.
-// Login replaces a key that expires within the window, so such a key would be
-// replaced on every login. --rotate-api-key asks for a new key in any case,
-// so it accepts a short lifetime.
+// validateAPIKeyExpiryDays refuses a lifetime that SafeDep Cloud would refuse,
+// before the browser flow. It also refuses a lifetime inside the renewal
+// window: login replaces a key that expires within the window, so such a key
+// would be replaced on every login. --rotate-api-key asks for a new key in
+// any case, so it accepts a short lifetime.
 func validateAPIKeyExpiryDays(flags loginFlags) error {
-	if flags.noAPIKey || flags.rotateAPIKey {
+	if flags.noAPIKey {
+		return nil
+	}
+	if flags.apiKeyExpiryDays <= 0 || flags.apiKeyExpiryDays > math.MaxInt32 {
+		return fmt.Errorf("--api-key-expiry-days must be a positive number of days: got %d", flags.apiKeyExpiryDays)
+	}
+	if flags.rotateAPIKey {
 		return nil
 	}
 	windowDays := int(cliauth.APIKeyRenewWindow.Hours() / 24)

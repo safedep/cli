@@ -23,6 +23,7 @@ Login keeps the stored key and prints a warning when SafeDep Cloud cannot be rea
 When login cannot create a new key, for example for a user who cannot create keys:
 
 - If SafeDep Cloud still accepts the stored key, login keeps it and prints a warning.
+- If the stored key belongs to another tenant, login fails and stores nothing. The OAuth tokens of one tenant next to the key of another would send pmg, vet and data plane commands to the other tenant.
 - Otherwise login stores the OAuth tokens, prints a warning and exits with success. `safedep auth status` then shows the state of the old key. pmg and vet need a key: ask a tenant admin for one and save it with `safedep auth login --api-key`.
 - With `--rotate-api-key`, login fails and stores nothing.
 
@@ -43,7 +44,7 @@ safedep auth login --api-key [--api-key-value <key> | --from-stdin] [--tenant <d
 | `--api-key-value <key>` | Supply the API key inline. Only with `--api-key`; prefer `--from-stdin` or `SAFEDEP_API_KEY`. |
 | `--from-stdin` | Read API key from stdin. Only with `--api-key`. |
 | `--tenant <domain>` | Tenant domain. Used as fallback when none is stored for the profile. |
-| `--api-key-expiry-days <n>` | Expiry for API keys created during device login (default 90). Must be more than 14, because login replaces a key that expires within 14 days. With `--rotate-api-key`, any value is accepted. |
+| `--api-key-expiry-days <n>` | Expiry for API keys created during device login (default 90). Must be more than 14, because login replaces a key that expires within 14 days. With `--rotate-api-key`, any positive value is accepted. |
 | `--rotate-api-key` | Create a new API key during device login even when the stored key is valid. |
 | `--no-api-key` | Skip API key creation during device login. OAuth tokens are still stored. |
 

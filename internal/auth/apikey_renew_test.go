@@ -52,6 +52,7 @@ func TestDecideStoredAPIKey(t *testing.T) {
 		wantVerified bool
 		wantWarning  bool
 		wantFallback bool
+		wantOther    bool
 	}{
 		{
 			name:       "no stored key",
@@ -64,6 +65,7 @@ func TestDecideStoredAPIKey(t *testing.T) {
 				return keychainCredentials(t, "sk-1", "old.safedep.io", valid)
 			},
 			wantReason: `belongs to tenant "old.safedep.io"`,
+			wantOther:  true,
 		},
 		{
 			name: "an expired key",
@@ -189,6 +191,7 @@ func TestDecideStoredAPIKey(t *testing.T) {
 			}
 			assert.Equal(t, tc.wantWarning, got.Warning != "", "warning %q", got.Warning)
 			assert.Equal(t, tc.wantFallback, got.Fallback)
+			assert.Equal(t, tc.wantOther, got.OtherTenant)
 			if tc.wantVerified {
 				assert.Equal(t, APIKeyInput{APIKey: "sk-1", Tenant: "acme.safedep.io"}, verified)
 			} else {

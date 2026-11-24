@@ -65,6 +65,12 @@ type APIKeyDecision struct {
 	// because a network failure says nothing about the key.
 	Warning string
 
+	// OtherTenant means that the stored key belongs to another tenant. When
+	// login cannot create a key, it must then fail: the OAuth tokens of the
+	// picked tenant next to the key of another tenant would send data plane
+	// calls to the other tenant.
+	OtherTenant bool
+
 	// Fallback means that the stored key still works for the tenant, so
 	// login keeps it when it cannot create a new key. ExpiresAt is zero when
 	// the expiry of the key is not recorded.
@@ -89,7 +95,8 @@ func DecideStoredAPIKey(ctx context.Context, stored *cloud.Credentials, tenant s
 
 	storedTenant, err := stored.GetTenantDomain()
 	if err != nil || storedTenant != tenant {
-		return APIKeyDecision{Reason: fmt.Sprintf("the stored API key belongs to tenant %q", storedTenant)}
+		return APIKeyDecision{Reason: fmt.Sprintf("the stored API key belongs to tenant %q", storedTenant),
+			OtherTenant: true}
 	}
 
 	expiresAt, _ := stored.APIKeyExpiresAt()

@@ -21,3 +21,12 @@ packages:
     interfaces:
       PolicyServiceClient:
       LabelServiceClient:
+  buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc:
+    config:
+      include-auto-generated: true
+      dir: "internal/cmd/workload/mocks"
+      pkgname: "mocks"
+      structname: "{{.InterfaceName}}Mock"
+      filename: "{{.InterfaceName}}_mock.go"
+    interfaces:
+      WorkloadAdminServiceClient:

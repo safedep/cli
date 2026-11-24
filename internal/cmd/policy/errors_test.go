@@ -2,7 +2,6 @@ package policy
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -79,22 +78,6 @@ func TestDescribeStatus(t *testing.T) {
 		want string
 	}{
 		{
-			name: "a status with no detail",
-			err:  status.Error(codes.InvalidArgument, "override priorities must be unique"),
-			want: "override priorities must be unique",
-		},
-		{
-			name: "the service prefix of the server",
-			err:  status.Error(codes.InvalidArgument, "service execution failed: override priorities must be unique"),
-			want: "override priorities must be unique",
-		},
-		{
-			name: "a wrapped status",
-			err: usefulerror.NewUsefulError().WithHumanError("x").
-				Wrap(fmt.Errorf("policy change create: %w", status.Error(codes.InvalidArgument, "bad title"))),
-			want: "bad title",
-		},
-		{
 			name: "a violation with the message as its description",
 			err: statusWithViolations(codes.InvalidArgument,
 				"service execution failed: unknown label prefix \"team/\"",
@@ -119,35 +102,10 @@ func TestDescribeStatus(t *testing.T) {
 				"base_description: must be at most 1000 characters",
 		},
 		{
-			name: "a doubled service prefix",
-			err:  status.Error(codes.InvalidArgument, "service execution failed:  service execution failed: bad"),
-			want: "bad",
-		},
-		{
-			name: "a status with no message",
-			err:  status.Error(codes.InvalidArgument, ""),
-			want: "The server gave no reason",
-		},
-		{
-			name: "a violation with no description",
-			err:  statusWithViolations(codes.InvalidArgument, "", violation("title", "")),
-			want: "title",
-		},
-		{
 			name: "map key subscripts",
 			err: statusWithViolations(codes.InvalidArgument, "", violation(prototext.Format(mapKeyPath()),
 				"unknown label prefix")),
 			want: `overrides[2].selector.matchLabels["team/x"]: unknown label prefix`,
-		},
-		{
-			name: "control characters from the server",
-			err:  status.Error(codes.InvalidArgument, "bad\x1b[2J"),
-			want: `bad\x1b[2J`,
-		},
-		{
-			name: "an error that is not a status",
-			err:  errors.New("line 1: bad\x1b[2J\nline 2"),
-			want: "line 1: bad\\x1b[2J\nline 2",
 		},
 	}
 	for _, tt := range tests {

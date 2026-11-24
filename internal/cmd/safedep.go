@@ -14,6 +14,7 @@ import (
 	"github.com/safedep/cli/internal/cmd/setup"
 	"github.com/safedep/cli/internal/cmd/subscription"
 	"github.com/safedep/cli/internal/cmd/version"
+	"github.com/safedep/cli/internal/cmd/workload"
 	"github.com/spf13/cobra"
 )
 
@@ -33,5 +34,6 @@ func NewSafedep(a *app.App) *cobra.Command {
 	setup.Register(root, a)
 	subscription.Register(root, a)
 	version.Register(root, a)
+	workload.Register(root, a)
 	return root
 }

@@ -9,8 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	"github.com/safedep/cli/internal/bitbucketlink"
 )
@@ -37,17 +35,19 @@ func (f *fakeBitbucketLinkLister) ListBitbucketWorkspaceLinks(
 }
 
 type fakeBitbucketRepositoryLister struct {
-	pages []*controltowerv1.ListBitbucketRepositoriesResponse
-	calls int
-	err   error
+	pages    []*controltowerv1.ListBitbucketRepositoriesResponse
+	calls    int
+	requests []*controltowerv1.ListBitbucketRepositoriesRequest
+	err      error
 }
 
 func (f *fakeBitbucketRepositoryLister) ListBitbucketRepositories(
 	_ context.Context,
-	_ *controltowerv1.ListBitbucketRepositoriesRequest,
+	req *controltowerv1.ListBitbucketRepositoriesRequest,
 	_ ...grpc.CallOption,
 ) (*controltowerv1.ListBitbucketRepositoriesResponse, error) {
 	f.calls++
+	f.requests = append(f.requests, req)
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -57,11 +57,16 @@ func (f *fakeBitbucketRepositoryLister) ListBitbucketRepositories(
 	return f.pages[min(f.calls-1, len(f.pages)-1)], nil
 }
 
+// fakeBitbucketProjectSyncer answers each request with one project per
+// requested repository, unless res fixes the response. err fails every call,
+// or only call failOnCall when that is set.
 type fakeBitbucketProjectSyncer struct {
-	calls int
-	req   *controltowerv1.SyncBitbucketProjectsRequest
-	res   *controltowerv1.SyncBitbucketProjectsResponse
-	err   error
+	calls      int
+	req        *controltowerv1.SyncBitbucketProjectsRequest
+	reqs       []*controltowerv1.SyncBitbucketProjectsRequest
+	res        *controltowerv1.SyncBitbucketProjectsResponse
+	err        error
+	failOnCall int
 }
 
 func (f *fakeBitbucketProjectSyncer) SyncBitbucketProjects(
@@ -71,7 +76,27 @@ func (f *fakeBitbucketProjectSyncer) SyncBitbucketProjects(
 ) (*controltowerv1.SyncBitbucketProjectsResponse, error) {
 	f.calls++
 	f.req = req
-	return f.res, f.err
+	f.reqs = append(f.reqs, req)
+	if f.err != nil && (f.failOnCall == 0 || f.failOnCall == f.calls) {
+		return nil, f.err
+	}
+	if f.res != nil {
+		return f.res, nil
+	}
+	mappings := make([]*controltowerv1.SyncBitbucketProjectsResponse_ProjectMapping, 0, len(req.GetRepositories()))
+	for _, selection := range req.GetRepositories() {
+		mappings = append(mappings, bitbucketProjectMapping(selection.GetRepositoryUuid(),
+			"project-"+selection.GetRepositoryUuid()))
+	}
+	return bitbucketSyncResponse(mappings...), nil
+}
+
+func syncedUUIDs(req *controltowerv1.SyncBitbucketProjectsRequest) []string {
+	uuids := make([]string, 0, len(req.GetRepositories()))
+	for _, selection := range req.GetRepositories() {
+		uuids = append(uuids, selection.GetRepositoryUuid())
+	}
+	return uuids
 }
 
 var (
@@ -87,9 +112,13 @@ func bitbucketLinksPage(links ...*controltowerv1.ListBitbucketWorkspaceLinksResp
 }
 
 func bitbucketWorkspaceLink(linkID string) *controltowerv1.ListBitbucketWorkspaceLinksResponse_WorkspaceLink {
+	return bitbucketWorkspaceLinkOf(linkID, "safedep")
+}
+
+func bitbucketWorkspaceLinkOf(linkID, slug string) *controltowerv1.ListBitbucketWorkspaceLinksResponse_WorkspaceLink {
 	link := &controltowerv1.ListBitbucketWorkspaceLinksResponse_WorkspaceLink{}
 	link.SetLinkId(linkID)
-	link.SetWorkspaceSlug("safedep")
+	link.SetWorkspaceSlug(slug)
 	return link
 }
 
@@ -103,6 +132,7 @@ func bitbucketListedRepository(uuid, fullName string) *controltowerv1.ListBitbuc
 	repository := &controltowerv1.ListBitbucketRepositoriesResponse_BitbucketRepository{}
 	repository.SetRepositoryUuid(uuid)
 	repository.SetFullName(fullName)
+	repository.SetScanState(controltowerv1.ListBitbucketRepositoriesResponse_BitbucketRepository_SCAN_STATE_ENABLED)
 	return repository
 }
 
@@ -124,8 +154,9 @@ const (
 	testBitbucketRepoUUIDb = "aaaa0000-1111-2222-3333-444455556666"
 )
 
-func TestRunBitbucketSync(t *testing.T) {
+func TestRunSync_Bitbucket(t *testing.T) {
 	t.Run("resolves names to UUIDs and syncs through the only link", func(t *testing.T) {
+		githubLinks := &fakeGitHubLinkLister{}
 		links := &fakeBitbucketLinkLister{pages: []*controltowerv1.ListBitbucketWorkspaceLinksResponse{
 			bitbucketLinksPage(bitbucketWorkspaceLink("link-1")),
 		}}
@@ -134,41 +165,40 @@ func TestRunBitbucketSync(t *testing.T) {
 				bitbucketListedRepository(testBitbucketRepoUUIDa, "safedep/vet-pipe"),
 			),
 		}}
-		syncer := &fakeBitbucketProjectSyncer{res: bitbucketSyncResponse(
-			bitbucketProjectMapping(testBitbucketRepoUUIDa, "project-1"),
-		)}
+		syncer := &fakeBitbucketProjectSyncer{}
 
-		result, err := runBitbucketSync(context.Background(), links, repositories, syncer,
-			syncInput{RepositoryNames: []string{"SafeDep/Vet-Pipe"}})
+		got, err := runSync(context.Background(), syncDeps{
+			githubLinks: githubLinks, bitbucketLinks: links, bitbucketRepositories: repositories, bitbucketSyncer: syncer,
+		}, syncInput{Source: "bitbucket", RepositoryNames: []string{"SafeDep/Vet-Pipe"}})
 		require.NoError(t, err)
+		assert.Zero(t, githubLinks.calls, "--source bitbucket lists no GitHub links")
 		require.Equal(t, 1, syncer.calls)
 		assert.Equal(t, "link-1", syncer.req.GetLinkId())
-		require.Len(t, syncer.req.GetRepositories(), 1)
-		assert.Equal(t, testBitbucketRepoUUIDa, syncer.req.GetRepositories()[0].GetRepositoryUuid())
+		assert.Equal(t, []string{testBitbucketRepoUUIDa}, syncedUUIDs(syncer.req))
+		result, ok := got.(*bitbucketSyncResult)
+		require.True(t, ok)
 		require.Len(t, result.projects, 1)
 		assert.Equal(t, syncedBitbucketProject{
 			RepositoryUUID: testBitbucketRepoUUIDa,
 			RepositoryName: "safedep/vet-pipe",
-			ProjectID:      "project-1",
+			ProjectID:      "project-" + testBitbucketRepoUUIDa,
+			Account:        "safedep",
+			LinkID:         "link-1",
 		}, result.projects[0])
 	})
 
 	t.Run("UUID selectors skip name resolution", func(t *testing.T) {
 		repositories := &fakeBitbucketRepositoryLister{}
-		syncer := &fakeBitbucketProjectSyncer{res: bitbucketSyncResponse(
-			bitbucketProjectMapping(testBitbucketRepoUUIDb, "project-2"),
-		)}
+		syncer := &fakeBitbucketProjectSyncer{}
 
-		result, err := runBitbucketSync(context.Background(), &fakeBitbucketLinkLister{},
-			repositories, syncer, syncInput{
-				LinkID:          "link-9",
-				RepositoryUUIDs: []string{testBitbucketRepoUUIDb},
-			})
+		got, err := runSync(context.Background(), syncDeps{bitbucketRepositories: repositories, bitbucketSyncer: syncer},
+			syncInput{LinkID: "link-9", RepositoryUUIDs: []string{testBitbucketRepoUUIDb}})
 		require.NoError(t, err)
 		assert.Equal(t, 0, repositories.calls)
 		assert.Equal(t, "link-9", syncer.req.GetLinkId())
-		require.Len(t, result.projects, 1)
-		assert.Equal(t, unknownRepositoryName, syncedBitbucketProjectCells(result.projects[0])[0])
+		result, ok := got.(*bitbucketSyncResult)
+		require.True(t, ok)
+		assert.Contains(t, result.RenderPlain(), "-\t"+testBitbucketRepoUUIDb)
 	})
 
 	t.Run("an unreachable name fails without a sync", func(t *testing.T) {
@@ -177,11 +207,8 @@ func TestRunBitbucketSync(t *testing.T) {
 		}}
 		syncer := &fakeBitbucketProjectSyncer{}
 
-		_, err := runBitbucketSync(context.Background(), &fakeBitbucketLinkLister{},
-			repositories, syncer, syncInput{
-				LinkID:          "link-1",
-				RepositoryNames: []string{"safedep/ghost"},
-			})
+		_, err := runSync(context.Background(), syncDeps{bitbucketRepositories: repositories, bitbucketSyncer: syncer},
+			syncInput{Source: "bitbucket", LinkID: "link-1", RepositoryNames: []string{"safedep/ghost"}})
 		require.ErrorContains(t, err, "not accessible through workspace link")
 		assert.Equal(t, 0, syncer.calls)
 	})
@@ -194,8 +221,8 @@ func TestRunBitbucketSync(t *testing.T) {
 		}}
 		syncer := &fakeBitbucketProjectSyncer{}
 
-		_, err := runBitbucketSync(context.Background(), &fakeBitbucketLinkLister{},
-			repositories, syncer, syncInput{
+		_, err := runSync(context.Background(), syncDeps{bitbucketRepositories: repositories, bitbucketSyncer: syncer},
+			syncInput{
 				LinkID:          "link-1",
 				RepositoryNames: []string{"safedep/vet-pipe"},
 				RepositoryUUIDs: []string{testBitbucketRepoUUIDa},
@@ -207,11 +234,8 @@ func TestRunBitbucketSync(t *testing.T) {
 	t.Run("rejects a response that does not cover the request", func(t *testing.T) {
 		syncer := &fakeBitbucketProjectSyncer{res: bitbucketSyncResponse()}
 
-		_, err := runBitbucketSync(context.Background(), &fakeBitbucketLinkLister{},
-			&fakeBitbucketRepositoryLister{}, syncer, syncInput{
-				LinkID:          "link-1",
-				RepositoryUUIDs: []string{testBitbucketRepoUUIDa},
-			})
+		_, err := runSync(context.Background(), syncDeps{bitbucketSyncer: syncer},
+			syncInput{LinkID: "link-1", RepositoryUUIDs: []string{testBitbucketRepoUUIDa}})
 		require.ErrorContains(t, err, "response count 0 does not match request count 1")
 	})
 
@@ -220,11 +244,8 @@ func TestRunBitbucketSync(t *testing.T) {
 			bitbucketProjectMapping(testBitbucketRepoUUIDa, ""),
 		)}
 
-		_, err := runBitbucketSync(context.Background(), &fakeBitbucketLinkLister{},
-			&fakeBitbucketRepositoryLister{}, syncer, syncInput{
-				LinkID:          "link-1",
-				RepositoryUUIDs: []string{testBitbucketRepoUUIDa},
-			})
+		_, err := runSync(context.Background(), syncDeps{bitbucketSyncer: syncer},
+			syncInput{LinkID: "link-1", RepositoryUUIDs: []string{testBitbucketRepoUUIDa}})
 		require.ErrorContains(t, err, "missing its project ID")
 	})
 }
@@ -287,120 +308,4 @@ func TestRunSync_ListsEachSourceOnceForANamesOnlySync(t *testing.T) {
 	assert.Equal(t, 1, githubLinks.calls, "the inference walk must also resolve the link")
 	assert.Equal(t, 1, bitbucketLinks.calls)
 	assert.Equal(t, "gh-link-1", syncer.req.GetLinkId())
-}
-
-func TestResolveSyncSource(t *testing.T) {
-	githubLinksPage := func(linkIDs ...string) *controltowerv1.ListGitHubAppInstallationLinksResponse {
-		links := make([]*controltowerv1.ListGitHubAppInstallationLinksResponse_IntegrationWithAttributes, 0, len(linkIDs))
-		for _, linkID := range linkIDs {
-			links = append(links, link(linkID, "safedep"))
-		}
-		return linksResponse("", links...)
-	}
-
-	cases := []struct {
-		name         string
-		in           syncInput
-		github       []*controltowerv1.ListGitHubAppInstallationLinksResponse
-		bitbucket    []*controltowerv1.ListBitbucketWorkspaceLinksResponse
-		bitbucketErr error
-		wantSource   string
-		wantLinkID   string
-		wantErr      string
-	}{
-		{
-			name:       "explicit source wins and keeps the caller's link ID",
-			in:         syncInput{Source: sourceBitbucket, LinkID: "link-1"},
-			wantSource: sourceBitbucket,
-			wantLinkID: "link-1",
-		},
-		{
-			name:       "repository IDs imply github",
-			in:         syncInput{RepositoryIDs: []int64{7}},
-			wantSource: sourceGitHub,
-		},
-		{
-			name:       "repository UUIDs imply bitbucket",
-			in:         syncInput{RepositoryUUIDs: []string{testBitbucketRepoUUIDa}},
-			wantSource: sourceBitbucket,
-		},
-		{
-			name:       "a bitbucket-only tenant infers bitbucket and its link",
-			github:     []*controltowerv1.ListGitHubAppInstallationLinksResponse{githubLinksPage()},
-			bitbucket:  []*controltowerv1.ListBitbucketWorkspaceLinksResponse{bitbucketLinksPage(bitbucketWorkspaceLink("link-1"))},
-			wantSource: sourceBitbucket,
-			wantLinkID: "link-1",
-		},
-		{
-			name:       "a github-only tenant infers github and its link",
-			github:     []*controltowerv1.ListGitHubAppInstallationLinksResponse{githubLinksPage("gh-link-1")},
-			bitbucket:  []*controltowerv1.ListBitbucketWorkspaceLinksResponse{bitbucketLinksPage()},
-			wantSource: sourceGitHub,
-			wantLinkID: "gh-link-1",
-		},
-		{
-			name:      "links to both sources need an explicit source",
-			github:    []*controltowerv1.ListGitHubAppInstallationLinksResponse{githubLinksPage("gh-link-1")},
-			bitbucket: []*controltowerv1.ListBitbucketWorkspaceLinksResponse{bitbucketLinksPage(bitbucketWorkspaceLink("link-1"))},
-			wantErr:   "has GitHub and Bitbucket links",
-		},
-		{
-			name:       "a link ID picks its owning source when both are linked",
-			in:         syncInput{LinkID: "link-1"},
-			github:     []*controltowerv1.ListGitHubAppInstallationLinksResponse{githubLinksPage("gh-link-1")},
-			bitbucket:  []*controltowerv1.ListBitbucketWorkspaceLinksResponse{bitbucketLinksPage(bitbucketWorkspaceLink("link-1"))},
-			wantSource: sourceBitbucket,
-			wantLinkID: "link-1",
-		},
-		{
-			name:      "an unknown link ID is a not-found failure",
-			in:        syncInput{LinkID: "missing"},
-			github:    []*controltowerv1.ListGitHubAppInstallationLinksResponse{githubLinksPage("gh-link-1")},
-			bitbucket: []*controltowerv1.ListBitbucketWorkspaceLinksResponse{bitbucketLinksPage(bitbucketWorkspaceLink("link-1"))},
-			wantErr:   `link "missing" is not a GitHub or Bitbucket link`,
-		},
-		{
-			name:         "a control plane without the bitbucket RPCs keeps github working",
-			github:       []*controltowerv1.ListGitHubAppInstallationLinksResponse{githubLinksPage("gh-link-1")},
-			bitbucketErr: status.Error(codes.Unimplemented, "unknown method"),
-			wantSource:   sourceGitHub,
-			wantLinkID:   "gh-link-1",
-		},
-		{
-			name:         "a caller without the bitbucket permission cannot infer a source",
-			github:       []*controltowerv1.ListGitHubAppInstallationLinksResponse{githubLinksPage("gh-link-1")},
-			bitbucketErr: status.Error(codes.PermissionDenied, "not allowed"),
-			wantErr:      "resolve workspace link",
-		},
-		{
-			name:         "any other bitbucket listing failure stops the sync",
-			github:       []*controltowerv1.ListGitHubAppInstallationLinksResponse{githubLinksPage("gh-link-1")},
-			bitbucketErr: status.Error(codes.Unavailable, "try again"),
-			wantErr:      "resolve workspace link",
-		},
-		{
-			name:      "no links at all is a not-found failure",
-			github:    []*controltowerv1.ListGitHubAppInstallationLinksResponse{githubLinksPage()},
-			bitbucket: []*controltowerv1.ListBitbucketWorkspaceLinksResponse{bitbucketLinksPage()},
-			wantErr:   "no GitHub or Bitbucket link",
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			deps := syncDeps{
-				githubLinks:    &fakeGitHubLinkLister{pages: tc.github},
-				bitbucketLinks: &fakeBitbucketLinkLister{pages: tc.bitbucket, err: tc.bitbucketErr},
-			}
-
-			source, linkID, err := resolveSyncSource(context.Background(), deps, tc.in)
-			if tc.wantErr != "" {
-				require.ErrorContains(t, err, tc.wantErr)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tc.wantSource, source)
-			assert.Equal(t, tc.wantLinkID, linkID)
-		})
-	}
 }

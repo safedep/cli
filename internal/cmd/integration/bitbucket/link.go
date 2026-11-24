@@ -124,8 +124,8 @@ func linkListCmd(a *app.App) *cobra.Command {
 		Use:   "list",
 		Args:  cobra.NoArgs,
 		Short: "List Bitbucket workspaces linked to the tenant",
-		Long: "List every Bitbucket workspace linked to the active tenant, with the link ID " +
-			"the repository and allowlist commands take.",
+		Long: "List every Bitbucket workspace linked to the active tenant. The workspace slug " +
+			"is the --account value of the repository, allowlist and link delete commands.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, err := a.ControlPlane()
 			if err != nil {

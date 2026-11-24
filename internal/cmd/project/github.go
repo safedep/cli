@@ -2,10 +2,7 @@ package project
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"sort"
-	"strings"
 
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
@@ -13,6 +10,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/safedep/cli/internal/paging"
+	"github.com/safedep/cli/internal/sourcelink"
 )
 
 const (
@@ -46,11 +44,6 @@ type githubProjectSyncer interface {
 	) (*controltowerv1.SyncGitHubInstallationProjectsResponse, error)
 }
 
-type githubLink struct {
-	id           string
-	accountLogin string
-}
-
 type githubRepository struct {
 	id       int64
 	fullName string
@@ -60,37 +53,35 @@ func newIntegrationClient(conn grpc.ClientConnInterface) controltowerv1grpc.Inte
 	return controltowerv1grpc.NewIntegrationServiceClient(conn)
 }
 
-func runGitHubSync(
+// githubRequest is one SyncGitHubInstallationProjects call: the link, the
+// repository IDs in request order, and the names the CLI resolved.
+type githubRequest struct {
+	link  sourcelink.Link
+	ids   []int64
+	names map[int64]string
+}
+
+// prepareGitHubRequest resolves the plan's names through its link. It sends
+// no write, so a run resolves every plan before it syncs any.
+func prepareGitHubRequest(
 	ctx context.Context,
-	links githubLinkLister,
 	repositories githubRepositoryLister,
-	syncer githubProjectSyncer,
-	in syncInput,
-) (*syncResult, error) {
-	if err := validateSyncInput(in); err != nil {
-		return nil, err
-	}
-
-	linkID := in.LinkID
-	if linkID == "" {
-		resolved, err := resolveGitHubLink(ctx, links)
-		if err != nil {
-			return nil, err
-		}
-		linkID = resolved
-	}
-
-	resolved, err := resolveRepositoryNames(ctx, repositories, linkID, in.RepositoryNames)
+	plan syncPlan,
+) (githubRequest, error) {
+	resolved, err := resolveRepositoryNames(ctx, repositories, plan.link, plan.names)
 	if err != nil {
-		return nil, err
+		return githubRequest{}, err
 	}
 
 	// Flag-selected IDs go first, then resolved names in argument order, so the
 	// request order matches what the caller typed.
-	repositoryIDs := append([]int64{}, in.RepositoryIDs...)
-	namesByID := make(map[int64]string, len(resolved))
-	seen := make(map[int64]struct{}, len(repositoryIDs)+len(resolved))
-	for _, repositoryID := range repositoryIDs {
+	req := githubRequest{
+		link:  plan.link,
+		ids:   append([]int64{}, plan.ids...),
+		names: make(map[int64]string, len(resolved)),
+	}
+	seen := make(map[int64]struct{}, len(req.ids)+len(resolved))
+	for _, repositoryID := range req.ids {
 		seen[repositoryID] = struct{}{}
 	}
 	for _, repository := range resolved {
@@ -100,24 +91,23 @@ func runGitHubSync(
 				repository.id,
 				repository.fullName,
 			)
-			return nil, invalidRepositorySelectionError(cause, fmt.Sprintf(
+			return githubRequest{}, invalidRepositorySelectionError(cause, fmt.Sprintf(
 				"Repository %q resolves to repository ID %d, which is already selected. Remove one of them and retry.",
 				repository.fullName,
 				repository.id,
 			))
 		}
 		seen[repository.id] = struct{}{}
-		namesByID[repository.id] = repository.fullName
-		repositoryIDs = append(repositoryIDs, repository.id)
+		req.names[repository.id] = repository.fullName
+		req.ids = append(req.ids, repository.id)
 	}
-
-	return syncGitHubProjects(ctx, syncer, linkID, repositoryIDs, namesByID)
+	return req, nil
 }
 
-func listGitHubLinks(ctx context.Context, client githubLinkLister) ([]githubLink, error) {
+func listGitHubLinks(ctx context.Context, client githubLinkLister) ([]sourcelink.Link, error) {
 	const label = "project sync: resolve installation link"
 
-	var links []githubLink
+	var links []sourcelink.Link
 	err := paging.Paginate(ctx, label, func(ctx context.Context, pageToken string) (string, error) {
 		req := &controltowerv1.ListGitHubAppInstallationLinksRequest{}
 		req.SetPagination(paging.NewPaginationRequest(githubLinkPageSize, pageToken))
@@ -129,7 +119,11 @@ func listGitHubLinks(ctx context.Context, client githubLinkLister) ([]githubLink
 			if item.GetLinkId() == "" {
 				return "", fmt.Errorf("%s: invalid response: link %d is missing its ID", label, i+1)
 			}
-			links = append(links, githubLink{id: item.GetLinkId(), accountLogin: item.GetAccountLogin()})
+			links = append(links, sourcelink.Link{
+				Source:  sourcelink.GitHub,
+				ID:      item.GetLinkId(),
+				Account: item.GetAccountLogin(),
+			})
 		}
 		return res.GetPagination().GetNextPageToken(), nil
 	})
@@ -140,40 +134,13 @@ func listGitHubLinks(ctx context.Context, client githubLinkLister) ([]githubLink
 	return links, nil
 }
 
-func resolveGitHubLink(ctx context.Context, client githubLinkLister) (string, error) {
-	links, err := listGitHubLinks(ctx, client)
-	if err != nil {
-		return "", err
-	}
-	return pickGitHubLink(links)
-}
-
-// pickGitHubLink applies resolveGitHubLink's selection to links a caller
-// already fetched, so one listing serves both the source inference and the
-// link resolution in `project sync`.
-func pickGitHubLink(links []githubLink) (string, error) {
-	switch len(links) {
-	case 0:
-		return "", newProjectError(
-			usefulerror.ErrNotFound,
-			"No GitHub App installation link",
-			"Install the SafeDep GitHub App and link it to this tenant, then retry.",
-			errors.New("project sync: the active tenant has no GitHub App installation link"),
-		)
-	case 1:
-		return links[0].id, nil
-	default:
-		return "", ambiguousGitHubLinkError(links)
-	}
-}
-
 // resolveRepositoryNames maps owner/repository names to immutable GitHub
 // repository IDs. The listing RPC is an unfiltered proxy over the installation,
 // so the walk stops as soon as every requested name has a match.
 func resolveRepositoryNames(
 	ctx context.Context,
 	client githubRepositoryLister,
-	linkID string,
+	link sourcelink.Link,
 	names []string,
 ) ([]githubRepository, error) {
 	if len(names) == 0 {
@@ -189,7 +156,7 @@ func resolveRepositoryNames(
 	matches := make(map[string]githubRepository, len(names))
 	err := paging.Paginate(ctx, label, func(ctx context.Context, pageToken string) (string, error) {
 		req := &controltowerv1.ListGitHubInstallationRepositoriesRequest{}
-		req.SetLinkId(linkID)
+		req.SetLinkId(link.ID)
 		req.SetPagination(paging.NewPaginationRequest(githubRepositoryPageSize, pageToken))
 		res, err := client.ListGitHubInstallationRepositories(ctx, req)
 		if err != nil {
@@ -211,7 +178,7 @@ func resolveRepositoryNames(
 	for _, name := range names {
 		match, ok := matches[repositoryKey(name)]
 		if !ok {
-			return nil, repositoryNotAccessibleError(name, linkID)
+			return nil, repositoryNotAccessibleError(name, link)
 		}
 		resolved = append(resolved, match)
 	}
@@ -225,8 +192,8 @@ func collectRepositoryMatches(
 	matches map[string]githubRepository,
 ) error {
 	for i, repository := range res.GetRepositories() {
-		if repository.GetRepositoryId() <= 0 || repository.GetFullName() == "" {
-			return fmt.Errorf("%s: invalid response: repository %d is missing its identity", label, i+1)
+		if err := checkGitHubRepository(repository, label, i); err != nil {
+			return err
 		}
 		key := repositoryKey(repository.GetFullName())
 		if _, ok := requested[key]; !ok {
@@ -240,16 +207,69 @@ func collectRepositoryMatches(
 	return nil
 }
 
-func repositoryNotAccessibleError(name, linkID string) error {
+func checkGitHubRepository(
+	repository *controltowerv1.ListGitHubInstallationRepositoriesResponse_GitHubRepository,
+	label string,
+	i int,
+) error {
+	if repository.GetRepositoryId() <= 0 || repository.GetFullName() == "" {
+		return fmt.Errorf("%s: invalid response: repository %d is missing its identity", label, i+1)
+	}
+	return nil
+}
+
+// listAllGitHubRepositories walks every page of the installation's
+// repositories. A repository on two pages counts once, because the listing
+// proxies GitHub and a page boundary can move while the walk runs.
+func listAllGitHubRepositories(
+	ctx context.Context,
+	client githubRepositoryLister,
+	linkID string,
+) ([]githubRepository, error) {
+	const label = "project sync: list repositories"
+
+	var repositories []githubRepository
+	seen := map[int64]struct{}{}
+	err := paging.Paginate(ctx, label, func(ctx context.Context, pageToken string) (string, error) {
+		req := &controltowerv1.ListGitHubInstallationRepositoriesRequest{}
+		req.SetLinkId(linkID)
+		req.SetPagination(paging.NewPaginationRequest(githubRepositoryPageSize, pageToken))
+		res, err := client.ListGitHubInstallationRepositories(ctx, req)
+		if err != nil {
+			return "", fmt.Errorf("%s: %w", label, err)
+		}
+		for i, repository := range res.GetRepositories() {
+			if err := checkGitHubRepository(repository, label, i); err != nil {
+				return "", err
+			}
+			if _, duplicate := seen[repository.GetRepositoryId()]; duplicate {
+				continue
+			}
+			seen[repository.GetRepositoryId()] = struct{}{}
+			repositories = append(repositories, githubRepository{
+				id:       repository.GetRepositoryId(),
+				fullName: repository.GetFullName(),
+			})
+		}
+		return res.GetPagination().GetNextPageToken(), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return repositories, nil
+}
+
+func repositoryNotAccessibleError(name string, link sourcelink.Link) error {
 	cause := fmt.Errorf(
 		"project sync: repository %q is not accessible through installation link %q",
 		name,
-		linkID,
+		link.ID,
 	)
 	return newProjectError(
 		usefulerror.ErrNotFound,
 		"GitHub repository not accessible",
-		fmt.Sprintf("Grant %q to the linked GitHub App installation, or retry with --repository-id.", name),
+		fmt.Sprintf("Grant %q to the GitHub App installation of %s, or retry with --repository-id.",
+			name, sourcelink.Describe(link.Account, link.ID)),
 		cause,
 	)
 }
@@ -257,19 +277,13 @@ func repositoryNotAccessibleError(name, linkID string) error {
 func syncGitHubProjects(
 	ctx context.Context,
 	client githubProjectSyncer,
-	linkID string,
-	repositoryIDs []int64,
-	namesByID map[int64]string,
-) (*syncResult, error) {
-	res, err := client.SyncGitHubInstallationProjects(ctx, newSyncRequest(linkID, repositoryIDs))
+	req githubRequest,
+) ([]syncedProject, error) {
+	res, err := client.SyncGitHubInstallationProjects(ctx, newSyncRequest(req.link.ID, req.ids))
 	if err != nil {
 		return nil, fmt.Errorf("project sync: %w", err)
 	}
-	projects, err := translateSyncResponse(res, repositoryIDs, namesByID)
-	if err != nil {
-		return nil, err
-	}
-	return &syncResult{linkID: linkID, projects: projects}, nil
+	return translateSyncResponse(res, req)
 }
 
 func newSyncRequest(linkID string, repositoryIDs []int64) *controltowerv1.SyncGitHubInstallationProjectsRequest {
@@ -287,9 +301,9 @@ func newSyncRequest(linkID string, repositoryIDs []int64) *controltowerv1.SyncGi
 
 func translateSyncResponse(
 	res *controltowerv1.SyncGitHubInstallationProjectsResponse,
-	repositoryIDs []int64,
-	namesByID map[int64]string,
+	req githubRequest,
 ) ([]syncedProject, error) {
+	repositoryIDs := req.ids
 	mappings := res.GetProjects()
 	if len(mappings) != len(repositoryIDs) {
 		return nil, fmt.Errorf(
@@ -330,34 +344,11 @@ func translateSyncResponse(
 		}
 		projects = append(projects, syncedProject{
 			RepositoryID:   repositoryID,
-			RepositoryName: namesByID[repositoryID],
+			RepositoryName: req.names[repositoryID],
 			ProjectID:      mapping.GetProjectId(),
+			Account:        req.link.Account,
+			LinkID:         req.link.ID,
 		})
 	}
 	return projects, nil
-}
-
-func ambiguousGitHubLinkError(links []githubLink) error {
-	sort.Slice(links, func(i, j int) bool { return links[i].id < links[j].id })
-
-	labels := make([]string, 0, len(links))
-	for _, link := range links {
-		if link.accountLogin == "" {
-			labels = append(labels, link.id)
-			continue
-		}
-		labels = append(labels, fmt.Sprintf("%s (%s)", link.id, link.accountLogin))
-	}
-	joined := strings.Join(labels, ", ")
-	cause := fmt.Errorf(
-		"project sync: the active tenant has %d GitHub App installation links: %s",
-		len(links),
-		joined,
-	)
-	return newProjectError(
-		usefulerror.ErrBadRequest,
-		"GitHub App installation link is ambiguous",
-		"Retry with --link-id set to one of: "+joined+".",
-		cause,
-	)
 }

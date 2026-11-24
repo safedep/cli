@@ -5,7 +5,7 @@ List the repositories of a linked Bitbucket workspace with their scan state.
 ## Synopsis
 
 ```
-safedep integration bitbucket repository list [--link-id LINK_ID]
+safedep integration bitbucket repository list [--account WORKSPACE]
                                               [--output table|plain|json]
 ```
 
@@ -13,14 +13,18 @@ safedep integration bitbucket repository list [--link-id LINK_ID]
 
 | Flag | Description |
 |------|-------------|
-| `--link-id <id>` | Bitbucket workspace link to list through. Resolved automatically when the tenant has exactly one link. |
+| `--account <workspace>` | Slug of the linked Bitbucket workspace to list, for example `safedep`. Matched without regard to case. Needed when the tenant has more than one linked workspace. |
 
 Inherits root flags `--output` and `--profile`.
 
-When `--link-id` is omitted, the CLI lists the tenant's workspace links and
+When `--account` is omitted, the CLI lists the tenant's workspace links and
 uses the only one it finds. With no link, the command fails and points to
-`link create`. With more than one link, it fails and lists the link IDs and
-workspace slugs so you can pick one.
+`link create`. With more than one link, it fails and lists the workspace
+slugs so you can pick one with `--account`.
+
+`--link-id <id>` still selects a link by its internal ID. It is hidden from
+the help and stays for scripts. With `--link-id` alone, the command lists no
+links. With `--link-id` and `--account`, both must name the same link.
 
 ## Examples
 
@@ -29,7 +33,7 @@ safedep integration bitbucket repository list
 ```
 
 ```bash
-safedep integration bitbucket repository list --link-id 01K88WX3G9RGAK8T3N5YJMFQN1 \
+safedep integration bitbucket repository list --account safedep \
   --output json | jq -r '.repositories[] | select(.scan_state == "disabled") | .repository_uuid'
 ```
 
@@ -38,6 +42,7 @@ safedep integration bitbucket repository list --link-id 01K88WX3G9RGAK8T3N5YJMFQ
 | Field | Description |
 |-------|-------------|
 | `link_id` | The workspace link the listing ran through, supplied or resolved. |
+| `account` | The workspace slug of that link. Omitted when only `--link-id` named the link. |
 | `scan_scope` | The workspace's scan scope: `all` or `selected`. |
 | `repository_uuid` | The immutable Bitbucket repository UUID. Feed it to `allowlist update`. |
 | `full_name` | The `workspace/repository` name. |

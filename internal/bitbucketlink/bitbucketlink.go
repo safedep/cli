@@ -6,17 +6,14 @@ package bitbucketlink
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"sort"
-	"strings"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/google/uuid"
-	"github.com/safedep/dry/usefulerror"
 	"google.golang.org/grpc"
 
 	"github.com/safedep/cli/internal/paging"
+	"github.com/safedep/cli/internal/sourcelink"
 )
 
 // PageSize is the integration service's cap on a listing page.
@@ -81,49 +78,40 @@ func List(ctx context.Context, client Lister, label string) ([]Link, error) {
 	return links, nil
 }
 
-// ResolveSingle returns the tenant's only workspace link when the caller did
-// not pick one with --link-id. With no link or more than one, it fails with
-// guidance, mirroring the GitHub link resolution in `project sync`.
-func ResolveSingle(ctx context.Context, client Lister, label string) (string, error) {
+// ToSourceLinks names each workspace link by its slug, the OWNER part of a
+// Bitbucket repository name.
+func ToSourceLinks(links []Link) []sourcelink.Link {
+	out := make([]sourcelink.Link, 0, len(links))
+	for _, link := range links {
+		out = append(out, sourcelink.Link{Source: sourcelink.Bitbucket, ID: link.ID, Account: link.WorkspaceSlug})
+	}
+	return out
+}
+
+// Resolve returns the workspace link that account and linkID pick. A link
+// ID alone skips the listing. The listing holds only active links, so the
+// skip keeps a repeat delete of a revoked link a no-op, and a script that
+// passes the ID keeps its RPC count. The returned link then carries only its
+// ID.
+func Resolve(ctx context.Context, client Lister, account, linkID, label string) (Link, error) {
+	if linkID != "" && account == "" {
+		return Link{ID: linkID}, nil
+	}
 	links, err := List(ctx, client, label)
 	if err != nil {
-		return "", err
+		return Link{}, err
 	}
-	return PickSingle(links, label)
-}
-
-// PickSingle applies ResolveSingle's selection to links a caller already
-// fetched, so one listing serves both the source inference and the link
-// resolution in `project sync`.
-func PickSingle(links []Link, label string) (string, error) {
-	switch len(links) {
-	case 0:
-		return "", usefulerror.NewUsefulError().
-			WithCode(usefulerror.ErrNotFound).
-			WithHumanError("No linked Bitbucket workspace").
-			WithHelp("Create a link code with `safedep integration bitbucket link create`, redeem it in the " +
-				"workspace's SafeDep settings page in Bitbucket, then retry.").
-			Wrap(fmt.Errorf("%s: the active tenant has no linked bitbucket workspace", label))
-	case 1:
-		return links[0].ID, nil
-	default:
-		return "", ambiguousLinkError(links)
+	picked, err := sourcelink.Pick(ToSourceLinks(links), sourcelink.Selection{
+		Source:  sourcelink.Bitbucket,
+		Account: account,
+		LinkID:  linkID,
+	})
+	if err != nil {
+		return Link{}, err
 	}
-}
-
-func ambiguousLinkError(links []Link) error {
-	choices := make([]string, 0, len(links))
+	byID := make(map[string]Link, len(links))
 	for _, link := range links {
-		slug := link.WorkspaceSlug
-		if slug == "" {
-			slug = link.WorkspaceUUID
-		}
-		choices = append(choices, fmt.Sprintf("%s (%s)", link.ID, slug))
+		byID[link.ID] = link
 	}
-	sort.Strings(choices)
-	return usefulerror.NewUsefulError().
-		WithCode(usefulerror.ErrBadRequest).
-		WithHumanError("More than one linked Bitbucket workspace").
-		WithHelp(fmt.Sprintf("Pick one with --link-id: %s.", strings.Join(choices, ", "))).
-		Wrap(errors.New("the active tenant has more than one linked bitbucket workspace"))
+	return byID[picked.ID], nil
 }

@@ -279,7 +279,60 @@ func TestRunLinkDelete(t *testing.T) {
 		require.Error(t, err)
 		usefulErr, ok := usefulerror.AsUsefulError(err)
 		require.True(t, ok)
-		assert.Contains(t, usefulErr.Help(), "link-1 (one)")
+		assert.Contains(t, usefulErr.Help(), "--account one, --account two")
+		assert.Equal(t, 0, deleter.calls)
+	})
+
+	twoLinks := func() *fakeLinkLister {
+		return &fakeLinkLister{pages: []*controltowerv1.ListBitbucketWorkspaceLinksResponse{
+			newWorkspaceLinkPage("",
+				newWorkspaceLink("link-1", "uuid-1", "one", "One"),
+				newWorkspaceLink("link-2", "uuid-2", "two", "Two")),
+		}}
+	}
+
+	t.Run("--account picks the link of that workspace", func(t *testing.T) {
+		deleter := &fakeLinkDeleter{}
+
+		result, err := runLinkDelete(context.Background(), twoLinks(), deleter, linkDeleteInput{Account: "TWO"})
+		require.NoError(t, err)
+		require.Equal(t, 1, deleter.calls)
+		assert.Equal(t, "link-2", deleter.req.GetLinkId())
+		assert.Equal(t, "Unlinked Bitbucket workspace two (link link-2)", result.message())
+	})
+
+	t.Run("--account of a deleted link is not found", func(t *testing.T) {
+		deleter := &fakeLinkDeleter{}
+
+		_, err := runLinkDelete(context.Background(), twoLinks(), deleter, linkDeleteInput{Account: "gone"})
+		require.Error(t, err)
+		usefulErr, ok := usefulerror.AsUsefulError(err)
+		require.True(t, ok)
+		assert.Equal(t, usefulerror.ErrNotFound, usefulErr.Code())
+		assert.Contains(t, usefulErr.Help(), "Linked accounts: one, two.")
+		assert.Equal(t, 0, deleter.calls)
+	})
+
+	t.Run("--link-id with its own --account lists and names the workspace", func(t *testing.T) {
+		links := twoLinks()
+		deleter := &fakeLinkDeleter{}
+
+		result, err := runLinkDelete(context.Background(), links, deleter, linkDeleteInput{Account: "One", LinkID: "link-1"})
+		require.NoError(t, err)
+		assert.Equal(t, 1, links.calls)
+		assert.Equal(t, "link-1", deleter.req.GetLinkId())
+		assert.Equal(t, "Unlinked Bitbucket workspace one (link link-1)", result.message())
+	})
+
+	t.Run("--link-id with another --account deletes nothing", func(t *testing.T) {
+		deleter := &fakeLinkDeleter{}
+
+		_, err := runLinkDelete(context.Background(), twoLinks(), deleter,
+			linkDeleteInput{Account: "one", LinkID: "link-2"})
+		require.Error(t, err)
+		usefulErr, ok := usefulerror.AsUsefulError(err)
+		require.True(t, ok)
+		assert.Equal(t, "--account and --link-id name different links", usefulErr.HumanError())
 		assert.Equal(t, 0, deleter.calls)
 	})
 
@@ -330,6 +383,7 @@ func TestRunRepositoryList(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 0, links.calls)
 		assert.Equal(t, "link-9", result.linkID)
+		assert.Contains(t, result.RenderTable(), "in link link-9")
 		assert.Equal(t, "all", result.scanScope)
 		assert.Empty(t, result.repositories)
 	})
@@ -357,8 +411,45 @@ func TestRunRepositoryList(t *testing.T) {
 		require.Error(t, err)
 		usefulErr, ok := usefulerror.AsUsefulError(err)
 		require.True(t, ok)
-		assert.Contains(t, usefulErr.Help(), "link-1 (one)")
-		assert.Contains(t, usefulErr.Help(), "link-2 (two)")
+		assert.Contains(t, usefulErr.Help(), "--account one, --account two")
+	})
+
+	t.Run("--link-id with its own --account lists and fills the account", func(t *testing.T) {
+		links := &fakeLinkLister{pages: []*controltowerv1.ListBitbucketWorkspaceLinksResponse{
+			newWorkspaceLinkPage("",
+				newWorkspaceLink("link-1", "uuid-1", "one", "One"),
+				newWorkspaceLink("link-2", "uuid-2", "two", "Two")),
+		}}
+		repositories := &fakeRepositoryLister{pages: []*controltowerv1.ListBitbucketRepositoriesResponse{
+			newRepositoryPage("", controltowerv1.BitbucketScanScope_BITBUCKET_SCAN_SCOPE_ALL),
+		}}
+
+		result, err := runRepositoryList(context.Background(), links, repositories,
+			repositoryListInput{Account: "two", LinkID: "link-2"})
+		require.NoError(t, err)
+		assert.Equal(t, 1, links.calls)
+		assert.Equal(t, "link-2", result.linkID)
+		assert.Equal(t, "two", result.account)
+	})
+
+	t.Run("--account picks the link and names the workspace", func(t *testing.T) {
+		links := &fakeLinkLister{pages: []*controltowerv1.ListBitbucketWorkspaceLinksResponse{
+			newWorkspaceLinkPage("",
+				newWorkspaceLink("link-1", "uuid-1", "one", "One"),
+				newWorkspaceLink("link-2", "uuid-2", "two", "Two")),
+		}}
+		repositories := &fakeRepositoryLister{pages: []*controltowerv1.ListBitbucketRepositoriesResponse{
+			newRepositoryPage("", controltowerv1.BitbucketScanScope_BITBUCKET_SCAN_SCOPE_ALL),
+		}}
+
+		result, err := runRepositoryList(context.Background(), links, repositories, repositoryListInput{Account: "Two"})
+		require.NoError(t, err)
+		require.Len(t, repositories.requests, 1)
+		assert.Equal(t, "link-2", repositories.requests[0].GetLinkId())
+		got, err := result.RenderJSON()
+		require.NoError(t, err)
+		assert.Contains(t, string(got), `"account": "two"`)
+		assert.Contains(t, result.RenderTable(), "0 repositories in account two, scan scope all")
 	})
 
 	t.Run("rejects a repository without a UUID", func(t *testing.T) {
@@ -431,6 +522,55 @@ func TestRunAllowlistUpdate(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.Equal(t, controltowerv1.BitbucketScanScope_BITBUCKET_SCAN_SCOPE_UNSPECIFIED, updater.req.GetScanScope())
+	})
+
+	t.Run("--link-id alone lists no links", func(t *testing.T) {
+		links := &fakeLinkLister{}
+		updater := &fakeAllowlistUpdater{
+			res: newUpdaterResponse(controltowerv1.BitbucketScanScope_BITBUCKET_SCAN_SCOPE_ALL, 0),
+		}
+
+		result, err := runAllowlistUpdate(context.Background(), links, updater, allowlistUpdateInput{LinkID: "link-9", Scope: "all"})
+		require.NoError(t, err)
+		assert.Equal(t, 0, links.calls)
+		assert.Equal(t, "link-9", updater.req.GetLinkId())
+		assert.Contains(t, result.RenderTable(), "link link-9")
+		assert.Equal(t, "link_id\tscan_scope\tallowlisted_repository_count\taccount\nlink-9\tall\t0\t-", result.RenderPlain())
+	})
+
+	t.Run("--link-id with its own --account lists and fills the account", func(t *testing.T) {
+		links := &fakeLinkLister{pages: []*controltowerv1.ListBitbucketWorkspaceLinksResponse{
+			newWorkspaceLinkPage("", newWorkspaceLink("link-1", "uuid-1", "one", "One")),
+		}}
+		updater := &fakeAllowlistUpdater{
+			res: newUpdaterResponse(controltowerv1.BitbucketScanScope_BITBUCKET_SCAN_SCOPE_ALL, 0),
+		}
+
+		result, err := runAllowlistUpdate(context.Background(), links, updater,
+			allowlistUpdateInput{Account: "one", LinkID: "link-1", Scope: "all"})
+		require.NoError(t, err)
+		assert.Equal(t, 1, links.calls)
+		assert.Equal(t, "link-1", updater.req.GetLinkId())
+		assert.Equal(t, "one", result.account)
+	})
+
+	t.Run("--account picks the link and names the workspace", func(t *testing.T) {
+		links := &fakeLinkLister{pages: []*controltowerv1.ListBitbucketWorkspaceLinksResponse{
+			newWorkspaceLinkPage("",
+				newWorkspaceLink("link-1", "uuid-1", "one", "One"),
+				newWorkspaceLink("link-2", "uuid-2", "two", "Two")),
+		}}
+		updater := &fakeAllowlistUpdater{
+			res: newUpdaterResponse(controltowerv1.BitbucketScanScope_BITBUCKET_SCAN_SCOPE_ALL, 0),
+		}
+
+		result, err := runAllowlistUpdate(context.Background(), links, updater, allowlistUpdateInput{Account: "ONE", Scope: "all"})
+		require.NoError(t, err)
+		assert.Equal(t, "link-1", updater.req.GetLinkId())
+		got, err := result.RenderJSON()
+		require.NoError(t, err)
+		assert.Contains(t, string(got), `"account": "one"`)
+		assert.Equal(t, "link_id\tscan_scope\tallowlisted_repository_count\taccount\nlink-1\tall\t0\tone", result.RenderPlain())
 	})
 
 	t.Run("resolves the only link", func(t *testing.T) {

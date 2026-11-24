@@ -3,6 +3,7 @@ package project
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
@@ -13,6 +14,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/safedep/cli/internal/sourcelink"
 )
 
 type fakeGitHubLinkLister struct {
@@ -57,11 +60,16 @@ func (f *fakeGitHubRepositoryLister) ListGitHubInstallationRepositories(
 	return f.pages[min(len(f.requests)-1, len(f.pages)-1)], nil
 }
 
+// fakeGitHubProjectSyncer answers each request with one project per
+// requested repository, unless res fixes the response. err fails every call,
+// or only call failOnCall when that is set.
 type fakeGitHubProjectSyncer struct {
-	calls int
-	req   *controltowerv1.SyncGitHubInstallationProjectsRequest
-	res   *controltowerv1.SyncGitHubInstallationProjectsResponse
-	err   error
+	calls      int
+	req        *controltowerv1.SyncGitHubInstallationProjectsRequest
+	reqs       []*controltowerv1.SyncGitHubInstallationProjectsRequest
+	res        *controltowerv1.SyncGitHubInstallationProjectsResponse
+	err        error
+	failOnCall int
 }
 
 func (f *fakeGitHubProjectSyncer) SyncGitHubInstallationProjects(
@@ -71,7 +79,27 @@ func (f *fakeGitHubProjectSyncer) SyncGitHubInstallationProjects(
 ) (*controltowerv1.SyncGitHubInstallationProjectsResponse, error) {
 	f.calls++
 	f.req = req
-	return f.res, f.err
+	f.reqs = append(f.reqs, req)
+	if f.err != nil && (f.failOnCall == 0 || f.failOnCall == f.calls) {
+		return nil, f.err
+	}
+	if f.res != nil {
+		return f.res, nil
+	}
+	mappings := make([]*controltowerv1.SyncGitHubInstallationProjectsResponse_ProjectMapping, 0, len(req.GetRepositories()))
+	for _, selection := range req.GetRepositories() {
+		mappings = append(mappings, projectMapping(selection.GetRepositoryId(),
+			fmt.Sprintf("project-%d", selection.GetRepositoryId())))
+	}
+	return syncResponse(mappings...), nil
+}
+
+func syncedIDs(req *controltowerv1.SyncGitHubInstallationProjectsRequest) []int64 {
+	ids := make([]int64, 0, len(req.GetRepositories()))
+	for _, selection := range req.GetRepositories() {
+		ids = append(ids, selection.GetRepositoryId())
+	}
+	return ids
 }
 
 var (
@@ -95,13 +123,11 @@ func TestRunSync_ResolvesNamesAndSendsFlagIDsFirst(t *testing.T) {
 			repositoriesResponse("", repository(11, "safedep/vet"), repository(12, "safedep/cli")),
 		},
 	}
-	syncer := &fakeGitHubProjectSyncer{res: syncResponse(
-		projectMapping(99, "project-99"),
-		projectMapping(12, "project-12"),
-		projectMapping(11, "project-11"),
-	)}
+	syncer := &fakeGitHubProjectSyncer{}
 
-	result, err := runGitHubSync(context.Background(), links, repositories, syncer, syncInput{
+	got, err := runSync(context.Background(), syncDeps{
+		githubLinks: links, githubRepositories: repositories, githubSyncer: syncer,
+	}, syncInput{
 		RepositoryNames: []string{"safedep/cli", "safedep/vet"},
 		RepositoryIDs:   []int64{99},
 	})
@@ -113,39 +139,38 @@ func TestRunSync_ResolvesNamesAndSendsFlagIDsFirst(t *testing.T) {
 
 	require.Equal(t, 1, syncer.calls)
 	assert.Equal(t, "link-1", syncer.req.GetLinkId())
-	require.Len(t, syncer.req.GetRepositories(), 3)
-	assert.Equal(t, int64(99), syncer.req.GetRepositories()[0].GetRepositoryId())
-	assert.Equal(t, int64(12), syncer.req.GetRepositories()[1].GetRepositoryId())
-	assert.Equal(t, int64(11), syncer.req.GetRepositories()[2].GetRepositoryId())
+	assert.Equal(t, []int64{99, 12, 11}, syncedIDs(syncer.req))
 
-	assert.Equal(t, "link-1", result.linkID)
+	result, ok := got.(*syncResult)
+	require.True(t, ok)
 	require.Len(t, result.projects, 3)
-	assert.Equal(t, syncedProject{RepositoryID: 99, ProjectID: "project-99"}, result.projects[0])
 	assert.Equal(t, syncedProject{
-		RepositoryID: 12, RepositoryName: "safedep/cli", ProjectID: "project-12",
-	}, result.projects[1])
-	assert.Equal(t, syncedProject{
-		RepositoryID: 11, RepositoryName: "safedep/vet", ProjectID: "project-11",
-	}, result.projects[2])
+		RepositoryID: 99, ProjectID: "project-99", Account: "safedep", LinkID: "link-1",
+	}, result.projects[0])
+	assert.Equal(t, "safedep/cli", result.projects[1].RepositoryName)
+	assert.Equal(t, "safedep/vet", result.projects[2].RepositoryName)
 }
 
-func TestRunSync_SkipsLinkResolutionWhenLinkIDIsSupplied(t *testing.T) {
+func TestRunSync_HiddenLinkIDWithAKnownSourceListsNoLinks(t *testing.T) {
 	t.Parallel()
 
 	links := &fakeGitHubLinkLister{}
+	bitbucketLinks := &fakeBitbucketLinkLister{}
 	repositories := &fakeGitHubRepositoryLister{}
-	syncer := &fakeGitHubProjectSyncer{res: syncResponse(projectMapping(99, "project-99"))}
+	syncer := &fakeGitHubProjectSyncer{}
 
-	result, err := runGitHubSync(context.Background(), links, repositories, syncer, syncInput{
-		LinkID:        "link-explicit",
-		RepositoryIDs: []int64{99},
-	})
+	got, err := runSync(context.Background(), syncDeps{
+		githubLinks: links, githubRepositories: repositories, githubSyncer: syncer, bitbucketLinks: bitbucketLinks,
+	}, syncInput{LinkID: "link-explicit", RepositoryIDs: []int64{99}})
 	require.NoError(t, err)
 
 	assert.Zero(t, links.calls)
+	assert.Zero(t, bitbucketLinks.calls)
 	assert.Empty(t, repositories.requests, "no name needs resolving")
 	assert.Equal(t, "link-explicit", syncer.req.GetLinkId())
-	assert.Equal(t, "link-explicit", result.linkID)
+	result, ok := got.(*syncResult)
+	require.True(t, ok)
+	assert.Contains(t, result.RenderTable(), "1 repository synced through link link-explicit")
 }
 
 func TestRunSync_MatchesRepositoryNamesCaseInsensitively(t *testing.T) {
@@ -156,14 +181,14 @@ func TestRunSync_MatchesRepositoryNamesCaseInsensitively(t *testing.T) {
 			repositoriesResponse("", repository(12, "SafeDep/CLI")),
 		},
 	}
-	syncer := &fakeGitHubProjectSyncer{res: syncResponse(projectMapping(12, "project-12"))}
 
-	result, err := runGitHubSync(context.Background(), &fakeGitHubLinkLister{}, repositories, syncer, syncInput{
-		LinkID:          "link-1",
-		RepositoryNames: []string{"safedep/cli"},
-	})
+	got, err := runSync(context.Background(), syncDeps{
+		githubRepositories: repositories, githubSyncer: &fakeGitHubProjectSyncer{},
+	}, syncInput{Source: "github", LinkID: "link-1", RepositoryNames: []string{"safedep/cli"}})
 	require.NoError(t, err)
 
+	result, ok := got.(*syncResult)
+	require.True(t, ok)
 	require.Len(t, result.projects, 1)
 	assert.Equal(t, "SafeDep/CLI", result.projects[0].RepositoryName,
 		"GitHub's spelling wins over the caller's")
@@ -179,11 +204,8 @@ func TestRunSync_RejectsANameThatCollidesWithASelectedID(t *testing.T) {
 	}
 	syncer := &fakeGitHubProjectSyncer{}
 
-	_, err := runGitHubSync(context.Background(), &fakeGitHubLinkLister{}, repositories, syncer, syncInput{
-		LinkID:          "link-1",
-		RepositoryNames: []string{"safedep/cli"},
-		RepositoryIDs:   []int64{12},
-	})
+	_, err := runSync(context.Background(), syncDeps{githubRepositories: repositories, githubSyncer: syncer},
+		syncInput{LinkID: "link-1", RepositoryNames: []string{"safedep/cli"}, RepositoryIDs: []int64{12}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "duplicate repository ID 12")
 	assert.Zero(t, syncer.calls, "nothing must be materialized")
@@ -196,76 +218,46 @@ func TestRunSync_RejectsInvalidInputBeforeAnyRPC(t *testing.T) {
 	repositories := &fakeGitHubRepositoryLister{}
 	syncer := &fakeGitHubProjectSyncer{}
 
-	_, err := runGitHubSync(context.Background(), links, repositories, syncer, syncInput{})
+	_, err := runSync(context.Background(), syncDeps{
+		githubLinks: links, githubRepositories: repositories, githubSyncer: syncer,
+	}, syncInput{})
 	require.Error(t, err)
 	assert.Zero(t, links.calls)
 	assert.Empty(t, repositories.requests)
 	assert.Zero(t, syncer.calls)
 }
 
-func TestResolveGitHubLink(t *testing.T) {
+func TestListGitHubLinks(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name    string
-		pages   []*controltowerv1.ListGitHubAppInstallationLinksResponse
-		want    string
-		wantErr string
-	}{
-		{
-			name:  "exactly one link",
-			pages: []*controltowerv1.ListGitHubAppInstallationLinksResponse{linksResponse("", link("link-1", "safedep"))},
-			want:  "link-1",
-		},
-		{
-			name:    "no link",
-			pages:   []*controltowerv1.ListGitHubAppInstallationLinksResponse{linksResponse("")},
-			wantErr: "no GitHub App installation link",
-		},
-		{
-			name: "several links",
-			pages: []*controltowerv1.ListGitHubAppInstallationLinksResponse{
-				linksResponse("", link("link-2", "acme"), link("link-1", "")),
-			},
-			wantErr: "link-1, link-2 (acme)",
-		},
-		{
-			name: "several links across pages",
+	t.Run("walks every page and keeps the account login", func(t *testing.T) {
+		links, err := listGitHubLinks(context.Background(), &fakeGitHubLinkLister{
 			pages: []*controltowerv1.ListGitHubAppInstallationLinksResponse{
 				linksResponse("page-2", link("link-1", "safedep")),
-				linksResponse("", link("link-2", "acme")),
+				linksResponse("", link("link-2", "")),
 			},
-			wantErr: "link-1 (safedep), link-2 (acme)",
-		},
-		{
-			name:    "missing link ID",
-			pages:   []*controltowerv1.ListGitHubAppInstallationLinksResponse{linksResponse("", link("", "safedep"))},
-			wantErr: "link 1 is missing its ID",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got, err := resolveGitHubLink(context.Background(), &fakeGitHubLinkLister{pages: tt.pages})
-			if tt.wantErr == "" {
-				require.NoError(t, err)
-				assert.Equal(t, tt.want, got)
-				return
-			}
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.wantErr)
 		})
-	}
-}
+		require.NoError(t, err)
+		assert.Equal(t, []sourcelink.Link{
+			{Source: sourcelink.GitHub, ID: "link-1", Account: "safedep"},
+			{Source: sourcelink.GitHub, ID: "link-2"},
+		}, links)
+	})
 
-func TestResolveGitHubLink_PreservesGRPCStatus(t *testing.T) {
-	t.Parallel()
+	t.Run("rejects a link without an ID", func(t *testing.T) {
+		_, err := listGitHubLinks(context.Background(), &fakeGitHubLinkLister{
+			pages: []*controltowerv1.ListGitHubAppInstallationLinksResponse{linksResponse("", link("", "safedep"))},
+		})
+		require.ErrorContains(t, err, "link 1 is missing its ID")
+	})
 
-	client := &fakeGitHubLinkLister{err: status.Error(codes.Unavailable, "github unavailable")}
-	_, err := resolveGitHubLink(context.Background(), client)
-	require.Error(t, err)
-	assert.Equal(t, codes.Unavailable, status.Code(err))
+	t.Run("preserves the gRPC status", func(t *testing.T) {
+		_, err := listGitHubLinks(context.Background(), &fakeGitHubLinkLister{
+			err: status.Error(codes.Unavailable, "github unavailable"),
+		})
+		require.Error(t, err)
+		assert.Equal(t, codes.Unavailable, status.Code(err))
+	})
 }
 
 func TestResolveRepositoryNames_StopsPagingOnceEveryNameIsMatched(t *testing.T) {
@@ -280,7 +272,7 @@ func TestResolveRepositoryNames_StopsPagingOnceEveryNameIsMatched(t *testing.T) 
 	}
 
 	resolved, err := resolveRepositoryNames(
-		context.Background(), client, "link-1", []string{"safedep/cli", "safedep/vet"},
+		context.Background(), client, testGitHubLink, []string{"safedep/cli", "safedep/vet"},
 	)
 	require.NoError(t, err)
 
@@ -296,7 +288,7 @@ func TestResolveRepositoryNames_NoRequestWithoutNames(t *testing.T) {
 	t.Parallel()
 
 	client := &fakeGitHubRepositoryLister{}
-	resolved, err := resolveRepositoryNames(context.Background(), client, "link-1", nil)
+	resolved, err := resolveRepositoryNames(context.Background(), client, testGitHubLink, nil)
 	require.NoError(t, err)
 	assert.Empty(t, resolved)
 	assert.Empty(t, client.requests)
@@ -312,7 +304,7 @@ func TestResolveRepositoryNames_FailsOnAnInaccessibleRepository(t *testing.T) {
 	}
 
 	_, err := resolveRepositoryNames(
-		context.Background(), client, "link-1", []string{"safedep/vet", "safedep/secret"},
+		context.Background(), client, testGitHubLink, []string{"safedep/vet", "safedep/secret"},
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `repository "safedep/secret" is not accessible`)
@@ -339,7 +331,7 @@ func TestResolveRepositoryNames_RejectsMalformedResponses(t *testing.T) {
 					repositoriesResponse("", tt.repository),
 				},
 			}
-			_, err := resolveRepositoryNames(context.Background(), client, "link-1", []string{"safedep/cli"})
+			_, err := resolveRepositoryNames(context.Background(), client, testGitHubLink, []string{"safedep/cli"})
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "repository 1 is missing its identity")
 		})
@@ -355,7 +347,7 @@ func TestResolveRepositoryNames_StopsOnARepeatedPageToken(t *testing.T) {
 		},
 	}
 
-	_, err := resolveRepositoryNames(context.Background(), client, "link-1", []string{"safedep/cli"})
+	_, err := resolveRepositoryNames(context.Background(), client, testGitHubLink, []string{"safedep/cli"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "repeated page token")
 	assert.Len(t, client.requests, 2)
@@ -391,9 +383,9 @@ func TestSyncGitHubProjects_RejectsMalformedResponses(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			syncer := &fakeGitHubProjectSyncer{res: tt.res}
-			_, err := syncGitHubProjects(
-				context.Background(), syncer, "link-1", []int64{11, 12}, map[int64]string{},
-			)
+			_, err := syncGitHubProjects(context.Background(), syncer, githubRequest{
+				link: testGitHubLink, ids: []int64{11, 12}, names: map[int64]string{},
+			})
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "project sync: invalid response")
 			assert.Contains(t, err.Error(), tt.wantErr)
@@ -405,11 +397,13 @@ func TestSyncGitHubProjects_PreservesGRPCStatus(t *testing.T) {
 	t.Parallel()
 
 	syncer := &fakeGitHubProjectSyncer{err: status.Error(codes.FailedPrecondition, "installation suspended")}
-	_, err := syncGitHubProjects(context.Background(), syncer, "link-1", []int64{11}, nil)
+	_, err := syncGitHubProjects(context.Background(), syncer, githubRequest{link: testGitHubLink, ids: []int64{11}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "project sync")
 	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 }
+
+var testGitHubLink = sourcelink.Link{Source: sourcelink.GitHub, ID: "link-1", Account: "safedep"}
 
 func linksResponse(
 	nextPageToken string,

@@ -1,7 +1,6 @@
 package project
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -9,6 +8,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/safedep/cli/internal/rpcerror"
 	"github.com/safedep/cli/internal/sourcelink"
 )
 
@@ -113,9 +113,8 @@ func rpcErrorCode(err error) string {
 // rpcMessage returns the server's message without the labels the CLI wrapped
 // around it. status.Convert on a wrapped error returns the whole chain.
 func rpcMessage(err error) string {
-	var rpc interface{ GRPCStatus() *status.Status }
-	if errors.As(err, &rpc) && rpc.GRPCStatus() != nil {
-		return rpc.GRPCStatus().Message()
+	if st, ok := rpcerror.InnerStatus(err); ok {
+		return st.Message()
 	}
 	return err.Error()
 }

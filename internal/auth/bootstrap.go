@@ -36,6 +36,11 @@ type BootstrapInput struct {
 	APIKeyName       string
 	Picker           TenantPicker
 
+	// DecideAPIKey runs after the tenant is picked, so that a stored key for
+	// another tenant is replaced. When it keeps the stored key, no key is
+	// created. Nil means that a key is always created.
+	DecideAPIKey func(ctx context.Context, tenant string) APIKeyDecision
+
 	// RegistrationPrompter is called when the user has no accessible tenant.
 	// It should collect registration data interactively and return it. When
 	// nil, the zero-tenant case returns the existing "no accessible tenant"
@@ -51,7 +56,16 @@ type BootstrapInput struct {
 type BootstrapResult struct {
 	Tenant          string
 	APIKey          string
+	APIKeyID        string
 	APIKeyExpiresAt time.Time
+
+	// APIKeyDecision is what DecideAPIKey returned. Zero when it did not run.
+	APIKeyDecision APIKeyDecision
+
+	// APIKeyError is why login could not create a key when DecideAPIKey ran
+	// and no usable key remains. The OAuth tokens of the login still work,
+	// so the caller saves them and reports the error as a warning.
+	APIKeyError error
 }
 
 // PostOAuthBootstrap completes the work that follows a successful device
@@ -90,12 +104,44 @@ func PostOAuthBootstrap(ctx context.Context, in BootstrapInput) (*BootstrapResul
 		return res, nil
 	}
 
-	key, expiresAt, err := createAPIKey(ctx, in.ConnFor, in.AccessToken, tenant, in.APIKeyName, in.APIKeyExpiryDays)
+	if in.DecideAPIKey != nil {
+		res.APIKeyDecision = in.DecideAPIKey(ctx, tenant)
+		if res.APIKeyDecision.Keep {
+			return res, nil
+		}
+	}
+
+	key, err := createAPIKey(ctx, in.ConnFor, in.AccessToken, tenant, in.APIKeyName, in.APIKeyExpiryDays)
+	if err != nil && in.DecideAPIKey != nil {
+		// A failed create must not cost the user the OAuth tokens of this
+		// login. A Viewer cannot create keys. Login fails instead for an
+		// explicit --rotate-api-key, which has no DecideAPIKey, and when the
+		// stored key belongs to another tenant.
+		decision := res.APIKeyDecision
+		if decision.Fallback && (decision.ExpiresAt.IsZero() || time.Now().Before(decision.ExpiresAt)) {
+			warning := fmt.Sprintf("could not create a new API key, so the stored key stays: %v", err)
+			if decision.Warning != "" {
+				warning = decision.Warning + ". " + warning
+			}
+			res.APIKeyDecision = APIKeyDecision{Keep: true, ExpiresAt: decision.ExpiresAt, Warning: warning}
+			return res, nil
+		}
+		if decision.OtherTenant {
+			return nil, err
+		}
+		res.APIKeyError = err
+		return res, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	res.APIKey = key
-	res.APIKeyExpiresAt = expiresAt
+	res.APIKey = key.GetKey()
+	res.APIKeyID = key.GetKeyId()
+	// AsTime on a missing timestamp returns 1970-01-01. Saved as the expiry,
+	// it would make every later login replace a valid key.
+	if key.GetExpiresAt() != nil {
+		res.APIKeyExpiresAt = key.GetExpiresAt().AsTime()
+	}
 	return res, nil
 }
 
@@ -143,14 +189,16 @@ func pickTenant(tenants []string, preferred string, picker TenantPicker) (string
 	return picker(tenants)
 }
 
-func createAPIKey(ctx context.Context, connFor ControlPlaneConnFunc, token, tenant, name string, expiryDays int) (string, time.Time, error) {
+func createAPIKey(ctx context.Context, connFor ControlPlaneConnFunc, token, tenant, name string,
+	expiryDays int,
+) (*controltowerv1.CreateApiKeyResponse, error) {
 	if expiryDays <= 0 || expiryDays > math.MaxInt32 {
-		return "", time.Time{}, fmt.Errorf("auth: api key expiry days out of range: %d", expiryDays)
+		return nil, fmt.Errorf("auth: api key expiry days out of range: %d", expiryDays)
 	}
 
 	conn, err := connFor(token, tenant)
 	if err != nil {
-		return "", time.Time{}, err
+		return nil, err
 	}
 	defer closeConn("create api key", conn)
 
@@ -162,9 +210,9 @@ func createAPIKey(ctx context.Context, connFor ControlPlaneConnFunc, token, tena
 		ExpiryDays:  int32(expiryDays), // #nosec G115 -- bounds-checked above
 	})
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("auth: create api key: %w", err)
+		return nil, fmt.Errorf("auth: create api key: %w", err)
 	}
-	return resp.GetKey(), resp.GetExpiresAt().AsTime(), nil
+	return resp, nil
 }
 
 // registerAndRefetch calls RegistrationPrompter to collect registration data,

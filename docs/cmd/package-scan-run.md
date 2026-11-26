@@ -29,9 +29,10 @@ creating duplicates. Pass `--rescan` to force a fresh scan.
 A branch or tag of a GitHub repository is a mutable reference. The command
 resolves it to the commit SHA it points to before it submits the scan, so the
 scan stays bound to the code that was reviewed after the branch or tag moves.
-This applies to every input form: a `pkg:github/owner/repo@ref` PURL, a GitHub
-URL, and the explicit triple with a `github_actions` or `github_repository`
-ecosystem. A version that is already a full commit SHA passes through without
+This applies to every input form: a `pkg:github/owner/repo@ref` PURL for a
+repository, a `pkg:githubactions/owner/repo@ref` PURL for a GitHub Action, a
+GitHub URL, and the explicit triple with a `github_actions` or
+`github_repository` ecosystem. A version that is already a full commit SHA passes through without
 a lookup. A GitHub URL without a `/tree/<ref>` suffix resolves to the head of
 the default branch.
 

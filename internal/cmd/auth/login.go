@@ -1,9 +1,11 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strings"
 	"time"
@@ -87,11 +89,46 @@ func runAPIKeyLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 	return nil
 }
 
+// deviceLoginDeps holds what device login reaches outside the process:
+// the keychain, the browser flow, the control plane and the data plane.
+// runDeviceLogin fills it from App and the network. Tests fill it with fakes.
+type deviceLoginDeps struct {
+	store        func() (cloud.CredentialStore, error)
+	storedAPIKey func() (*cloud.Credentials, error)
+	deviceFlow   func(context.Context) (*cliauth.DeviceFlowResult, error)
+	bootstrap    func(context.Context, cliauth.BootstrapInput) (*cliauth.BootstrapResult, error)
+	verify       cliauth.APIKeyVerifier
+}
+
 func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
+	return deviceLogin(cmd, a, flags, deviceLoginDeps{
+		store:        a.CredentialStore,
+		storedAPIKey: a.StoredAPIKey,
+		deviceFlow: func(ctx context.Context) (*cliauth.DeviceFlowResult, error) {
+			return cliauth.RunDeviceFlow(ctx, cliauth.PrintVerification,
+				cliauth.EmailVerificationRetry(cmd.InOrStdin()))
+		},
+		bootstrap: cliauth.PostOAuthBootstrap,
+		verify:    cliauth.VerifyAPIKey,
+	})
+}
+
+func deviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags, deps deviceLoginDeps) error {
+	if err := validateAPIKeyExpiryDays(flags); err != nil {
+		return err
+	}
+
+	// Open the keychain before the browser flow. A machine with no usable
+	// keychain then fails before SafeDep Cloud creates a key that login
+	// could not store.
+	store, err := deps.store()
+	if err != nil {
+		return err
+	}
+
 	tui.Info("Starting OAuth2 device login…")
 
-	res, err := cliauth.RunDeviceFlow(cmd.Context(), cliauth.PrintVerification,
-		cliauth.EmailVerificationRetry(cmd.InOrStdin()))
+	res, err := deps.deviceFlow(cmd.Context())
 	if err != nil {
 		return err
 	}
@@ -104,7 +141,11 @@ func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 		}
 	}
 
-	createKey, name := apiKeyCreationPlan(a, preferredTenant, flags)
+	createKey, decideAPIKey := apiKeyPlan(flags, deps.storedAPIKey, deps.verify)
+	var name string
+	if createKey {
+		name = cliauth.APIKeyName(cliauth.Hostname(), time.Now())
+	}
 
 	var registrationPrompter func() (*cliauth.RegistrationInput, error)
 	if flags.noAPIKey {
@@ -115,20 +156,16 @@ func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 		registrationPrompter = cliauth.NewRegistrationPrompter(res.AccessToken)
 	}
 
-	bootstrap, err := cliauth.PostOAuthBootstrap(cmd.Context(), cliauth.BootstrapInput{
+	bootstrap, err := deps.bootstrap(cmd.Context(), cliauth.BootstrapInput{
 		AccessToken:          res.AccessToken,
 		PreferredTenant:      preferredTenant,
 		CreateAPIKey:         createKey,
 		APIKeyName:           name,
 		APIKeyExpiryDays:     flags.apiKeyExpiryDays,
+		DecideAPIKey:         decideAPIKey,
 		Picker:               cliauth.PromptTenantPicker,
 		RegistrationPrompter: registrationPrompter,
 	})
-	if err != nil {
-		return err
-	}
-
-	store, err := a.CredentialStore()
 	if err != nil {
 		return err
 	}
@@ -137,10 +174,25 @@ func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 		return err
 	}
 
+	decision := bootstrap.APIKeyDecision
+	if decision.Warning != "" {
+		tui.Warning("%s", decision.Warning)
+	}
+
 	switch {
+	case bootstrap.APIKeyError != nil:
+		tui.Warning("Could not create an API key: %v", bootstrap.APIKeyError)
+		tui.Success("Authenticated as %s (profile %q). OAuth tokens stored. No usable API key: %s.",
+			bootstrap.Tenant, a.Profile(), decision.Reason)
 	case bootstrap.APIKey != "":
-		tui.Success("Authenticated as %s (profile %q). API key created, expires %s.",
-			bootstrap.Tenant, a.Profile(), bootstrap.APIKeyExpiresAt.UTC().Format("2006-01-02"))
+		if decision.Reason != "" {
+			tui.Info("Created a new API key: %s.", decision.Reason)
+		}
+		tui.Success("Authenticated as %s (profile %q). API key created, %s.",
+			bootstrap.Tenant, a.Profile(), expiryPhrase(bootstrap.APIKeyExpiresAt))
+	case decision.Keep:
+		tui.Success("Authenticated as %s (profile %q). Kept the stored API key, %s.",
+			bootstrap.Tenant, a.Profile(), expiryPhrase(decision.ExpiresAt))
 	case createKey:
 		tui.Success("Authenticated as %s (profile %q). API key creation skipped — none in response.", bootstrap.Tenant, a.Profile())
 	default:
@@ -150,39 +202,55 @@ func runDeviceLogin(cmd *cobra.Command, a *app.App, flags loginFlags) error {
 	return nil
 }
 
-// apiKeyCreationPlan decides whether to ask the bootstrap to create an API
-// key, and what to name it. --no-api-key wins. --rotate-api-key always
-// creates. Otherwise we skip when the profile already holds a key for the
-// preferred tenant.
-func apiKeyCreationPlan(a *app.App, preferredTenant string, flags loginFlags) (bool, string) {
+// validateAPIKeyExpiryDays refuses a lifetime that SafeDep Cloud would refuse,
+// before the browser flow. It also refuses a lifetime inside the renewal
+// window: login replaces a key that expires within the window, so such a key
+// would be replaced on every login. --rotate-api-key asks for a new key in
+// any case, so it accepts a short lifetime.
+func validateAPIKeyExpiryDays(flags loginFlags) error {
 	if flags.noAPIKey {
-		return false, ""
+		return nil
 	}
-	if !flags.rotateAPIKey && hasAPIKeyForTenant(a, preferredTenant) {
-		log.Warnf("auth login: existing API key kept; use --rotate-api-key to create a new one")
-		return false, ""
+	if flags.apiKeyExpiryDays <= 0 || flags.apiKeyExpiryDays > math.MaxInt32 {
+		return fmt.Errorf("--api-key-expiry-days must be a positive number of days: got %d", flags.apiKeyExpiryDays)
 	}
-	return true, cliauth.APIKeyName(cliauth.Hostname(), time.Now())
+	if flags.rotateAPIKey {
+		return nil
+	}
+	windowDays := int(cliauth.APIKeyRenewWindow.Hours() / 24)
+	if flags.apiKeyExpiryDays <= windowDays {
+		return fmt.Errorf("--api-key-expiry-days must be more than %d: login replaces a key that expires within %d days",
+			windowDays, windowDays)
+	}
+	return nil
 }
 
-func hasAPIKeyForTenant(a *app.App, tenant string) bool {
-	if tenant == "" {
-		return false
+// apiKeyPlan returns whether login creates or checks an API key, and the
+// check that decides on the stored key once the tenant is picked. The check
+// is nil when login always creates a key.
+func apiKeyPlan(flags loginFlags, storedAPIKey func() (*cloud.Credentials, error), verify cliauth.APIKeyVerifier,
+) (bool, func(context.Context, string) cliauth.APIKeyDecision) {
+	if flags.noAPIKey {
+		return false, nil
 	}
-	resolver, err := a.APIKeyResolver()
-	if err != nil {
-		log.Warnf("auth login: api-key check: %v", err)
-		return false
+	if flags.rotateAPIKey {
+		return true, nil
 	}
-	creds, err := resolver.Resolve()
-	if err != nil {
-		return false
+	return true, func(ctx context.Context, tenant string) cliauth.APIKeyDecision {
+		stored, err := storedAPIKey()
+		if err != nil {
+			return cliauth.APIKeyDecision{Reason: fmt.Sprintf("the stored API key cannot be read: %v", err)}
+		}
+		return cliauth.DecideStoredAPIKey(ctx, stored, tenant, time.Now(), verify)
 	}
-	got, err := creds.GetTenantDomain()
-	if err != nil {
-		return false
+}
+
+// expiryPhrase reports the expiry of a key for the login message.
+func expiryPhrase(expiresAt time.Time) string {
+	if expiresAt.IsZero() {
+		return "expiry not recorded"
 	}
-	return got == tenant
+	return "expires " + expiresAt.UTC().Format("2006-01-02")
 }
 
 func resolveAPIKey(flags loginFlags) (string, error) {

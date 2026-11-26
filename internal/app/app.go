@@ -123,6 +123,14 @@ func (a *App) CredentialStore() (cloud.CredentialStore, error) {
 	return store, nil
 }
 
+// StoredAPIKey returns the API key credentials that the keychain holds for
+// the active profile, or nil when it holds none. It ignores SAFEDEP_API_KEY:
+// pmg and vet read the key from the keychain, so login must decide on that
+// key even when the environment holds another one.
+func (a *App) StoredAPIKey() (*cloud.Credentials, error) {
+	return cliauth.StoredAPIKey(a.KeychainOptions())
+}
+
 // APIKeyResolver returns the API-key credential resolver for the active
 // profile. Initialised lazily. Env vars (SAFEDEP_API_KEY +
 // SAFEDEP_TENANT_ID) win over the keychain, matching the convention

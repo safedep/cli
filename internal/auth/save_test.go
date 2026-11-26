@@ -6,11 +6,14 @@ import (
 	"time"
 
 	"github.com/safedep/cli/internal/auth/mocks"
+	"github.com/safedep/dry/cloud"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSaveBootstrapResult(t *testing.T) {
+	expiresAt := time.Now().Add(24 * time.Hour)
+
 	tests := []struct {
 		name          string
 		setup         func(t *testing.T) *mocks.CredentialStoreMock
@@ -25,7 +28,8 @@ func TestSaveBootstrapResult(t *testing.T) {
 			setup: func(t *testing.T) *mocks.CredentialStoreMock {
 				m := mocks.NewCredentialStoreMock(t)
 				m.EXPECT().SaveTokenCredential("access-token-123", "refresh-token-456", "example.safedep.io").Return(nil)
-				m.EXPECT().SaveAPIKeyCredential("api-key-789", "example.safedep.io").Return(nil)
+				m.EXPECT().SaveAPIKeyCredentialWithMetadata("api-key-789", "example.safedep.io",
+					cloud.APIKeyMetadata{KeyID: "key-1", ExpiresAt: expiresAt}).Return(nil)
 				return m
 			},
 			accessToken:  "access-token-123",
@@ -33,7 +37,8 @@ func TestSaveBootstrapResult(t *testing.T) {
 			bootstrap: &BootstrapResult{
 				Tenant:          "example.safedep.io",
 				APIKey:          "api-key-789",
-				APIKeyExpiresAt: time.Now().Add(24 * time.Hour),
+				APIKeyID:        "key-1",
+				APIKeyExpiresAt: expiresAt,
 			},
 			expectErr: false,
 		},
@@ -70,11 +75,12 @@ func TestSaveBootstrapResult(t *testing.T) {
 			expectErrText: "save token credential:",
 		},
 		{
-			name: "error on SaveAPIKeyCredential",
+			name: "error on SaveAPIKeyCredentialWithMetadata",
 			setup: func(t *testing.T) *mocks.CredentialStoreMock {
 				m := mocks.NewCredentialStoreMock(t)
 				m.EXPECT().SaveTokenCredential("access-token-123", "refresh-token-456", "example.safedep.io").Return(nil)
-				m.EXPECT().SaveAPIKeyCredential("api-key-789", "example.safedep.io").Return(errors.New("keychain error"))
+				m.EXPECT().SaveAPIKeyCredentialWithMetadata("api-key-789", "example.safedep.io", cloud.APIKeyMetadata{}).
+					Return(errors.New("keychain error"))
 				return m
 			},
 			accessToken:  "access-token-123",

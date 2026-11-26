@@ -141,16 +141,16 @@ func TestResolveTarget(t *testing.T) {
 			wantN:   "publisher.ext", wantV: "1.2.3",
 		},
 		{
-			name:     "purl github branch pinned to commit",
+			name:     "purl github repository branch pinned to commit",
 			ref:      "pkg:github/safedep/vet@main",
 			resolver: &fakeResolver{sha: testSHA},
-			wantEco:  packagev1.Ecosystem_ECOSYSTEM_GITHUB_ACTIONS,
+			wantEco:  packagev1.Ecosystem_ECOSYSTEM_GITHUB_REPOSITORY,
 			wantN:    "safedep/vet", wantV: testSHA,
 			wantCalls: 1, wantOwner: "safedep", wantRepo: "vet", wantRef: "main",
 		},
 		{
 			name:     "purl github actions subpath uses the repository",
-			ref:      "pkg:github/aws-actions/configure-aws-credentials/assume-role@v2",
+			ref:      "pkg:githubactions/aws-actions/configure-aws-credentials/assume-role@v2",
 			resolver: &fakeResolver{sha: testSHA},
 			wantEco:  packagev1.Ecosystem_ECOSYSTEM_GITHUB_ACTIONS,
 			wantN:    "aws-actions/configure-aws-credentials/assume-role", wantV: testSHA,
@@ -159,7 +159,7 @@ func TestResolveTarget(t *testing.T) {
 		{
 			name:    "purl github commit passes through without a lookup",
 			ref:     "pkg:github/safedep/vet@" + testSHA,
-			wantEco: packagev1.Ecosystem_ECOSYSTEM_GITHUB_ACTIONS,
+			wantEco: packagev1.Ecosystem_ECOSYSTEM_GITHUB_REPOSITORY,
 			wantN:   "safedep/vet", wantV: testSHA,
 		},
 		{

@@ -36,19 +36,25 @@ type statusResult struct {
 }
 
 type statusJSON struct {
-	Profile        string `json:"profile"`
-	Tenant         string `json:"tenant,omitempty"`
-	APIKey         bool   `json:"api_key_present"`
-	OAuthToken     bool   `json:"oauth_token_present"`
-	OAuthExpiresAt string `json:"oauth_expires_at,omitempty"`
+	Profile         string `json:"profile"`
+	Tenant          string `json:"tenant,omitempty"`
+	APIKey          bool   `json:"api_key_present"`
+	APIKeyState     string `json:"api_key_state"`
+	APIKeyExpiresAt string `json:"api_key_expires_at,omitempty"`
+	OAuthToken      bool   `json:"oauth_token_present"`
+	OAuthExpiresAt  string `json:"oauth_expires_at,omitempty"`
 }
 
 func (r *statusResult) RenderJSON() ([]byte, error) {
 	out := statusJSON{
-		Profile:    r.st.Profile,
-		Tenant:     r.st.Tenant,
-		APIKey:     r.st.APIKey,
-		OAuthToken: r.st.OAuth,
+		Profile:     r.st.Profile,
+		Tenant:      r.st.Tenant,
+		APIKey:      r.st.APIKey,
+		APIKeyState: apiKeyStateName(r.st.APIKeyState(time.Now())),
+		OAuthToken:  r.st.OAuth,
+	}
+	if !r.st.APIKeyExpiresAt.IsZero() {
+		out.APIKeyExpiresAt = r.st.APIKeyExpiresAt.UTC().Format(time.RFC3339)
 	}
 	if !r.st.OAuthExpiresAt.IsZero() {
 		out.OAuthExpiresAt = r.st.OAuthExpiresAt.UTC().Format(time.RFC3339)
@@ -63,6 +69,12 @@ func (r *statusResult) RenderPlain() string {
 		fmt.Fprintf(&sb, "Tenant:         %s\n", r.st.Tenant)
 	}
 	fmt.Fprintf(&sb, "API key:        %s\n", yesNo(r.st.APIKey))
+	if r.st.APIKey {
+		fmt.Fprintf(&sb, "API key state:  %s\n", apiKeyStateName(r.st.APIKeyState(time.Now())))
+	}
+	if !r.st.APIKeyExpiresAt.IsZero() {
+		fmt.Fprintf(&sb, "Key expires:    %s\n", r.st.APIKeyExpiresAt.UTC().Format(time.RFC3339))
+	}
 	fmt.Fprintf(&sb, "OAuth token:    %s\n", yesNo(r.st.OAuth))
 	if !r.st.OAuthExpiresAt.IsZero() {
 		fmt.Fprintf(&sb, "OAuth expires:  %s\n", r.st.OAuthExpiresAt.UTC().Format(time.RFC3339))
@@ -80,7 +92,9 @@ func (r *statusResult) RenderTable() string {
 		Field("Status", overallStatusBadge(r.st, now)).
 		Field("Profile", r.st.Profile).
 		Field("Tenant", emptyDash(r.st.Tenant)).
-		Field("API key", yesNoBadge(r.st.APIKey)).
+		Field("API key", apiKeyBadge(r.st, now)).
+		FieldIf(!r.st.APIKeyExpiresAt.IsZero(), apiKeyExpiryLabel(r.st, now),
+			humanize.Time(r.st.APIKeyExpiresAt, now)).
 		Field("OAuth token", oauthBadge(r.st, now)).
 		FieldIf(!r.st.OAuthExpiresAt.IsZero(), expiryLabel,
 			humanize.Time(r.st.OAuthExpiresAt, now)).
@@ -93,10 +107,10 @@ func (r *statusResult) RenderTable() string {
 
 // overallStatusBadge summarises the credential state in one badge so users
 // do not have to reason over the per-credential rows. An expired OAuth
-// token does not count as authenticated.
+// token or an expired API key does not count as authenticated.
 func overallStatusBadge(st cliauth.Status, now time.Time) string {
 	switch {
-	case st.APIKey && st.OAuthValid(now):
+	case st.APIKey && st.APIKeyState(now) != cliauth.APIKeyExpired && st.OAuthValid(now):
 		return drytui.Badge(theme.RoleSuccess, "authenticated")
 	case st.APIKey || st.OAuth:
 		return drytui.Badge(theme.RoleMedium, "partially authenticated")
@@ -122,14 +136,60 @@ func nextStepHint(st cliauth.Status, now time.Time) string {
 	switch {
 	case !st.APIKey && !st.OAuth:
 		return "Run 'safedep auth login' to authenticate with SafeDep Cloud."
+	case st.APIKeyState(now) == cliauth.APIKeyExpired:
+		return "API key expired. Run 'safedep auth login' to create a new one."
 	case st.OAuth && !st.OAuthValid(now):
 		return "OAuth token expired. Run 'safedep auth login' to re-authenticate."
 	case !st.APIKey:
 		return "Data plane API key missing. Run 'safedep auth login' to create one."
 	case !st.OAuth:
 		return "Control plane OAuth token missing. Run 'safedep auth login' to complete setup."
+	case st.APIKeyState(now) == cliauth.APIKeyExpiring:
+		return "API key expires soon. Run 'safedep auth login' to renew it."
+	case st.APIKeyState(now) == cliauth.APIKeyExpiryUnknown:
+		return "API key expiry is not recorded, so status cannot tell whether the key has expired. " +
+			"Run 'safedep auth login' to replace it with a key whose expiry is recorded."
 	}
 	return ""
+}
+
+func apiKeyBadge(st cliauth.Status, now time.Time) string {
+	switch st.APIKeyState(now) {
+	case cliauth.APIKeyMissing:
+		return drytui.Badge(theme.RoleWarning, "not configured")
+	case cliauth.APIKeyExpired:
+		return drytui.Badge(theme.RoleError, "expired")
+	case cliauth.APIKeyExpiring:
+		return drytui.Badge(theme.RoleMedium, "expires soon")
+	case cliauth.APIKeyExpiryUnknown:
+		return drytui.Badge(theme.RoleMedium, "expiry unknown")
+	default:
+		return drytui.Badge(theme.RoleSuccess, "configured")
+	}
+}
+
+func apiKeyExpiryLabel(st cliauth.Status, now time.Time) string {
+	if st.APIKeyState(now) == cliauth.APIKeyExpired {
+		return "API key expired"
+	}
+	return "API key expires"
+}
+
+// apiKeyStateName is the JSON name of a state. Scripts match on it, so the
+// names do not change.
+func apiKeyStateName(state cliauth.APIKeyState) string {
+	switch state {
+	case cliauth.APIKeyValid:
+		return "valid"
+	case cliauth.APIKeyExpiring:
+		return "expiring"
+	case cliauth.APIKeyExpired:
+		return "expired"
+	case cliauth.APIKeyExpiryUnknown:
+		return "expiry_unknown"
+	default:
+		return "missing"
+	}
 }
 
 func yesNo(b bool) string {
@@ -137,13 +197,6 @@ func yesNo(b bool) string {
 		return "yes"
 	}
 	return "no"
-}
-
-func yesNoBadge(b bool) string {
-	if b {
-		return drytui.Badge(theme.RoleSuccess, "configured")
-	}
-	return drytui.Badge(theme.RoleWarning, "not configured")
 }
 
 func emptyDash(s string) string {

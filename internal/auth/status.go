@@ -16,6 +16,15 @@ type Status struct {
 	APIKey         bool
 	OAuth          bool
 	OAuthExpiresAt time.Time
+
+	// APIKeyExpiresAt is the recorded expiry of the API key. Zero when the
+	// keychain holds no expiry for it.
+	APIKeyExpiresAt time.Time
+}
+
+// APIKeyState returns the state of the stored API key at now.
+func (s Status) APIKeyState(now time.Time) APIKeyState {
+	return APIKeyStateAt(s.APIKey, s.APIKeyExpiresAt, now)
 }
 
 // OAuthValid reports whether the profile holds an OAuth access token that
@@ -42,6 +51,9 @@ func BuildStatus(_ context.Context, profile string, opts []cloud.KeychainOption)
 		s.APIKey = true
 		if t, terr := creds.GetTenantDomain(); terr == nil {
 			s.Tenant = t
+		}
+		if exp, ok := creds.APIKeyExpiresAt(); ok {
+			s.APIKeyExpiresAt = exp
 		}
 	} else if !isMissingCredentials(err) {
 		return s, err
